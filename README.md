@@ -1,58 +1,157 @@
-# Zephyr-Chain
-Zephyr Chain is a next-generation, highly scalable, and user-friendly blockchain designed for mass adoption. Our mission is to achieve 1 million transactions per second (TPS) to power global-scale decentralized applications.
+# Zephyr Chain
 
+Zephyr Chain is an early-stage blockchain MVP focused on two Phase 1 capabilities:
 
-The Problem
-Existing blockchain networks face severe scalability limitations, resulting in low throughput, high fees, and slow confirmation times. This bottleneck prevents blockchain from supporting real-world, high-volume applications and achieving mainstream adoption.
+- a Go node API with in-memory Delegated Proof-of-Stake (DPoS) election logic
+- a Vue 3 wallet that creates browser-side accounts, signs transactions locally, and broadcasts them to the node API
 
-The Solution: Zephyr's Core Innovations
-Zephyr Chain addresses these challenges through a novel architecture combining:
+The long-term vision for Zephyr Chain lives in [Zaphyr-chain_manifesto.md](./Zaphyr-chain_manifesto.md). This `README` documents what is implemented now, how to run it, and where to extend it next.
 
-Lightweight Client Nodes (Wallet Apps): Empowering any user to participate in the network with full control from their mobile or desktop device, without the heavy burden of running a full node.
+## Current MVP
 
-Delegated Proof-of-Stake (DPoS): A highly efficient, democratic, and environmentally friendly consensus mechanism.
+Implemented today:
 
-Sharding: Horizontal partitioning of the blockchain for massive parallel transaction processing.
+- Go HTTP node entrypoint in `cmd/node`
+- in-memory API server in `internal/api`
+- DPoS election primitives and tests in `internal/dpos`
+- Vue wallet in `apps/wallet`
+- wallet account generation, import/export, local signing, account inspection, and transaction broadcast
+- server-side canonical payload verification, signature validation, nonce checks, balance checks, and duplicate detection
+- dev/test account funding and account inspection endpoints
+- wallet-side account refresh, suggested nonce helpers, and local faucet integration for easier testing
 
-Directed Acyclic Graph (DAG) Exploration: Researching non-linear data structures for potential further throughput enhancements.
+Planned but not implemented yet:
 
-Technology Stack
-Core Blockchain (Go): The consensus engine and node logic are built in Go for its performance, concurrency, and robustness. We are leveraging a modified version of Tendermint Core for its battle-tested BFT consensus engine.
+- persistent chain state and block production
+- peer-to-peer networking
+- sharding and DAG research
+- deterministic WASM smart-contract runtime
+- confidential compute marketplace for encrypted off-chain jobs paid in native tokens
 
-Smart Contracts (Solidity): To ensure a low barrier to entry for developers, we will support Solidity and aim for EVM compatibility, allowing for easy migration of existing dApps.
+## Planned Execution Model
 
-Light Node Wallet (Vue.js): The reference wallet application is being built with Vue.js 3, Vite, and Tailwind CSS for a modern, reactive, and fast user experience.
+- On-chain contracts will use deterministic WASM execution with Rust-first tooling.
+- Contract pricing will use Zephyr-native metering for instruction budget, memory growth, storage access, and emitted messages.
+- Heavy or private workloads will run through a separate confidential compute market anchored and settled on-chain.
+- Native tokens will pay for both contract execution and off-chain compute jobs, but through different pricing mechanisms.
 
-Cryptography: We use industry-standard libraries in both Go and JavaScript for hashing (SHA256) and digital signatures (ECDSA).
+## Repository Layout
 
-Roadmap
+- `cmd/node`: node process entrypoint
+- `internal/api`: HTTP handlers for health, election, validator snapshot, account inspection, faucet funding, and transaction submission
+- `internal/dpos`: candidate, vote, validator, and election service logic
+- `internal/ledger`: in-memory account, pending balance, and mempool reservation logic
+- `internal/tx`: transaction envelope validation, address derivation, and signature verification
+- `apps/wallet`: reference light wallet built with Vue 3, Vite, and Tailwind CSS
+- `Zaphyr-chain_manifesto.md`: project vision and long-term direction
+- `docs/architecture.md`: MVP architecture and data flow
+- `docs/api.md`: current HTTP API and JSON shapes
+- `docs/usage.md`: local setup and operator walkthrough
 
-Phase 1: MVP focusing on validating core assumptions
-- Basic Light Node UI for account management.
+## Prerequisites
 
-- Integrating client-side transaction signing and broadcasting.
+- Go 1.22 or newer
+- Node.js
+- npm
 
-- Implementing the core DPoS logic and validator election mechanism in our Go backend.
+PowerShell note: if your shell blocks `npm`, use `npm.cmd` instead.
 
--  Scaling our network simulator to test for bottlenecks and performance.
+## Quick Start
 
+### 1. Run the node API
 
-Phase 2: Sharding Implementation: Design and implement the sharding architecture and cross-shard communication protocols.
+From the repository root:
 
-Phase 3: DAG Integration (Exploratory): Research and prototype DAG structures to enhance transaction ordering and finality.
+```powershell
+go run ./cmd/node
+```
 
-Phase 4: Network Expansion & Ecosystem: Launch public testnet, onboard validators, and build out developer tooling (SDKs, documentation) to foster a vibrant ecosystem.
+The node listens on `:8080` by default.
 
-Getting Involved
-We are building Zephyr Chain in the open and welcome all contributors.
+### 2. Run the wallet
 
-Read our Contributing Guide to learn about our development process, coding standards, and how to submit pull requests.
+In a second terminal:
 
-Fork the repository and set up your local development environment.
+```powershell
+cd apps/wallet
+npm install
+npm run dev
+```
 
-Check out the open issues, especially those tagged good first issue.
+If PowerShell execution policy blocks `npm`, run:
 
-Join our Community Discord to discuss ideas and get help.
+```powershell
+cd apps/wallet
+npm.cmd install
+npm.cmd run dev
+```
 
-License
-Zephyr Chain is licensed under the MIT License.
+Vite serves the wallet on `http://localhost:5173` by default.
+
+## Runtime Configuration
+
+### Node
+
+- `ZEPHYR_HTTP_ADDR`: HTTP bind address for the Go node
+- default: `:8080`
+
+Example:
+
+```powershell
+$env:ZEPHYR_HTTP_ADDR=":9090"
+go run ./cmd/node
+```
+
+### Wallet
+
+- `VITE_ZEPHYR_API_BASE`: base URL used by the wallet for node API calls
+- default: `http://localhost:8080`
+
+Example `.env.local` inside `apps/wallet`:
+
+```env
+VITE_ZEPHYR_API_BASE=http://localhost:8080
+```
+
+## How The MVP Works
+
+1. The wallet generates an ECDSA P-256 keypair in the browser using Web Crypto.
+2. It derives a Zephyr-style address from the SHA-256 hash of the exported public key.
+3. The private key, public key, and address are stored in browser `localStorage`.
+4. The wallet can inspect the current node-side account state and use a dev faucet for local funding.
+5. The wallet signs a canonical transaction payload locally and sends the signed envelope to the node.
+6. The node validates the payload, address, signature, balance, and nonce rules before accepting the transaction into an in-memory mempool and returning a generated transaction ID.
+7. Validator elections are calculated on demand through the DPoS service and stored as the latest in-memory validator snapshot.
+
+## Current Limitations
+
+- all state is in memory and is lost on restart
+- account state, mempool reservations, and dev funding are still single-node and in-memory only
+- there is no block production or finality mechanism yet
+- there is no peer networking or consensus communication layer yet
+- WASM smart-contract execution is planned, but not implemented yet
+- confidential compute jobs, worker attestation, escrow, and settlement are planned, but not implemented yet
+- wallet private keys are stored unencrypted in browser `localStorage`
+
+Because of these limitations, the current MVP should be treated as a local development prototype, not a production blockchain network.
+
+## Documentation
+
+- [docs/architecture.md](./docs/architecture.md)
+- [docs/api.md](./docs/api.md)
+- [docs/usage.md](./docs/usage.md)
+- [Zaphyr-chain_manifesto.md](./Zaphyr-chain_manifesto.md)
+
+## Next Development Steps
+
+1. Persist account, mempool, and chain state instead of keeping them only in memory.
+2. Add peer-to-peer networking, block propagation, and validator coordination.
+3. Introduce deterministic WASM smart-contract execution.
+4. Add contract metering and native-fee accounting for WASM execution.
+5. Introduce worker registry, attestation verification, and bid marketplace flows.
+6. Add async confidential compute jobs with escrow, settlement, and slashing.
+7. Improve wallet UX for network selection, job creation, budget setting, result retrieval, and fee/payment history.
+
+## License
+
+Zephyr Chain is licensed under the MIT License. See [LICENSE](./LICENSE).
