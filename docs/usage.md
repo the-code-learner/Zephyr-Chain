@@ -6,8 +6,8 @@ The current repository gives you four practical local development flows:
 
 - a single-node flow where one Go node persists chain state, funds test accounts, validates transactions, and commits blocks
 - a small multi-node devnet flow where one node produces blocks and other configured nodes follow through transport-backed replication and sync
-- a consensus-preparation flow where you elect a validator set, inspect the derived proposer schedule, and optionally enforce that schedule for local block production
-- a proposal-and-vote flow where you submit signed consensus messages and inspect the resulting quorum certificate artifacts
+- a scheduling flow where you elect a validator set, inspect the derived proposer schedule, and optionally enforce that schedule for local block production
+- a certificate-gated consensus flow where you build a concrete next-block template, submit signed proposals and votes, and commit only after a quorum certificate exists
 
 The browser wallet can create a local account, export and import it, inspect node-side account state, sign a transaction, and send it to the node.
 
@@ -87,26 +87,49 @@ You should see:
 - the persisted validator list and normalized election config
 - `totalVotingPower`, `quorumVotingPower`, and `nextProposer`
 
-## Submit A Proposal And Votes
+## Run A Certificate-Gated Commit Flow
 
-The current MVP can persist signed proposals and votes and derive a quorum certificate, even though it does not yet use that certificate to gate block commit.
+This is the closest current path to production-style block acceptance.
 
-1. Make sure a validator set already exists.
-2. Build a signed proposal payload using a validator key whose address matches the scheduled proposer for the next height.
-3. POST it to `/v1/consensus/proposals`.
-4. Submit validator votes to `/v1/consensus/votes`.
-5. Inspect `/v1/consensus` to see the latest proposal, vote tallies, and latest certificate.
+1. Start a node with proposer scheduling and certificate enforcement enabled:
+
+```powershell
+$env:ZEPHYR_NODE_ID="node-a"
+$env:ZEPHYR_VALIDATOR_ADDRESS="zph_validator_a"
+$env:ZEPHYR_ENFORCE_PROPOSER_SCHEDULE="true"
+$env:ZEPHYR_REQUIRE_CONSENSUS_CERTIFICATES="true"
+go run ./cmd/node
+```
+
+2. Make sure a validator set already exists.
+3. Queue at least one transaction in the mempool.
+4. Fetch the concrete next block candidate:
+
+```powershell
+Invoke-RestMethod http://localhost:8080/v1/dev/block-template
+```
+
+5. Build a signed proposal whose `height`, `previousHash`, and `blockHash` match that template.
+6. POST the proposal to `/v1/consensus/proposals`.
+7. Submit validator votes to `/v1/consensus/votes` until a quorum certificate exists for that same `blockHash`.
+8. Commit that exact block template by reusing the returned `producedAt` timestamp:
+
+```powershell
+$body = @{ producedAt = "2026-03-23T10:00:00Z" } | ConvertTo-Json
+Invoke-RestMethod http://localhost:8080/v1/dev/produce-block -Method Post -ContentType 'application/json' -Body $body
+```
 
 Expected behavior:
 
-- the proposal is rejected if the proposer is not scheduled for that height
+- the proposal is rejected if the proposer is not scheduled for that height or if `previousHash` does not match the current tip
 - votes are rejected if they do not reference a known proposal
 - once the accumulated vote power crosses quorum, the node stores a quorum certificate artifact
-- peers replicate those artifacts through the current transport implementation
+- with `ZEPHYR_REQUIRE_CONSENSUS_CERTIFICATES=true`, block commit returns `409` until the matching proposal and certificate exist
+- peers configured with the same enforcement flag import only certified blocks for which they already know the matching artifacts
 
 ## Enforce Proposer Scheduling Locally
 
-This is a local safety guard, not finality.
+This is a narrower guard than certificate enforcement.
 
 Run the node with:
 
@@ -117,7 +140,7 @@ $env:ZEPHYR_ENFORCE_PROPOSER_SCHEDULE="true"
 go run ./cmd/node
 ```
 
-After an election is stored, `POST /v1/dev/produce-block` will return `409` if the local validator is not the scheduled proposer for the next height.
+After an election is stored, `POST /v1/dev/produce-block` returns `409` if the local validator is not the scheduled proposer for the next height.
 
 ## Troubleshooting
 
@@ -127,15 +150,18 @@ After an election is stored, `POST /v1/dev/produce-block` will return `409` if t
 - confirm the signer address is part of that validator set
 - confirm the proposal height matches the node's `nextHeight` in `GET /v1/consensus`
 - confirm the proposal signer matches `nextProposer`
+- confirm the proposal `previousHash` matches the current chain tip
 - confirm votes reference the same `blockHash`, `height`, and `round` as a known proposal
 - confirm the signed payload still matches the visible request fields exactly
 
-### Block Production Is Rejected By Proposer Scheduling
+### Certified Block Production Is Rejected
 
 - confirm `GET /v1/consensus` shows a non-empty validator set
 - confirm `ZEPHYR_VALIDATOR_ADDRESS` matches the local validator you expect this node to represent
 - confirm `GET /v1/consensus` reports the same address in `nextProposer`
-- disable `ZEPHYR_ENFORCE_PROPOSER_SCHEDULE` if you intentionally want local dev-only block production without schedule checks
+- confirm `GET /v1/dev/block-template` and your proposal use the same `blockHash`, `previousHash`, `height`, and `producedAt` flow
+- confirm `GET /v1/consensus` shows a latest certificate for the same `blockHash`
+- disable `ZEPHYR_REQUIRE_CONSENSUS_CERTIFICATES` only if you intentionally want a looser local dev flow
 
 ## Recommended Local Demo Flow
 
@@ -148,6 +174,7 @@ After an election is stored, `POST /v1/dev/produce-block` will return `409` if t
 7. Produce a block on Node A.
 8. Inspect `GET /v1/status`, `GET /v1/peers`, `GET /v1/blocks/latest`, and `GET /v1/accounts/{address}` on both nodes.
 9. Submit a validator election and inspect `GET /v1/validators` plus `GET /v1/consensus`.
-10. Submit a signed proposal and validator votes.
-11. Inspect the resulting vote tallies and certificate on both nodes.
-12. Optionally restart a node and confirm the validator snapshot and consensus artifacts survived.
+10. Fetch a block template, submit a matching signed proposal and validator votes, and wait for the certificate to appear.
+11. Produce the certified block with the same `producedAt` timestamp.
+12. Inspect the resulting block, vote tallies, and certificate on both nodes.
+13. Optionally restart a node and confirm the validator snapshot and consensus artifacts survived.

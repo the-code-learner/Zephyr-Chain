@@ -88,7 +88,7 @@ func (s *Server) syncFromPeer(peerURL string, localHeight uint64, remoteHeight u
 		if err != nil {
 			return s.restoreSnapshotFromPeer(peerURL)
 		}
-		if err := s.ledger.ImportBlock(block); err != nil {
+		if err := s.ledger.ImportBlockWithOptions(block, s.config.RequireConsensusCertificates); err != nil {
 			return s.restoreSnapshotFromPeer(peerURL)
 		}
 	}

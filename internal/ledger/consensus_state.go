@@ -9,13 +9,16 @@ import (
 )
 
 var (
-	ErrNoValidatorSet          = errors.New("no validator set configured")
-	ErrValidatorNotActive      = errors.New("validator is not part of the active validator set")
-	ErrUnexpectedProposer      = errors.New("proposal proposer is not scheduled for this height")
-	ErrConsensusHeightMismatch = errors.New("consensus message height does not match the next block height")
-	ErrConflictingProposal     = errors.New("conflicting proposal already recorded for this height and round")
-	ErrUnknownProposal         = errors.New("vote references an unknown proposal")
-	ErrConflictingVote         = errors.New("validator already voted for a different block at this height and round")
+	ErrNoValidatorSet               = errors.New("no validator set configured")
+	ErrValidatorNotActive           = errors.New("validator is not part of the active validator set")
+	ErrUnexpectedProposer           = errors.New("proposal proposer is not scheduled for this height")
+	ErrConsensusHeightMismatch      = errors.New("consensus message height does not match the next block height")
+	ErrConsensusPreviousHash        = errors.New("proposal previous hash does not match the current chain tip")
+	ErrConflictingProposal          = errors.New("conflicting proposal already recorded for this height and round")
+	ErrUnknownProposal              = errors.New("vote references an unknown proposal")
+	ErrConflictingVote              = errors.New("validator already voted for a different block at this height and round")
+	ErrConsensusProposalRequired    = errors.New("block is missing a matching proposal")
+	ErrConsensusCertificateRequired = errors.New("block is missing a matching quorum certificate")
 )
 
 type VoteRecord struct {
@@ -127,6 +130,9 @@ func recordProposalIntoState(state persistedState, proposal consensus.Proposal) 
 	}
 	if proposal.Height != uint64(len(state.Blocks))+1 {
 		return state, ErrConsensusHeightMismatch
+	}
+	if proposal.PreviousHash != previousHashForHeight(state.Blocks, proposal.Height) {
+		return state, ErrConsensusPreviousHash
 	}
 	if _, ok := validatorVotingPower(state.ValidatorSnapshot, proposal.Proposer); !ok {
 		return state, ErrValidatorNotActive
@@ -303,6 +309,33 @@ func findCertificate(certificates []CommitCertificate, height uint64, round uint
 		}
 	}
 	return nil
+}
+
+func matchProposalForBlock(proposals []consensus.Proposal, block Block) *consensus.Proposal {
+	for _, proposal := range proposals {
+		if proposal.Height == block.Height && proposal.BlockHash == block.Hash {
+			cloned := cloneProposal(proposal)
+			return &cloned
+		}
+	}
+	return nil
+}
+
+func matchCertificateForBlock(certificates []CommitCertificate, block Block) *CommitCertificate {
+	for _, certificate := range certificates {
+		if certificate.Height == block.Height && certificate.BlockHash == block.Hash {
+			cloned := cloneCommitCertificate(certificate)
+			return &cloned
+		}
+	}
+	return nil
+}
+
+func previousHashForHeight(blocks []Block, height uint64) string {
+	if height <= 1 || len(blocks) == 0 {
+		return ""
+	}
+	return blocks[len(blocks)-1].Hash
 }
 
 func cloneProposal(proposal consensus.Proposal) consensus.Proposal {

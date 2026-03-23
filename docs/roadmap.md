@@ -19,13 +19,16 @@ As of this iteration, the repository has:
 - derived consensus metadata including total voting power, quorum target, and next scheduled proposer
 - signed proposal and vote messages validated with Zephyr addresses plus P-256 signatures
 - durable quorum certificates built when vote power crosses the `>2/3` threshold
+- deterministic next-block template generation for the current mempool and tip state
+- optional certificate-gated local block commit and remote block import behind `ZEPHYR_REQUIRE_CONSENSUS_CERTIFICATES`
 - a browser wallet that can create accounts, sign locally, and submit transactions
 
 What it still does not have:
 
 - authenticated validator networking
-- certificate-gated block commit and import rules
+- proposal dissemination that lets validators verify more than a block hash alone
 - round timeout and re-proposal handling
+- restart-safe round recovery and operator evidence tooling
 - on-chain staking/governance-driven validator updates
 - WASM contracts, fee metering, or compute markets
 - production operations tooling
@@ -59,22 +62,24 @@ Status:
 - DPoS ranking exists
 - validator snapshots are durable
 - proposer scheduling is visible and can be enforced locally
-- signed proposals and validator votes are now durable artifacts
-- quorum certificates are now derived and persisted when vote power crosses quorum
-- block production is still local execution, not validator-agreed finality
+- signed proposals and validator votes are durable artifacts
+- quorum certificates are derived and persisted when vote power crosses quorum
+- nodes can optionally require a matching proposal and certificate before local block commit or remote block import
+- the current proposal/certificate path is still an operator-driven dev flow, not a full round engine
 
 Next steps:
 
 1. Bind validator identity to network identity so a node can prove which validator it represents.
-2. Require proposal and quorum-certificate checks before local block commit and remote block import.
+2. Carry enough proposal payload or block-template commitment data for validators to verify what they are certifying, not just the final hash.
 3. Add round timeout handling, proposer rotation within a round sequence, and re-proposal flows.
-4. Persist enough round state and evidence to support restart-safe recovery and operator investigation.
-5. Add deterministic integration tests for happy path, missing proposer, conflicting proposals, restart during a round, and recovery from partial quorum.
+4. Persist round state, evidence, and operator-facing recovery data for restart-safe recovery.
+5. Add deterministic integration tests for certified happy path, missing certificate, conflicting proposals, restart during a round, and recovery from partial quorum.
 
 Exit criteria:
 
-- a block is considered committed because validators agreed on it, not because one local node wrote it first
-- nodes can restart and resume without silently losing consensus state
+- a block is considered committed because validators agreed on a well-defined proposal, not because one local node wrote it first
+- nodes can restart and resume without silently losing consensus-critical state
+- operators can distinguish proposal failure, quorum failure, and transport failure from observable state
 
 ### Phase 2: Networking And State Sync Hardening
 
@@ -82,6 +87,7 @@ Status:
 
 - a transport abstraction now exists
 - the active transport is still static peer URLs over HTTP
+- certified block checks can already run over that abstraction
 - behind nodes can fetch blocks or restore full snapshots
 - sync is convenient, but not trust-minimized or production-safe
 
@@ -158,21 +164,8 @@ Broad direction:
 
 Broad direction:
 
-- staged public testnet rollout
-- validator onboarding and operator documentation
-- wallet UX for network selection, validator visibility, history, and fees
-- security review, adversarial testing, and release governance
-
-## What "Production" Means For Zephyr
-
-Zephyr should not claim production readiness until all of the following are true:
-
-- validator agreement determines finality
-- validator and network identity are authenticated together
-- restart and recovery paths are explicit and tested
-- sync and recovery do not depend on opaque trust shortcuts
-- operator observability exists for consensus, networking, and state transitions
-- contract execution and fee accounting are deterministic and well-bounded
-- the wallet no longer relies on unsafe local key storage for serious usage
-
-Until then, the right mindset is: production-oriented engineering, prototype network.
+- public testnet launch criteria
+- validator onboarding and incident runbooks
+- upgrade strategy and rollback planning
+- monitoring, alerts, and SLOs for operators
+- staged path from devnet to public testnet to mainnet
