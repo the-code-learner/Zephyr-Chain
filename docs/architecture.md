@@ -18,7 +18,7 @@ The current consensus-artifact flow is:
 
 `validator election -> durable validator snapshot -> block template -> signed proposal -> signed votes -> quorum certificate -> optional gated block commit/import`
 
-This is still a development-stage system. It now has an enforceable certified commit/import path, but it is not yet a complete validator finality protocol.
+This is still a development-stage system. It now has an enforceable certified commit/import path with richer proposal commitments, but it is not yet a complete validator finality protocol.
 
 ## Components
 
@@ -97,20 +97,21 @@ Current validation rules:
 - the signature must verify with P-256 over the canonical payload
 - the proposal or vote must target the node's next block height
 - the proposal `previousHash` must match the current chain tip
+- the proposal `blockHash` must match the signed `producedAt` plus ordered `transactionIds`
 - the proposer must match the scheduled proposer for that height
 - the voter must belong to the active validator set
 - votes must reference a known proposal
 
 When a vote set for a block hash reaches the `>2/3` voting-power threshold, the node persists a quorum certificate artifact.
 
-If `ZEPHYR_REQUIRE_CONSENSUS_CERTIFICATES=true`, the node uses those artifacts to gate both local block commit and remote block import. That enforcement still works on concrete block hashes, not yet on a richer proposal payload or full round protocol.
+If `ZEPHYR_REQUIRE_CONSENSUS_CERTIFICATES=true`, the node uses those artifacts to gate both local block commit and remote block import. The gate now checks the exact proposal template fields through the shared block hash path, not just an opaque hash string.
 
 ## Current Production Gap
 
-The repository has moved from consensus-preparation-only into certificate-gated commit/import, but it still falls short of production finality in several important ways:
+The repository has moved from consensus-preparation-only into certificate-gated commit/import with concrete template commitments, but it still falls short of production finality in several important ways:
 
 - validator identity is not authenticated at the network layer
-- the current proposal flow still certifies a block hash plus previous hash rather than a richer distributed proposal object
+- the current proposal flow still depends on local template fetches or local mempool convergence instead of a fuller self-contained distributed proposal object
 - there is no timeout, round-change, or crash-recovery protocol yet
 - the current operator flow is still manual or externally driven rather than a fully autonomous validator engine
 

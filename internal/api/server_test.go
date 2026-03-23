@@ -326,7 +326,7 @@ func TestHandleConsensusProposalAndVotesExposeArtifacts(t *testing.T) {
 		t.Fatalf("set validators: %v", err)
 	}
 
-	proposal := signedConsensusProposal(t, proposer, 1, 0, consensusTestHash("block-1"), "")
+	proposal := signedConsensusProposal(t, proposer, 1, 0, "", time.Date(2026, time.March, 23, 13, 0, 0, 0, time.UTC), []string{consensusTestHash("block-1-tx")})
 	proposalBody, err := json.Marshal(proposal)
 	if err != nil {
 		t.Fatalf("marshal proposal: %v", err)
@@ -438,7 +438,7 @@ func TestHandleBlockTemplateAndConsensusGatedProduceBlock(t *testing.T) {
 		t.Fatalf("expected gated produce status 409 without certificate, got %d", produceRecorder.Code)
 	}
 
-	proposal := signedConsensusProposal(t, proposer, templateResponse.Block.Height, 0, templateResponse.Block.Hash, templateResponse.Block.PreviousHash)
+	proposal := signedConsensusProposal(t, proposer, templateResponse.Block.Height, 0, templateResponse.Block.PreviousHash, templateResponse.Block.ProducedAt, templateResponse.Block.TransactionIDs)
 	proposalBody, err := json.Marshal(proposal)
 	if err != nil {
 		t.Fatalf("marshal proposal: %v", err)
@@ -464,6 +464,18 @@ func TestHandleBlockTemplateAndConsensusGatedProduceBlock(t *testing.T) {
 		if voteRecorder.Code != http.StatusAccepted {
 			t.Fatalf("expected vote status 202, got %d", voteRecorder.Code)
 		}
+	}
+
+	wrongProducedAt := templateResponse.Block.ProducedAt.Add(time.Second)
+	wrongProduceBody, err := json.Marshal(ProduceBlockRequest{ProducedAt: &wrongProducedAt})
+	if err != nil {
+		t.Fatalf("marshal wrong produce request: %v", err)
+	}
+	wrongProduceRequest := httptest.NewRequest(http.MethodPost, "/v1/dev/produce-block", bytes.NewReader(wrongProduceBody))
+	wrongProduceRecorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(wrongProduceRecorder, wrongProduceRequest)
+	if wrongProduceRecorder.Code != http.StatusConflict {
+		t.Fatalf("expected produce status 409 for mismatched producedAt, got %d", wrongProduceRecorder.Code)
 	}
 
 	produceRequest = httptest.NewRequest(http.MethodPost, "/v1/dev/produce-block", bytes.NewReader(produceBody))
@@ -518,7 +530,7 @@ func TestPeerReplicationPropagatesConsensusProposalAndVotes(t *testing.T) {
 		t.Fatalf("set peer validators: %v", err)
 	}
 
-	proposal := signedConsensusProposal(t, proposer, 1, 0, consensusTestHash("peer-block-1"), "")
+	proposal := signedConsensusProposal(t, proposer, 1, 0, "", time.Date(2026, time.March, 23, 13, 15, 0, 0, time.UTC), []string{consensusTestHash("peer-block-1-tx")})
 	proposalBody, err := json.Marshal(proposal)
 	if err != nil {
 		t.Fatalf("marshal proposal: %v", err)
@@ -648,7 +660,7 @@ func TestPeerReplicationImportsCertifiedBlockWhenConsensusRequired(t *testing.T)
 		t.Fatalf("decode template response: %v", err)
 	}
 
-	proposal := signedConsensusProposal(t, proposer, templateResponse.Block.Height, 0, templateResponse.Block.Hash, templateResponse.Block.PreviousHash)
+	proposal := signedConsensusProposal(t, proposer, templateResponse.Block.Height, 0, templateResponse.Block.PreviousHash, templateResponse.Block.ProducedAt, templateResponse.Block.TransactionIDs)
 	proposalBody, err := json.Marshal(proposal)
 	if err != nil {
 		t.Fatalf("marshal proposal: %v", err)
@@ -1000,17 +1012,19 @@ func newConsensusSigner(t *testing.T) consensusSigner {
 	return consensusSigner{privateKey: privateKey, address: address, publicKey: encodedPublicKey}
 }
 
-func signedConsensusProposal(t *testing.T, signer consensusSigner, height uint64, round uint64, blockHash string, previousHash string) consensus.Proposal {
+func signedConsensusProposal(t *testing.T, signer consensusSigner, height uint64, round uint64, previousHash string, producedAt time.Time, transactionIDs []string) consensus.Proposal {
 	t.Helper()
 
 	proposal := consensus.Proposal{
-		Height:       height,
-		Round:        round,
-		BlockHash:    blockHash,
-		PreviousHash: previousHash,
-		Proposer:     signer.address,
-		PublicKey:    signer.publicKey,
+		Height:         height,
+		Round:          round,
+		PreviousHash:   previousHash,
+		ProducedAt:     producedAt,
+		TransactionIDs: append([]string(nil), transactionIDs...),
+		Proposer:       signer.address,
+		PublicKey:      signer.publicKey,
 	}
+	proposal.BlockHash = proposal.CandidateHash()
 	proposal.Payload = proposal.CanonicalPayload()
 	proposal.Signature = signPayload(t, signer.privateKey, proposal.Payload)
 	return proposal

@@ -35,13 +35,23 @@ Change it with `ZEPHYR_HTTP_ADDR` when starting the node.
   "round": 0,
   "blockHash": "<64-hex-block-hash>",
   "previousHash": "",
+  "producedAt": "2026-03-23T15:32:00Z",
+  "transactionIds": [
+    "<64-hex-transaction-id>",
+    "<64-hex-transaction-id>"
+  ],
   "proposer": "zph_validator_a",
-  "payload": "{\"blockHash\":\"<64-hex-block-hash>\",\"height\":1,\"previousHash\":\"\",\"proposer\":\"zph_validator_a\",\"round\":0}",
+  "payload": "{\"blockHash\":\"<64-hex-block-hash>\",\"height\":1,\"previousHash\":\"\",\"producedAt\":\"2026-03-23T15:32:00Z\",\"proposer\":\"zph_validator_a\",\"round\":0,\"transactionIds\":[\"<64-hex-transaction-id>\",\"<64-hex-transaction-id>\"]}",
   "publicKey": "<base64-spki-public-key>",
   "signature": "<base64-signature>",
-  "proposedAt": "2026-03-23T15:32:00Z"
+  "proposedAt": "2026-03-23T15:32:02Z"
 }
 ```
+
+Current meaning:
+
+- `blockHash` must be the derived hash of `height`, `previousHash`, `producedAt`, and ordered `transactionIds`
+- the proposer signs that full template commitment, not just a standalone hash string
 
 ### Vote
 
@@ -73,62 +83,6 @@ Change it with `ZEPHYR_HTTP_ADDR` when starting the node.
 }
 ```
 
-### ConsensusArtifactsView
-
-```json
-{
-  "latestProposal": {
-    "height": 1,
-    "round": 0,
-    "blockHash": "<64-hex-block-hash>",
-    "previousHash": "",
-    "proposer": "zph_validator_a",
-    "payload": "...",
-    "publicKey": "<base64-spki-public-key>",
-    "signature": "<base64-signature>",
-    "proposedAt": "2026-03-23T15:32:00Z"
-  },
-  "latestCertificate": {
-    "height": 1,
-    "round": 0,
-    "blockHash": "<64-hex-block-hash>",
-    "votingPower": 43000,
-    "quorumVotingPower": 28667,
-    "voterCount": 2,
-    "voters": ["zph_validator_a", "zph_validator_b"],
-    "createdAt": "2026-03-23T15:32:06Z"
-  },
-  "voteTallies": [
-    {
-      "height": 1,
-      "round": 0,
-      "blockHash": "<64-hex-block-hash>",
-      "voteCount": 2,
-      "votingPower": 43000,
-      "quorumReached": true
-    }
-  ],
-  "proposalCount": 1,
-  "voteCount": 2,
-  "certificateCount": 1
-}
-```
-
-### ConsensusView
-
-```json
-{
-  "currentHeight": 0,
-  "nextHeight": 1,
-  "validatorSetVersion": 1,
-  "validatorSetUpdatedAt": "2026-03-23T15:31:30Z",
-  "validatorCount": 2,
-  "totalVotingPower": 43000,
-  "quorumVotingPower": 28667,
-  "nextProposer": "zph_validator_a"
-}
-```
-
 ## Consensus Endpoints
 
 ### GET /v1/consensus
@@ -144,6 +98,7 @@ Current behavior:
 - the proposer must be part of the active validator set
 - the proposer must match the scheduled proposer for that height
 - `previousHash` must match the current chain tip for that height
+- `blockHash` must match the proposal's `producedAt` plus ordered `transactionIds`
 - the proposal is stored durably and replicated to configured peers
 - the proposal becomes part of the block-gating path when certificate enforcement is enabled
 
@@ -207,8 +162,8 @@ Builds and returns the deterministic next block candidate from the current mempo
 
 Current behavior:
 
-- the response includes the exact block hash and `producedAt` timestamp for that candidate
-- operators can use that data to construct a matching proposal and gather votes
+- the response includes the exact `blockHash`, `previousHash`, `producedAt`, and ordered `transactionIds` validators should certify
+- operators can use that data directly when constructing a signed proposal
 - the response also includes the current consensus summary and latest durable artifacts for operator context
 
 ### POST /v1/dev/produce-block
@@ -220,7 +175,7 @@ Behavior:
 - with no JSON body, the node uses the current time as the block timestamp
 - you may send `{ "producedAt": "<RFC3339 timestamp>" }` to reproduce a previously fetched block template
 - if proposer-schedule enforcement is enabled, the endpoint returns `409` when the local validator is not the scheduled proposer for the next height
-- if certificate enforcement is enabled, the endpoint returns `409` unless the resulting block hash matches a stored proposal and quorum certificate
+- if certificate enforcement is enabled, the endpoint returns `409` unless the resulting block exactly matches a stored proposal template and quorum certificate
 
 ## Internal Node-To-Node Endpoints
 
@@ -230,7 +185,7 @@ These endpoints are used by the current devnet sync layer. They exist for node r
 
 Imports a committed block from another node.
 
-If certificate enforcement is enabled on the receiving node, the imported block must match a stored proposal and quorum certificate or the import is rejected.
+If certificate enforcement is enabled on the receiving node, the imported block must match a stored proposal template and quorum certificate or the import is rejected.
 
 ### GET /v1/internal/snapshot
 

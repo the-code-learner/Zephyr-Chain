@@ -626,7 +626,10 @@ func statusForError(err error) int {
 		errors.Is(err, consensus.ErrInvalidAddress),
 		errors.Is(err, consensus.ErrInvalidSignature),
 		errors.Is(err, consensus.ErrInvalidHash),
-		errors.Is(err, consensus.ErrInvalidHeight):
+		errors.Is(err, consensus.ErrInvalidHeight),
+		errors.Is(err, consensus.ErrInvalidProducedAt),
+		errors.Is(err, consensus.ErrInvalidTransactionID),
+		errors.Is(err, consensus.ErrHashMismatch):
 		return http.StatusBadRequest
 	case errors.Is(err, ledger.ErrDuplicateTransaction),
 		errors.Is(err, ledger.ErrInvalidNonce),

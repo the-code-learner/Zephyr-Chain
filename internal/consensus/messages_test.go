@@ -10,12 +10,13 @@ import (
 	"encoding/hex"
 	"math/big"
 	"testing"
+	"time"
 
 	"github.com/zephyr-chain/zephyr-chain/internal/tx"
 )
 
 func TestProposalValidateStaticAcceptsValidSignedProposal(t *testing.T) {
-	proposal := signedProposal(t, 3, 1, testHash("block-3"), testHash("block-2"))
+	proposal := signedProposal(t, 3, 1, testHash("block-2"), time.Date(2026, time.March, 23, 12, 0, 0, 123000000, time.UTC), []string{testHash("tx-1"), testHash("tx-2")})
 
 	if err := proposal.ValidateStatic(); err != nil {
 		t.Fatalf("expected valid proposal, got %v", err)
@@ -23,11 +24,20 @@ func TestProposalValidateStaticAcceptsValidSignedProposal(t *testing.T) {
 }
 
 func TestProposalValidateStaticRejectsAddressMismatch(t *testing.T) {
-	proposal := signedProposal(t, 3, 1, testHash("block-3"), testHash("block-2"))
+	proposal := signedProposal(t, 3, 1, testHash("block-2"), time.Date(2026, time.March, 23, 12, 0, 0, 0, time.UTC), []string{testHash("tx-1")})
 	proposal.Proposer = "zph_not_the_real_proposer"
 
 	if err := proposal.ValidateStatic(); err != ErrInvalidAddress {
 		t.Fatalf("expected invalid address error, got %v", err)
+	}
+}
+
+func TestProposalValidateStaticRejectsHashMismatch(t *testing.T) {
+	proposal := signedProposal(t, 3, 1, testHash("block-2"), time.Date(2026, time.March, 23, 12, 0, 0, 0, time.UTC), []string{testHash("tx-1")})
+	proposal.BlockHash = testHash("different-block")
+
+	if err := proposal.ValidateStatic(); err != ErrHashMismatch {
+		t.Fatalf("expected hash mismatch error, got %v", err)
 	}
 }
 
@@ -48,18 +58,20 @@ func TestVoteValidateStaticRejectsPayloadMismatch(t *testing.T) {
 	}
 }
 
-func signedProposal(t *testing.T, height uint64, round uint64, blockHash string, previousHash string) Proposal {
+func signedProposal(t *testing.T, height uint64, round uint64, previousHash string, producedAt time.Time, transactionIDs []string) Proposal {
 	t.Helper()
 
 	privateKey, encodedPublicKey, address := newSigner(t)
 	proposal := Proposal{
-		Height:       height,
-		Round:        round,
-		BlockHash:    blockHash,
-		PreviousHash: previousHash,
-		Proposer:     address,
-		PublicKey:    encodedPublicKey,
+		Height:         height,
+		Round:          round,
+		PreviousHash:   previousHash,
+		ProducedAt:     producedAt,
+		TransactionIDs: append([]string(nil), transactionIDs...),
+		Proposer:       address,
+		PublicKey:      encodedPublicKey,
 	}
+	proposal.BlockHash = proposal.CandidateHash()
 	proposal.Payload = proposal.CanonicalPayload()
 	proposal.Signature = signPayload(t, privateKey, proposal.Payload)
 	return proposal
