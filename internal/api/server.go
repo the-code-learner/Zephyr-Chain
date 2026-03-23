@@ -3,7 +3,9 @@ package api
 import (
 	"encoding/json"
 	"errors"
+	"log"
 	"net/http"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -12,6 +14,20 @@ import (
 	"github.com/zephyr-chain/zephyr-chain/internal/ledger"
 	"github.com/zephyr-chain/zephyr-chain/internal/tx"
 )
+
+type Config struct {
+	DataDir                 string
+	BlockInterval           time.Duration
+	MaxTransactionsPerBlock int
+}
+
+func DefaultConfig() Config {
+	return Config{
+		DataDir:                 filepath.Join("var", "node"),
+		BlockInterval:           15 * time.Second,
+		MaxTransactionsPerBlock: 100,
+	}
+}
 
 type ElectionRequest struct {
 	Candidates []dpos.Candidate    `json:"candidates"`
@@ -45,34 +61,80 @@ type AccountResponse struct {
 	Account ledger.AccountView `json:"account"`
 }
 
+type StatusResponse struct {
+	Status ledger.StatusView `json:"status"`
+}
+
+type LatestBlockResponse struct {
+	Block ledger.Block `json:"block"`
+}
+
+type ProduceBlockResponse struct {
+	Block ledger.Block `json:"block"`
+}
+
 type Server struct {
 	mux        *http.ServeMux
 	mu         sync.RWMutex
 	validators []dpos.Validator
 	ledger     *ledger.Store
+	config     Config
+	stopCh     chan struct{}
+	doneCh     chan struct{}
+	closeOnce  sync.Once
 }
 
 func NewServer() *Server {
+	server, err := NewServerWithConfig(DefaultConfig())
+	if err != nil {
+		panic(err)
+	}
+	return server
+}
+
+func NewServerWithConfig(config Config) (*Server, error) {
+	config = normalizeConfig(config)
+
+	store, err := ledger.NewStore(config.DataDir)
+	if err != nil {
+		return nil, err
+	}
+
 	server := &Server{
 		mux:    http.NewServeMux(),
-		ledger: ledger.NewStore(),
+		ledger: store,
+		config: config,
 	}
 
 	server.routes()
-	return server
+	server.startBlockProducer()
+	return server, nil
 }
 
 func (s *Server) Handler() http.Handler {
 	return s.mux
 }
 
+func (s *Server) Close() {
+	if s.stopCh == nil {
+		return
+	}
+
+	s.closeOnce.Do(func() {
+		close(s.stopCh)
+		<-s.doneCh
+	})
+}
 func (s *Server) routes() {
 	s.mux.HandleFunc("/health", s.handleHealth)
+	s.mux.HandleFunc("/v1/status", s.handleStatus)
 	s.mux.HandleFunc("/v1/election", s.handleElection)
 	s.mux.HandleFunc("/v1/validators", s.handleValidators)
 	s.mux.HandleFunc("/v1/transactions", s.handleBroadcastTransaction)
 	s.mux.HandleFunc("/v1/accounts/", s.handleAccount)
+	s.mux.HandleFunc("/v1/blocks/latest", s.handleLatestBlock)
 	s.mux.HandleFunc("/v1/dev/faucet", s.handleFaucet)
+	s.mux.HandleFunc("/v1/dev/produce-block", s.handleProduceBlock)
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
@@ -80,6 +142,15 @@ func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
 		"status":  "ok",
 		"service": "zephyr-node-api",
 	})
+}
+
+func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, StatusResponse{Status: s.ledger.Status()})
 }
 
 func (s *Server) handleElection(w http.ResponseWriter, r *http.Request) {
@@ -125,7 +196,6 @@ func (s *Server) handleValidators(w http.ResponseWriter, r *http.Request) {
 
 	writeJSON(w, http.StatusOK, ElectionResponse{Validators: validators})
 }
-
 func (s *Server) handleBroadcastTransaction(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		w.WriteHeader(http.StatusMethodNotAllowed)
@@ -139,14 +209,14 @@ func (s *Server) handleBroadcastTransaction(w http.ResponseWriter, r *http.Reque
 	}
 
 	if err := request.ValidateStatic(); err != nil {
-		writeJSON(w, statusForTransactionError(err), map[string]string{"error": err.Error()})
+		writeJSON(w, statusForError(err), map[string]string{"error": err.Error()})
 		return
 	}
 
 	now := time.Now().UTC()
 	id, err := s.ledger.Accept(request)
 	if err != nil {
-		writeJSON(w, statusForTransactionError(err), map[string]string{"error": err.Error()})
+		writeJSON(w, statusForError(err), map[string]string{"error": err.Error()})
 		return
 	}
 
@@ -175,6 +245,21 @@ func (s *Server) handleAccount(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (s *Server) handleLatestBlock(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+
+	block, ok := s.ledger.LatestBlock()
+	if !ok {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "no committed blocks yet"})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, LatestBlockResponse{Block: block})
+}
+
 func (s *Server) handleFaucet(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		w.WriteHeader(http.StatusMethodNotAllowed)
@@ -192,13 +277,71 @@ func (s *Server) handleFaucet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.ledger.Credit(request.Address, request.Amount)
+	if _, err := s.ledger.Credit(request.Address, request.Amount); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+
 	writeJSON(w, http.StatusOK, FaucetResponse{
 		Account: s.ledger.View(request.Address),
 	})
 }
+func (s *Server) handleProduceBlock(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
 
-func statusForTransactionError(err error) int {
+	block, err := s.ledger.ProduceBlock(s.config.MaxTransactionsPerBlock)
+	if err != nil {
+		writeJSON(w, statusForError(err), map[string]string{"error": err.Error()})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, ProduceBlockResponse{Block: block})
+}
+
+func (s *Server) startBlockProducer() {
+	if s.config.BlockInterval <= 0 {
+		return
+	}
+
+	s.stopCh = make(chan struct{})
+	s.doneCh = make(chan struct{})
+
+	go func() {
+		ticker := time.NewTicker(s.config.BlockInterval)
+		defer ticker.Stop()
+		defer close(s.doneCh)
+
+		for {
+			select {
+			case <-ticker.C:
+				if _, err := s.ledger.ProduceBlock(s.config.MaxTransactionsPerBlock); err != nil && !errors.Is(err, ledger.ErrNoTransactionsToBlock) {
+					log.Printf("zephyr block production failed: %v", err)
+				}
+			case <-s.stopCh:
+				return
+			}
+		}
+	}()
+}
+
+func normalizeConfig(config Config) Config {
+	defaults := DefaultConfig()
+	if config.DataDir == "" {
+		config.DataDir = defaults.DataDir
+	}
+	if config.BlockInterval < 0 {
+		config.BlockInterval = 0
+	}
+	if config.MaxTransactionsPerBlock <= 0 {
+		config.MaxTransactionsPerBlock = defaults.MaxTransactionsPerBlock
+	}
+	return config
+}
+
+func statusForError(err error) int {
 	switch {
 	case errors.Is(err, tx.ErrMissingFields),
 		errors.Is(err, tx.ErrInvalidAmount),
@@ -207,13 +350,15 @@ func statusForTransactionError(err error) int {
 		errors.Is(err, tx.ErrInvalidAddress),
 		errors.Is(err, tx.ErrInvalidSignature):
 		return http.StatusBadRequest
-	case errors.Is(err, ledger.ErrDuplicateTransaction):
+	case errors.Is(err, ledger.ErrDuplicateTransaction),
+		errors.Is(err, ledger.ErrInvalidNonce),
+		errors.Is(err, ledger.ErrInsufficientBalance),
+		errors.Is(err, ledger.ErrNoTransactionsToBlock):
 		return http.StatusConflict
-	case errors.Is(err, ledger.ErrInvalidNonce),
-		errors.Is(err, ledger.ErrInsufficientBalance):
-		return http.StatusConflict
+	case errors.Is(err, ledger.ErrBlockInvariant):
+		return http.StatusInternalServerError
 	default:
-		return http.StatusBadRequest
+		return http.StatusInternalServerError
 	}
 }
 
