@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"path/filepath"
 	"strconv"
@@ -26,30 +27,32 @@ var (
 )
 
 type Config struct {
-	DataDir                 string
-	NodeID                  string
-	ValidatorAddress        string
-	PeerURLs                []string
-	BlockInterval           time.Duration
-	SyncInterval            time.Duration
-	MaxTransactionsPerBlock int
-	EnableBlockProduction   bool
-	EnablePeerSync          bool
-	EnforceProposerSchedule bool
+	DataDir                      string
+	NodeID                       string
+	ValidatorAddress             string
+	PeerURLs                     []string
+	BlockInterval                time.Duration
+	SyncInterval                 time.Duration
+	MaxTransactionsPerBlock      int
+	EnableBlockProduction        bool
+	EnablePeerSync               bool
+	EnforceProposerSchedule      bool
+	RequireConsensusCertificates bool
 }
 
 func DefaultConfig() Config {
 	return Config{
-		DataDir:                 filepath.Join("var", "node"),
-		NodeID:                  "node-local",
-		ValidatorAddress:        "",
-		PeerURLs:                []string{},
-		BlockInterval:           15 * time.Second,
-		SyncInterval:            5 * time.Second,
-		MaxTransactionsPerBlock: 100,
-		EnableBlockProduction:   true,
-		EnablePeerSync:          true,
-		EnforceProposerSchedule: false,
+		DataDir:                      filepath.Join("var", "node"),
+		NodeID:                       "node-local",
+		ValidatorAddress:             "",
+		PeerURLs:                     []string{},
+		BlockInterval:                15 * time.Second,
+		SyncInterval:                 5 * time.Second,
+		MaxTransactionsPerBlock:      100,
+		EnableBlockProduction:        true,
+		EnablePeerSync:               true,
+		EnforceProposerSchedule:      false,
+		RequireConsensusCertificates: false,
 	}
 }
 
@@ -91,27 +94,39 @@ type AccountResponse struct {
 }
 
 type StatusResponse struct {
-	NodeID                   string               `json:"nodeId"`
-	ValidatorAddress         string               `json:"validatorAddress,omitempty"`
-	PeerCount                int                  `json:"peerCount"`
-	BlockProduction          bool                 `json:"blockProduction"`
-	PeerSyncEnabled          bool                 `json:"peerSyncEnabled"`
-	ProposerScheduleEnforced bool                 `json:"proposerScheduleEnforced"`
-	Status                   ledger.StatusView    `json:"status"`
-	Consensus                ledger.ConsensusView `json:"consensus"`
+	NodeID                        string               `json:"nodeId"`
+	ValidatorAddress              string               `json:"validatorAddress,omitempty"`
+	PeerCount                     int                  `json:"peerCount"`
+	BlockProduction               bool                 `json:"blockProduction"`
+	PeerSyncEnabled               bool                 `json:"peerSyncEnabled"`
+	ProposerScheduleEnforced      bool                 `json:"proposerScheduleEnforced"`
+	ConsensusCertificatesRequired bool                 `json:"consensusCertificatesRequired"`
+	Status                        ledger.StatusView    `json:"status"`
+	Consensus                     ledger.ConsensusView `json:"consensus"`
 }
 
 type ConsensusResponse struct {
-	NodeID                   string                        `json:"nodeId"`
-	ValidatorAddress         string                        `json:"validatorAddress,omitempty"`
-	ProposerScheduleEnforced bool                          `json:"proposerScheduleEnforced"`
-	ValidatorSet             ledger.ValidatorSnapshot      `json:"validatorSet"`
-	Artifacts                ledger.ConsensusArtifactsView `json:"artifacts"`
-	Consensus                ledger.ConsensusView          `json:"consensus"`
+	NodeID                        string                        `json:"nodeId"`
+	ValidatorAddress              string                        `json:"validatorAddress,omitempty"`
+	ProposerScheduleEnforced      bool                          `json:"proposerScheduleEnforced"`
+	ConsensusCertificatesRequired bool                          `json:"consensusCertificatesRequired"`
+	ValidatorSet                  ledger.ValidatorSnapshot      `json:"validatorSet"`
+	Artifacts                     ledger.ConsensusArtifactsView `json:"artifacts"`
+	Consensus                     ledger.ConsensusView          `json:"consensus"`
 }
 
 type LatestBlockResponse struct {
 	Block ledger.Block `json:"block"`
+}
+
+type BlockTemplateResponse struct {
+	Block     ledger.Block                  `json:"block"`
+	Artifacts ledger.ConsensusArtifactsView `json:"artifacts"`
+	Consensus ledger.ConsensusView          `json:"consensus"`
+}
+
+type ProduceBlockRequest struct {
+	ProducedAt *time.Time `json:"producedAt,omitempty"`
 }
 
 type ProduceBlockResponse struct {
@@ -198,6 +213,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/v1/blocks/latest", s.handleLatestBlock)
 	s.mux.HandleFunc("/v1/blocks/", s.handleBlockAtHeight)
 	s.mux.HandleFunc("/v1/dev/faucet", s.handleFaucet)
+	s.mux.HandleFunc("/v1/dev/block-template", s.handleBlockTemplate)
 	s.mux.HandleFunc("/v1/dev/produce-block", s.handleProduceBlock)
 	s.mux.HandleFunc("/v1/internal/blocks", s.handleImportBlock)
 	s.mux.HandleFunc("/v1/internal/snapshot", s.handleSnapshot)
@@ -217,14 +233,15 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, StatusResponse{
-		NodeID:                   s.nodeID,
-		ValidatorAddress:         s.config.ValidatorAddress,
-		PeerCount:                len(s.config.PeerURLs),
-		BlockProduction:          s.config.EnableBlockProduction,
-		PeerSyncEnabled:          s.config.EnablePeerSync,
-		ProposerScheduleEnforced: s.config.EnforceProposerSchedule,
-		Status:                   s.ledger.Status(),
-		Consensus:                s.ledger.Consensus(),
+		NodeID:                        s.nodeID,
+		ValidatorAddress:              s.config.ValidatorAddress,
+		PeerCount:                     len(s.config.PeerURLs),
+		BlockProduction:               s.config.EnableBlockProduction,
+		PeerSyncEnabled:               s.config.EnablePeerSync,
+		ProposerScheduleEnforced:      s.config.EnforceProposerSchedule,
+		ConsensusCertificatesRequired: s.config.RequireConsensusCertificates,
+		Status:                        s.ledger.Status(),
+		Consensus:                     s.ledger.Consensus(),
 	})
 }
 
@@ -244,12 +261,13 @@ func (s *Server) handleConsensus(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, ConsensusResponse{
-		NodeID:                   s.nodeID,
-		ValidatorAddress:         s.config.ValidatorAddress,
-		ProposerScheduleEnforced: s.config.EnforceProposerSchedule,
-		ValidatorSet:             s.ledger.ValidatorSet(),
-		Artifacts:                s.ledger.ConsensusArtifacts(),
-		Consensus:                s.ledger.Consensus(),
+		NodeID:                        s.nodeID,
+		ValidatorAddress:              s.config.ValidatorAddress,
+		ProposerScheduleEnforced:      s.config.EnforceProposerSchedule,
+		ConsensusCertificatesRequired: s.config.RequireConsensusCertificates,
+		ValidatorSet:                  s.ledger.ValidatorSet(),
+		Artifacts:                     s.ledger.ConsensusArtifacts(),
+		Consensus:                     s.ledger.Consensus(),
 	})
 }
 
@@ -424,13 +442,42 @@ func (s *Server) handleFaucet(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func (s *Server) handleBlockTemplate(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+
+	block, err := s.ledger.BuildNextBlock(s.config.MaxTransactionsPerBlock, time.Now().UTC())
+	if err != nil {
+		writeJSON(w, statusForError(err), map[string]string{"error": err.Error()})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, BlockTemplateResponse{
+		Block:     block,
+		Artifacts: s.ledger.ConsensusArtifacts(),
+		Consensus: s.ledger.Consensus(),
+	})
+}
+
 func (s *Server) handleProduceBlock(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return
 	}
 
-	block, err := s.produceLocalBlock()
+	var request ProduceBlockRequest
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil && !errors.Is(err, io.EOF) {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON payload"})
+		return
+	}
+
+	producedAt := time.Time{}
+	if request.ProducedAt != nil {
+		producedAt = request.ProducedAt.UTC()
+	}
+	block, err := s.produceLocalBlock(producedAt)
 	if err != nil {
 		writeJSON(w, statusForError(err), map[string]string{"error": err.Error()})
 		return
@@ -451,7 +498,7 @@ func (s *Server) handleImportBlock(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := s.ledger.ImportBlock(request); err != nil {
+	if err := s.ledger.ImportBlockWithOptions(request, s.config.RequireConsensusCertificates); err != nil {
 		writeJSON(w, statusForError(err), map[string]string{"error": err.Error()})
 		return
 	}
@@ -468,7 +515,7 @@ func (s *Server) handleSnapshot(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, SnapshotResponse{Snapshot: s.ledger.Snapshot()})
 }
 
-func (s *Server) produceLocalBlock() (ledger.Block, error) {
+func (s *Server) produceLocalBlock(producedAt time.Time) (ledger.Block, error) {
 	if !s.config.EnableBlockProduction {
 		return ledger.Block{}, errBlockProductionDisabled
 	}
@@ -483,7 +530,7 @@ func (s *Server) produceLocalBlock() (ledger.Block, error) {
 		}
 	}
 
-	block, err := s.ledger.ProduceBlock(s.config.MaxTransactionsPerBlock)
+	block, err := s.ledger.ProduceBlockWithOptions(s.config.MaxTransactionsPerBlock, producedAt, s.config.RequireConsensusCertificates)
 	if err != nil {
 		return ledger.Block{}, err
 	}
@@ -511,10 +558,12 @@ func (s *Server) startBlockProducer() {
 		for {
 			select {
 			case <-ticker.C:
-				if _, err := s.produceLocalBlock(); err != nil &&
+				if _, err := s.produceLocalBlock(time.Time{}); err != nil &&
 					!errors.Is(err, ledger.ErrNoTransactionsToBlock) &&
 					!errors.Is(err, errNotScheduledProposer) &&
-					!errors.Is(err, errValidatorAddressRequired) {
+					!errors.Is(err, errValidatorAddressRequired) &&
+					!errors.Is(err, ledger.ErrConsensusProposalRequired) &&
+					!errors.Is(err, ledger.ErrConsensusCertificateRequired) {
 					recordPeerLog("local-block-producer", err)
 				}
 			case <-s.stopCh:
@@ -589,6 +638,9 @@ func statusForError(err error) int {
 		errors.Is(err, ledger.ErrValidatorNotActive),
 		errors.Is(err, ledger.ErrUnexpectedProposer),
 		errors.Is(err, ledger.ErrConsensusHeightMismatch),
+		errors.Is(err, ledger.ErrConsensusPreviousHash),
+		errors.Is(err, ledger.ErrConsensusProposalRequired),
+		errors.Is(err, ledger.ErrConsensusCertificateRequired),
 		errors.Is(err, ledger.ErrConflictingProposal),
 		errors.Is(err, ledger.ErrUnknownProposal),
 		errors.Is(err, ledger.ErrConflictingVote),

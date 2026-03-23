@@ -11,6 +11,7 @@ import (
 	"errors"
 	"math/big"
 	"testing"
+	"time"
 
 	"github.com/zephyr-chain/zephyr-chain/internal/consensus"
 	"github.com/zephyr-chain/zephyr-chain/internal/dpos"
@@ -475,6 +476,168 @@ func TestStoreRecordProposalRejectsUnexpectedProposer(t *testing.T) {
 	}
 }
 
+func TestStoreProduceBlockWithConsensusRequiresProposalAndCertificate(t *testing.T) {
+	store := newTestStore(t)
+	proposer := newConsensusSigner(t)
+	voter := newConsensusSigner(t)
+	if _, err := store.SetValidators([]dpos.Validator{
+		{Rank: 1, Address: proposer.address, VotingPower: 60, SelfStake: 40, DelegatedStake: 20},
+		{Rank: 2, Address: voter.address, VotingPower: 40, SelfStake: 25, DelegatedStake: 15},
+	}, dpos.ElectionConfig{MaxValidators: 2}); err != nil {
+		t.Fatalf("set validators: %v", err)
+	}
+
+	envelope := signedEnvelope(t, 25, 1, "consensus-gated-produce")
+	if _, err := store.Credit(envelope.From, 100); err != nil {
+		t.Fatalf("credit sender: %v", err)
+	}
+	if _, err := store.Accept(envelope); err != nil {
+		t.Fatalf("accept tx: %v", err)
+	}
+
+	producedAt := time.Date(2026, time.March, 23, 10, 0, 0, 0, time.UTC)
+	template, err := store.BuildNextBlock(10, producedAt)
+	if err != nil {
+		t.Fatalf("build next block: %v", err)
+	}
+
+	if _, err := store.ProduceBlockWithOptions(10, producedAt, true); !errors.Is(err, ErrConsensusProposalRequired) {
+		t.Fatalf("expected proposal required error, got %v", err)
+	}
+
+	proposal := signedProposalWithSigner(t, proposer, template.Height, 0, template.Hash, template.PreviousHash)
+	if err := store.RecordProposal(proposal); err != nil {
+		t.Fatalf("record proposal: %v", err)
+	}
+
+	if _, err := store.ProduceBlockWithOptions(10, producedAt, true); !errors.Is(err, ErrConsensusCertificateRequired) {
+		t.Fatalf("expected certificate required error, got %v", err)
+	}
+
+	if _, _, err := store.RecordVote(signedVoteWithSigner(t, proposer, template.Height, 0, template.Hash)); err != nil {
+		t.Fatalf("record proposer vote: %v", err)
+	}
+	if _, _, err := store.RecordVote(signedVoteWithSigner(t, voter, template.Height, 0, template.Hash)); err != nil {
+		t.Fatalf("record voter vote: %v", err)
+	}
+
+	block, err := store.ProduceBlockWithOptions(10, producedAt, true)
+	if err != nil {
+		t.Fatalf("produce consensus-gated block: %v", err)
+	}
+	if block.Hash != template.Hash {
+		t.Fatalf("expected produced block hash %s, got %s", template.Hash, block.Hash)
+	}
+	if store.Status().Height != 1 {
+		t.Fatalf("expected committed height 1, got %d", store.Status().Height)
+	}
+}
+
+func TestStoreImportBlockWithConsensusRequiresProposalAndCertificate(t *testing.T) {
+	proposer := newConsensusSigner(t)
+	voter := newConsensusSigner(t)
+	validators := []dpos.Validator{
+		{Rank: 1, Address: proposer.address, VotingPower: 60, SelfStake: 40, DelegatedStake: 20},
+		{Rank: 2, Address: voter.address, VotingPower: 40, SelfStake: 25, DelegatedStake: 15},
+	}
+
+	producer := newTestStore(t)
+	if _, err := producer.SetValidators(validators, dpos.ElectionConfig{MaxValidators: 2}); err != nil {
+		t.Fatalf("set producer validators: %v", err)
+	}
+	envelope := signedEnvelope(t, 25, 1, "consensus-gated-import")
+	if _, err := producer.Credit(envelope.From, 100); err != nil {
+		t.Fatalf("credit producer sender: %v", err)
+	}
+	if _, err := producer.Accept(envelope); err != nil {
+		t.Fatalf("accept producer tx: %v", err)
+	}
+
+	producedAt := time.Date(2026, time.March, 23, 11, 0, 0, 0, time.UTC)
+	template, err := producer.BuildNextBlock(10, producedAt)
+	if err != nil {
+		t.Fatalf("build producer template: %v", err)
+	}
+	proposal := signedProposalWithSigner(t, proposer, template.Height, 0, template.Hash, template.PreviousHash)
+	if err := producer.RecordProposal(proposal); err != nil {
+		t.Fatalf("record producer proposal: %v", err)
+	}
+	if _, _, err := producer.RecordVote(signedVoteWithSigner(t, proposer, template.Height, 0, template.Hash)); err != nil {
+		t.Fatalf("record producer proposer vote: %v", err)
+	}
+	if _, _, err := producer.RecordVote(signedVoteWithSigner(t, voter, template.Height, 0, template.Hash)); err != nil {
+		t.Fatalf("record producer voter vote: %v", err)
+	}
+
+	block, err := producer.ProduceBlockWithOptions(10, producedAt, true)
+	if err != nil {
+		t.Fatalf("produce source block: %v", err)
+	}
+
+	replica := newTestStore(t)
+	if _, err := replica.SetValidators(validators, dpos.ElectionConfig{MaxValidators: 2}); err != nil {
+		t.Fatalf("set replica validators: %v", err)
+	}
+	if _, err := replica.Credit(envelope.From, 100); err != nil {
+		t.Fatalf("credit replica sender: %v", err)
+	}
+
+	if err := replica.ImportBlockWithOptions(block, true); !errors.Is(err, ErrConsensusProposalRequired) {
+		t.Fatalf("expected proposal required error, got %v", err)
+	}
+	if err := replica.RecordProposal(proposal); err != nil {
+		t.Fatalf("record replica proposal: %v", err)
+	}
+	if err := replica.ImportBlockWithOptions(block, true); !errors.Is(err, ErrConsensusCertificateRequired) {
+		t.Fatalf("expected certificate required error, got %v", err)
+	}
+	if _, _, err := replica.RecordVote(signedVoteWithSigner(t, proposer, template.Height, 0, template.Hash)); err != nil {
+		t.Fatalf("record replica proposer vote: %v", err)
+	}
+	if _, _, err := replica.RecordVote(signedVoteWithSigner(t, voter, template.Height, 0, template.Hash)); err != nil {
+		t.Fatalf("record replica voter vote: %v", err)
+	}
+	if err := replica.ImportBlockWithOptions(block, true); err != nil {
+		t.Fatalf("import certified block: %v", err)
+	}
+	if replica.Status().Height != 1 {
+		t.Fatalf("expected replica height 1, got %d", replica.Status().Height)
+	}
+}
+
+func TestStoreSetValidatorsClearsPendingConsensusArtifacts(t *testing.T) {
+	store := newTestStore(t)
+	proposer := newConsensusSigner(t)
+	voter := newConsensusSigner(t)
+	if _, err := store.SetValidators([]dpos.Validator{
+		{Rank: 1, Address: proposer.address, VotingPower: 60, SelfStake: 40, DelegatedStake: 20},
+		{Rank: 2, Address: voter.address, VotingPower: 40, SelfStake: 25, DelegatedStake: 15},
+	}, dpos.ElectionConfig{MaxValidators: 2}); err != nil {
+		t.Fatalf("set initial validators: %v", err)
+	}
+
+	proposal := signedProposalWithSigner(t, proposer, 1, 0, testHash("pending-artifacts"), "")
+	if err := store.RecordProposal(proposal); err != nil {
+		t.Fatalf("record proposal: %v", err)
+	}
+	if _, _, err := store.RecordVote(signedVoteWithSigner(t, proposer, 1, 0, proposal.BlockHash)); err != nil {
+		t.Fatalf("record vote: %v", err)
+	}
+	if store.ConsensusArtifacts().ProposalCount == 0 {
+		t.Fatal("expected pending artifacts before validator update")
+	}
+
+	if _, err := store.SetValidators([]dpos.Validator{
+		{Rank: 1, Address: voter.address, VotingPower: 100, SelfStake: 60, DelegatedStake: 40},
+	}, dpos.ElectionConfig{MaxValidators: 1}); err != nil {
+		t.Fatalf("set updated validators: %v", err)
+	}
+
+	artifacts := store.ConsensusArtifacts()
+	if artifacts.ProposalCount != 0 || artifacts.VoteCount != 0 || artifacts.CertificateCount != 0 {
+		t.Fatalf("expected consensus artifacts to reset after validator update, got %+v", artifacts)
+	}
+}
 func newTestStore(t *testing.T) *Store {
 	t.Helper()
 

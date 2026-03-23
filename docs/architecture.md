@@ -7,18 +7,18 @@ The current MVP is a five-part local development system:
 - a Go node API that validates transactions, persists chain state, produces blocks, and replicates state to configured peers
 - a durable ledger that stores accounts, mempool entries, committed blocks, validator snapshots, proposals, votes, and restart-safe metadata on disk
 - a DPoS election module that ranks validators deterministically from candidate and vote inputs
-- a consensus message layer that validates signed proposals and votes
+- a consensus message layer that validates signed proposals and votes and derives quorum certificates
 - a Vue wallet that runs in the browser and acts as a light client
 
 The current data flow is:
 
-`wallet UI -> wallet signing logic -> node HTTP API -> durable mempool -> local block production -> durable block/account state -> transport-backed peer replication`
+`wallet UI -> wallet signing logic -> node HTTP API -> durable mempool -> block template -> proposal/vote/certificate artifacts -> gated or ungated block commit -> durable block/account state -> transport-backed peer replication`
 
 The current consensus-artifact flow is:
 
-`validator election -> durable validator snapshot -> signed proposal -> signed votes -> quorum certificate artifact`
+`validator election -> durable validator snapshot -> block template -> signed proposal -> signed votes -> quorum certificate -> optional gated block commit/import`
 
-This is still a development-stage system. It has more consensus structure than before, but it is not validator finality yet.
+This is still a development-stage system. It now has an enforceable certified commit/import path, but it is not yet a complete validator finality protocol.
 
 ## Components
 
@@ -40,12 +40,13 @@ The API layer now handles:
 - signed transaction envelopes through `POST /v1/transactions`
 - committed blocks through `GET /v1/blocks/latest` and `GET /v1/blocks/{height}`
 - development funding through `POST /v1/dev/faucet`
+- deterministic next-block preview through `GET /v1/dev/block-template`
 - manual local block production through `POST /v1/dev/produce-block`
 - internal node sync through `POST /v1/internal/blocks` and `GET /v1/internal/snapshot`
 
 ### Peer Transport Layer
 
-The current multi-node layer is now hidden behind a transport abstraction.
+The current multi-node layer is hidden behind a transport abstraction.
 
 Today the concrete implementation still uses static HTTP peer URLs, but the rest of the server no longer depends directly on raw HTTP calls for peer replication. The transport currently carries:
 
@@ -79,6 +80,8 @@ The store currently persists:
 
 On startup, the node reloads this state and rebuilds pending balance and nonce reservations from the persisted mempool. Validator and consensus artifacts also survive restart and snapshot restore.
 
+The current ledger can also derive a deterministic next block candidate from the current mempool plus chain tip. That candidate is what operators propose and certify in the present dev flow.
+
 ### Consensus Message Layer
 
 The `internal/consensus` package introduces signed consensus messages.
@@ -93,21 +96,22 @@ Current validation rules:
 - the signer address must match the submitted public key
 - the signature must verify with P-256 over the canonical payload
 - the proposal or vote must target the node's next block height
+- the proposal `previousHash` must match the current chain tip
 - the proposer must match the scheduled proposer for that height
 - the voter must belong to the active validator set
 - votes must reference a known proposal
 
 When a vote set for a block hash reaches the `>2/3` voting-power threshold, the node persists a quorum certificate artifact.
 
-Important caveat: these are durable consensus artifacts, but the current node still does not use them to gate block commit or block import. That remains the next major production step.
+If `ZEPHYR_REQUIRE_CONSENSUS_CERTIFICATES=true`, the node uses those artifacts to gate both local block commit and remote block import. That enforcement still works on concrete block hashes, not yet on a richer proposal payload or full round protocol.
 
 ## Current Production Gap
 
-The repository now has enough structure to model consensus rounds, but not enough to claim finality:
+The repository has moved from consensus-preparation-only into certificate-gated commit/import, but it still falls short of production finality in several important ways:
 
-- local block production can still commit without a certificate
-- remote block import still validates block structure and ledger state, not certificate-backed agreement
 - validator identity is not authenticated at the network layer
+- the current proposal flow still certifies a block hash plus previous hash rather than a richer distributed proposal object
 - there is no timeout, round-change, or crash-recovery protocol yet
+- the current operator flow is still manual or externally driven rather than a fully autonomous validator engine
 
-That is why the project has moved from replicated prototype to consensus-preparation prototype, but it is not yet a production blockchain.
+That is why the project has moved beyond replicated prototype, but it is still not a production blockchain.

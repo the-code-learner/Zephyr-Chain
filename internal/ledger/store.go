@@ -272,6 +272,9 @@ func (s *Store) SetValidators(validators []dpos.Validator, config dpos.ElectionC
 		Version:        state.ValidatorSnapshot.Version + 1,
 		UpdatedAt:      &now,
 	})
+	state.Proposals = make([]consensus.Proposal, 0)
+	state.Votes = make([]VoteRecord, 0)
+	state.CommitCertificates = make([]CommitCertificate, 0)
 
 	if err := s.writeState(state); err != nil {
 		return ValidatorSnapshot{}, err
@@ -365,14 +368,36 @@ func (s *Store) Accept(envelope tx.Envelope) (string, error) {
 	return id, nil
 }
 
+func (s *Store) BuildNextBlock(maxTransactions int, producedAt time.Time) (Block, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	state := s.snapshotLocked()
+	_, block, err := produceBlockFromState(state, maxTransactions, producedAt)
+	if err != nil {
+		return Block{}, err
+	}
+
+	return cloneBlock(block), nil
+}
+
 func (s *Store) ProduceBlock(maxTransactions int) (Block, error) {
+	return s.ProduceBlockWithOptions(maxTransactions, time.Time{}, false)
+}
+
+func (s *Store) ProduceBlockWithOptions(maxTransactions int, producedAt time.Time, requireConsensus bool) (Block, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	state := s.snapshotLocked()
-	nextState, block, err := produceBlockFromState(state, maxTransactions)
+	nextState, block, err := produceBlockFromState(state, maxTransactions, producedAt)
 	if err != nil {
 		return Block{}, err
+	}
+	if requireConsensus {
+		if err := validateBlockConsensus(state, block, true); err != nil {
+			return Block{}, err
+		}
 	}
 
 	if err := s.writeState(nextState); err != nil {
@@ -384,6 +409,10 @@ func (s *Store) ProduceBlock(maxTransactions int) (Block, error) {
 }
 
 func (s *Store) ImportBlock(block Block) error {
+	return s.ImportBlockWithOptions(block, false)
+}
+
+func (s *Store) ImportBlockWithOptions(block Block, requireConsensus bool) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -391,6 +420,11 @@ func (s *Store) ImportBlock(block Block) error {
 	nextState, err := importBlockIntoState(state, block)
 	if err != nil {
 		return err
+	}
+	if requireConsensus {
+		if err := validateBlockConsensus(state, block, true); err != nil {
+			return err
+		}
 	}
 
 	if err := s.writeState(nextState); err != nil {
@@ -499,7 +533,7 @@ func (s *Store) accountViewLocked(address string) AccountView {
 	}
 }
 
-func produceBlockFromState(state persistedState, maxTransactions int) (persistedState, Block, error) {
+func produceBlockFromState(state persistedState, maxTransactions int, producedAt time.Time) (persistedState, Block, error) {
 	state = normalizeState(state)
 	if len(state.Mempool) == 0 {
 		return state, Block{}, ErrNoTransactionsToBlock
@@ -544,10 +578,13 @@ func produceBlockFromState(state persistedState, maxTransactions int) (persisted
 		transactions = append(transactions, envelope)
 	}
 
+	if producedAt.IsZero() {
+		producedAt = time.Now().UTC()
+	}
 	block := Block{
 		Height:           height,
 		PreviousHash:     previousHash,
-		ProducedAt:       time.Now().UTC(),
+		ProducedAt:       producedAt,
 		TransactionCount: len(transactions),
 		TransactionIDs:   append([]string(nil), transactionIDs...),
 		Transactions:     append([]tx.Envelope(nil), transactions...),
@@ -649,6 +686,28 @@ func importBlockIntoState(state persistedState, block Block) (persistedState, er
 	state.CommittedTransactionIDs = append(state.CommittedTransactionIDs, transactionIDs...)
 	state = normalizeState(state)
 	return state, nil
+}
+
+func validateBlockConsensus(state persistedState, block Block, requireCertificate bool) error {
+	state = normalizeState(state)
+	if len(state.ValidatorSnapshot.Validators) == 0 {
+		return ErrNoValidatorSet
+	}
+
+	proposal := matchProposalForBlock(state.Proposals, block)
+	if proposal == nil {
+		return ErrConsensusProposalRequired
+	}
+	if proposal.PreviousHash != block.PreviousHash {
+		return ErrConsensusPreviousHash
+	}
+	if expected := proposerForHeight(state.ValidatorSnapshot.Validators, block.Height); expected != "" && proposal.Proposer != expected {
+		return ErrUnexpectedProposer
+	}
+	if requireCertificate && matchCertificateForBlock(state.CommitCertificates, block) == nil {
+		return ErrConsensusCertificateRequired
+	}
+	return nil
 }
 
 func normalizeState(state persistedState) persistedState {

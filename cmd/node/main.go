@@ -72,6 +72,13 @@ func main() {
 		}
 		config.EnforceProposerSchedule = parsed
 	}
+	if enabled := os.Getenv("ZEPHYR_REQUIRE_CONSENSUS_CERTIFICATES"); enabled != "" {
+		parsed, err := strconv.ParseBool(enabled)
+		if err != nil {
+			log.Fatalf("invalid ZEPHYR_REQUIRE_CONSENSUS_CERTIFICATES %q", enabled)
+		}
+		config.RequireConsensusCertificates = parsed
+	}
 
 	server, err := api.NewServerWithConfig(config)
 	if err != nil {
@@ -80,7 +87,7 @@ func main() {
 	defer server.Close()
 
 	log.Printf(
-		"zephyr node %s listening on %s (validator: %s, data dir: %s, block interval: %s, peer sync: %t, proposer schedule enforced: %t, peers: %d)",
+		"zephyr node %s listening on %s (validator: %s, data dir: %s, block interval: %s, peer sync: %t, proposer schedule enforced: %t, consensus certificates required: %t, peers: %d)",
 		config.NodeID,
 		addr,
 		config.ValidatorAddress,
@@ -88,6 +95,7 @@ func main() {
 		config.BlockInterval,
 		config.EnablePeerSync,
 		config.EnforceProposerSchedule,
+		config.RequireConsensusCertificates,
 		len(config.PeerURLs),
 	)
 	if err := http.ListenAndServe(addr, server.Handler()); err != nil {
