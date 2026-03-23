@@ -18,15 +18,15 @@ As of this iteration, the repository has:
 - durable validator-set snapshots with versioning and restart-safe persistence
 - derived consensus metadata including total voting power, quorum target, and next scheduled proposer
 - signed proposal and vote messages validated with Zephyr addresses plus P-256 signatures
-- durable quorum certificates built when vote power crosses the `>2/3` threshold
-- deterministic next-block template generation for the current mempool and tip state
+- proposals that now commit to deterministic template fields: `previousHash`, `producedAt`, ordered `transactionIds`, and the derived `blockHash`
+- a shared hash function between consensus proposals and block production so both sides derive candidate hashes identically
 - optional certificate-gated local block commit and remote block import behind `ZEPHYR_REQUIRE_CONSENSUS_CERTIFICATES`
 - a browser wallet that can create accounts, sign locally, and submit transactions
 
 What it still does not have:
 
 - authenticated validator networking
-- proposal dissemination that lets validators verify more than a block hash alone
+- proposal dissemination that carries enough candidate data for validators to verify without relying on local mempool mirroring alone
 - round timeout and re-proposal handling
 - restart-safe round recovery and operator evidence tooling
 - on-chain staking/governance-driven validator updates
@@ -63,6 +63,7 @@ Status:
 - validator snapshots are durable
 - proposer scheduling is visible and can be enforced locally
 - signed proposals and validator votes are durable artifacts
+- proposals now commit to concrete template fields, not only a loose block hash
 - quorum certificates are derived and persisted when vote power crosses quorum
 - nodes can optionally require a matching proposal and certificate before local block commit or remote block import
 - the current proposal/certificate path is still an operator-driven dev flow, not a full round engine
@@ -70,16 +71,16 @@ Status:
 Next steps:
 
 1. Bind validator identity to network identity so a node can prove which validator it represents.
-2. Carry enough proposal payload or block-template commitment data for validators to verify what they are certifying, not just the final hash.
+2. Extend proposal dissemination so validators can verify a candidate from the proposal path itself instead of depending on local mempool convergence and out-of-band template fetches.
 3. Add round timeout handling, proposer rotation within a round sequence, and re-proposal flows.
 4. Persist round state, evidence, and operator-facing recovery data for restart-safe recovery.
-5. Add deterministic integration tests for certified happy path, missing certificate, conflicting proposals, restart during a round, and recovery from partial quorum.
+5. Add deterministic integration tests for certified happy path, mismatched template fields, conflicting proposals, restart during a round, and recovery from partial quorum.
 
 Exit criteria:
 
 - a block is considered committed because validators agreed on a well-defined proposal, not because one local node wrote it first
 - nodes can restart and resume without silently losing consensus-critical state
-- operators can distinguish proposal failure, quorum failure, and transport failure from observable state
+- operators can distinguish proposal failure, quorum failure, template mismatch, and transport failure from observable state
 
 ### Phase 2: Networking And State Sync Hardening
 

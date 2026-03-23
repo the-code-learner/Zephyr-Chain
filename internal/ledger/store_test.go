@@ -405,7 +405,7 @@ func TestStoreRecordProposalVotesAndCertificatePersistAcrossRestart(t *testing.T
 		t.Fatalf("set validators: %v", err)
 	}
 
-	proposal := signedProposalWithSigner(t, proposer, 1, 0, testHash("block-1"), "")
+	proposal := signedProposalWithSigner(t, proposer, 1, 0, "", time.Date(2026, time.March, 23, 9, 0, 0, 0, time.UTC), []string{testHash("block-1-tx")})
 	if err := store.RecordProposal(proposal); err != nil {
 		t.Fatalf("record proposal: %v", err)
 	}
@@ -470,7 +470,7 @@ func TestStoreRecordProposalRejectsUnexpectedProposer(t *testing.T) {
 		t.Fatalf("set validators: %v", err)
 	}
 
-	proposal := signedProposalWithSigner(t, other, 1, 0, testHash("wrong-proposer"), "")
+	proposal := signedProposalWithSigner(t, other, 1, 0, "", time.Date(2026, time.March, 23, 9, 15, 0, 0, time.UTC), []string{testHash("wrong-proposer-tx")})
 	if err := store.RecordProposal(proposal); !errors.Is(err, ErrUnexpectedProposer) {
 		t.Fatalf("expected unexpected proposer error, got %v", err)
 	}
@@ -505,7 +505,7 @@ func TestStoreProduceBlockWithConsensusRequiresProposalAndCertificate(t *testing
 		t.Fatalf("expected proposal required error, got %v", err)
 	}
 
-	proposal := signedProposalWithSigner(t, proposer, template.Height, 0, template.Hash, template.PreviousHash)
+	proposal := signedProposalWithSigner(t, proposer, template.Height, 0, template.PreviousHash, template.ProducedAt, template.TransactionIDs)
 	if err := store.RecordProposal(proposal); err != nil {
 		t.Fatalf("record proposal: %v", err)
 	}
@@ -519,6 +519,10 @@ func TestStoreProduceBlockWithConsensusRequiresProposalAndCertificate(t *testing
 	}
 	if _, _, err := store.RecordVote(signedVoteWithSigner(t, voter, template.Height, 0, template.Hash)); err != nil {
 		t.Fatalf("record voter vote: %v", err)
+	}
+
+	if _, err := store.ProduceBlockWithOptions(10, producedAt.Add(time.Second), true); !errors.Is(err, ErrConsensusProposalRequired) {
+		t.Fatalf("expected proposal required error for mismatched producedAt, got %v", err)
 	}
 
 	block, err := store.ProduceBlockWithOptions(10, producedAt, true)
@@ -558,7 +562,7 @@ func TestStoreImportBlockWithConsensusRequiresProposalAndCertificate(t *testing.
 	if err != nil {
 		t.Fatalf("build producer template: %v", err)
 	}
-	proposal := signedProposalWithSigner(t, proposer, template.Height, 0, template.Hash, template.PreviousHash)
+	proposal := signedProposalWithSigner(t, proposer, template.Height, 0, template.PreviousHash, template.ProducedAt, template.TransactionIDs)
 	if err := producer.RecordProposal(proposal); err != nil {
 		t.Fatalf("record producer proposal: %v", err)
 	}
@@ -616,7 +620,7 @@ func TestStoreSetValidatorsClearsPendingConsensusArtifacts(t *testing.T) {
 		t.Fatalf("set initial validators: %v", err)
 	}
 
-	proposal := signedProposalWithSigner(t, proposer, 1, 0, testHash("pending-artifacts"), "")
+	proposal := signedProposalWithSigner(t, proposer, 1, 0, "", time.Date(2026, time.March, 23, 9, 30, 0, 0, time.UTC), []string{testHash("pending-artifacts-tx")})
 	if err := store.RecordProposal(proposal); err != nil {
 		t.Fatalf("record proposal: %v", err)
 	}
@@ -731,17 +735,19 @@ func newConsensusSigner(t *testing.T) consensusSigner {
 	return consensusSigner{privateKey: privateKey, address: address, publicKey: encodedPublicKey}
 }
 
-func signedProposalWithSigner(t *testing.T, signer consensusSigner, height uint64, round uint64, blockHash string, previousHash string) consensus.Proposal {
+func signedProposalWithSigner(t *testing.T, signer consensusSigner, height uint64, round uint64, previousHash string, producedAt time.Time, transactionIDs []string) consensus.Proposal {
 	t.Helper()
 
 	proposal := consensus.Proposal{
-		Height:       height,
-		Round:        round,
-		BlockHash:    blockHash,
-		PreviousHash: previousHash,
-		Proposer:     signer.address,
-		PublicKey:    signer.publicKey,
+		Height:         height,
+		Round:          round,
+		PreviousHash:   previousHash,
+		ProducedAt:     producedAt,
+		TransactionIDs: append([]string(nil), transactionIDs...),
+		Proposer:       signer.address,
+		PublicKey:      signer.publicKey,
 	}
+	proposal.BlockHash = proposal.CandidateHash()
 	proposal.Payload = proposal.CanonicalPayload()
 	proposal.Signature = signPayload(t, signer.privateKey, proposal.Payload)
 	return proposal

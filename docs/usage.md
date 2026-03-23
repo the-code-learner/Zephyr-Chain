@@ -7,7 +7,7 @@ The current repository gives you four practical local development flows:
 - a single-node flow where one Go node persists chain state, funds test accounts, validates transactions, and commits blocks
 - a small multi-node devnet flow where one node produces blocks and other configured nodes follow through transport-backed replication and sync
 - a scheduling flow where you elect a validator set, inspect the derived proposer schedule, and optionally enforce that schedule for local block production
-- a certificate-gated consensus flow where you build a concrete next-block template, submit signed proposals and votes, and commit only after a quorum certificate exists
+- a certificate-gated consensus flow where you build a concrete next-block template, submit signed proposals and votes for that template, and commit only after a quorum certificate exists
 
 The browser wallet can create a local account, export and import it, inspect node-side account state, sign a transaction, and send it to the node.
 
@@ -109,7 +109,7 @@ go run ./cmd/node
 Invoke-RestMethod http://localhost:8080/v1/dev/block-template
 ```
 
-5. Build a signed proposal whose `height`, `previousHash`, and `blockHash` match that template.
+5. Build a signed proposal whose `height`, `previousHash`, `producedAt`, `transactionIds`, and `blockHash` match that template exactly.
 6. POST the proposal to `/v1/consensus/proposals`.
 7. Submit validator votes to `/v1/consensus/votes` until a quorum certificate exists for that same `blockHash`.
 8. Commit that exact block template by reusing the returned `producedAt` timestamp:
@@ -122,10 +122,12 @@ Invoke-RestMethod http://localhost:8080/v1/dev/produce-block -Method Post -Conte
 Expected behavior:
 
 - the proposal is rejected if the proposer is not scheduled for that height or if `previousHash` does not match the current tip
+- the proposal is rejected if `blockHash` does not match the signed `producedAt` plus ordered `transactionIds`
 - votes are rejected if they do not reference a known proposal
 - once the accumulated vote power crosses quorum, the node stores a quorum certificate artifact
 - with `ZEPHYR_REQUIRE_CONSENSUS_CERTIFICATES=true`, block commit returns `409` until the matching proposal and certificate exist
-- peers configured with the same enforcement flag import only certified blocks for which they already know the matching artifacts
+- even after certification, changing `producedAt` changes the candidate and the commit is rejected
+- peers configured with the same enforcement flag import only certified blocks whose concrete template matches a stored proposal
 
 ## Enforce Proposer Scheduling Locally
 
@@ -151,6 +153,7 @@ After an election is stored, `POST /v1/dev/produce-block` returns `409` if the l
 - confirm the proposal height matches the node's `nextHeight` in `GET /v1/consensus`
 - confirm the proposal signer matches `nextProposer`
 - confirm the proposal `previousHash` matches the current chain tip
+- confirm the proposal `producedAt` and ordered `transactionIds` come from the same `GET /v1/dev/block-template` response as `blockHash`
 - confirm votes reference the same `blockHash`, `height`, and `round` as a known proposal
 - confirm the signed payload still matches the visible request fields exactly
 
@@ -159,8 +162,9 @@ After an election is stored, `POST /v1/dev/produce-block` returns `409` if the l
 - confirm `GET /v1/consensus` shows a non-empty validator set
 - confirm `ZEPHYR_VALIDATOR_ADDRESS` matches the local validator you expect this node to represent
 - confirm `GET /v1/consensus` reports the same address in `nextProposer`
-- confirm `GET /v1/dev/block-template` and your proposal use the same `blockHash`, `previousHash`, `height`, and `producedAt` flow
-- confirm `GET /v1/consensus` shows a latest certificate for the same `blockHash`
+- confirm `GET /v1/dev/block-template` and your proposal use the same `blockHash`, `previousHash`, `producedAt`, and `transactionIds`
+- confirm `GET /v1/consensus` shows a latest certificate for that same `blockHash`
+- confirm you replay `POST /v1/dev/produce-block` with the same `producedAt` used by the certified template
 - disable `ZEPHYR_REQUIRE_CONSENSUS_CERTIFICATES` only if you intentionally want a looser local dev flow
 
 ## Recommended Local Demo Flow

@@ -313,10 +313,20 @@ func findCertificate(certificates []CommitCertificate, height uint64, round uint
 
 func matchProposalForBlock(proposals []consensus.Proposal, block Block) *consensus.Proposal {
 	for _, proposal := range proposals {
-		if proposal.Height == block.Height && proposal.BlockHash == block.Hash {
-			cloned := cloneProposal(proposal)
-			return &cloned
+		if proposal.Height != block.Height || proposal.BlockHash != block.Hash {
+			continue
 		}
+		if proposal.PreviousHash != block.PreviousHash {
+			continue
+		}
+		if !proposal.ProducedAt.Equal(block.ProducedAt) {
+			continue
+		}
+		if !equalStrings(proposal.TransactionIDs, block.TransactionIDs) {
+			continue
+		}
+		cloned := cloneProposal(proposal)
+		return &cloned
 	}
 	return nil
 }
@@ -329,6 +339,18 @@ func matchCertificateForBlock(certificates []CommitCertificate, block Block) *Co
 		}
 	}
 	return nil
+}
+
+func equalStrings(left []string, right []string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for i := range left {
+		if left[i] != right[i] {
+			return false
+		}
+	}
+	return true
 }
 
 func previousHashForHeight(blocks []Block, height uint64) string {

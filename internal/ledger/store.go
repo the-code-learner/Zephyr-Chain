@@ -1,8 +1,6 @@
 package ledger
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"os"
@@ -936,18 +934,5 @@ func containsString(values []string, target string) bool {
 }
 
 func blockHash(block Block) string {
-	payload, _ := json.Marshal(struct {
-		Height         uint64   `json:"height"`
-		PreviousHash   string   `json:"previousHash"`
-		ProducedAt     string   `json:"producedAt"`
-		TransactionIDs []string `json:"transactionIds"`
-	}{
-		Height:         block.Height,
-		PreviousHash:   block.PreviousHash,
-		ProducedAt:     block.ProducedAt.Format(time.RFC3339Nano),
-		TransactionIDs: block.TransactionIDs,
-	})
-
-	sum := sha256.Sum256(payload)
-	return hex.EncodeToString(sum[:])
+	return consensus.BlockHash(block.Height, block.PreviousHash, block.ProducedAt, block.TransactionIDs)
 }
