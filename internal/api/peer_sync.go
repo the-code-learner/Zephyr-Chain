@@ -1,14 +1,12 @@
 package api
 
 import (
-	"bytes"
-	"encoding/json"
 	"fmt"
 	"log"
-	"net/http"
 	"strings"
 	"time"
 
+	"github.com/zephyr-chain/zephyr-chain/internal/consensus"
 	"github.com/zephyr-chain/zephyr-chain/internal/ledger"
 	"github.com/zephyr-chain/zephyr-chain/internal/tx"
 )
@@ -122,7 +120,7 @@ func (s *Server) restoreSnapshotFromPeer(peerURL string) error {
 
 func (s *Server) broadcastTransaction(envelope tx.Envelope) {
 	for _, peerURL := range s.config.PeerURLs {
-		if err := s.postJSON(peerURL+"/v1/transactions", envelope); err != nil {
+		if err := s.transport.PostTransaction(peerURL, envelope); err != nil {
 			recordPeerLog(fmt.Sprintf("broadcast-transaction %s", peerURL), err)
 		}
 	}
@@ -130,7 +128,7 @@ func (s *Server) broadcastTransaction(envelope tx.Envelope) {
 
 func (s *Server) broadcastBlock(block ledger.Block) {
 	for _, peerURL := range s.config.PeerURLs {
-		if err := s.postJSON(peerURL+"/v1/internal/blocks", block); err != nil {
+		if err := s.transport.PostBlock(peerURL, block); err != nil {
 			recordPeerLog(fmt.Sprintf("broadcast-block %s", peerURL), err)
 		}
 	}
@@ -138,85 +136,40 @@ func (s *Server) broadcastBlock(block ledger.Block) {
 
 func (s *Server) broadcastFaucet(request FaucetRequest) {
 	for _, peerURL := range s.config.PeerURLs {
-		if err := s.postJSON(peerURL+"/v1/dev/faucet", request); err != nil {
+		if err := s.transport.PostFaucet(peerURL, request); err != nil {
 			recordPeerLog(fmt.Sprintf("broadcast-faucet %s", peerURL), err)
 		}
 	}
 }
-func (s *Server) fetchPeerStatus(peerURL string) (StatusResponse, error) {
-	response, err := s.httpClient.Get(peerURL + "/v1/status")
-	if err != nil {
-		return StatusResponse{}, err
-	}
-	defer response.Body.Close()
-	if response.StatusCode != http.StatusOK {
-		return StatusResponse{}, fmt.Errorf("peer returned status %d", response.StatusCode)
-	}
 
-	var payload StatusResponse
-	if err := json.NewDecoder(response.Body).Decode(&payload); err != nil {
-		return StatusResponse{}, err
+func (s *Server) broadcastProposal(proposal consensus.Proposal) {
+	for _, peerURL := range s.config.PeerURLs {
+		if err := s.transport.PostProposal(peerURL, proposal); err != nil {
+			recordPeerLog(fmt.Sprintf("broadcast-proposal %s", peerURL), err)
+		}
 	}
-	return payload, nil
+}
+
+func (s *Server) broadcastVote(vote consensus.Vote) {
+	for _, peerURL := range s.config.PeerURLs {
+		if err := s.transport.PostVote(peerURL, vote); err != nil {
+			recordPeerLog(fmt.Sprintf("broadcast-vote %s", peerURL), err)
+		}
+	}
+}
+
+func (s *Server) fetchPeerStatus(peerURL string) (StatusResponse, error) {
+	return s.transport.FetchStatus(peerURL)
 }
 
 func (s *Server) fetchPeerBlock(peerURL string, height uint64) (ledger.Block, error) {
-	response, err := s.httpClient.Get(fmt.Sprintf("%s/v1/blocks/%d", peerURL, height))
-	if err != nil {
-		return ledger.Block{}, err
-	}
-	defer response.Body.Close()
-	if response.StatusCode != http.StatusOK {
-		return ledger.Block{}, fmt.Errorf("peer returned status %d", response.StatusCode)
-	}
-
-	var payload BlockAtHeightResponse
-	if err := json.NewDecoder(response.Body).Decode(&payload); err != nil {
-		return ledger.Block{}, err
-	}
-	return payload.Block, nil
+	return s.transport.FetchBlock(peerURL, height)
 }
 
 func (s *Server) fetchPeerSnapshot(peerURL string) (ledger.Snapshot, error) {
-	response, err := s.httpClient.Get(peerURL + "/v1/internal/snapshot")
-	if err != nil {
-		return ledger.Snapshot{}, err
-	}
-	defer response.Body.Close()
-	if response.StatusCode != http.StatusOK {
-		return ledger.Snapshot{}, fmt.Errorf("peer returned status %d", response.StatusCode)
-	}
-
-	var payload SnapshotResponse
-	if err := json.NewDecoder(response.Body).Decode(&payload); err != nil {
-		return ledger.Snapshot{}, err
-	}
-	return payload.Snapshot, nil
+	return s.transport.FetchSnapshot(peerURL)
 }
 
-func (s *Server) postJSON(target string, payload any) error {
-	body, err := json.Marshal(payload)
-	if err != nil {
-		return err
-	}
-
-	request, err := http.NewRequest(http.MethodPost, target, bytes.NewReader(body))
-	if err != nil {
-		return err
-	}
-	request.Header.Set("Content-Type", "application/json")
-	request.Header.Set(sourceNodeHeader, s.nodeID)
-
-	response, err := s.httpClient.Do(request)
-	if err != nil {
-		return err
-	}
-	defer response.Body.Close()
-	if response.StatusCode >= 400 && response.StatusCode != http.StatusConflict && response.StatusCode != http.StatusAccepted && response.StatusCode != http.StatusOK {
-		return fmt.Errorf("peer returned status %d", response.StatusCode)
-	}
-	return nil
-}
 func (s *Server) recordPeerView(view PeerView) {
 	s.peerMu.Lock()
 	defer s.peerMu.Unlock()
@@ -259,5 +212,3 @@ func normalizePeerURLs(peers []string) []string {
 func recordPeerLog(scope string, err error) {
 	log.Printf("zephyr %s: %v", scope, err)
 }
-
-

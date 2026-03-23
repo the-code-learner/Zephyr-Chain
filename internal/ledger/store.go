@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/zephyr-chain/zephyr-chain/internal/consensus"
 	"github.com/zephyr-chain/zephyr-chain/internal/dpos"
 	"github.com/zephyr-chain/zephyr-chain/internal/tx"
 )
@@ -89,6 +90,9 @@ type Snapshot struct {
 	CommittedTransactionIDs []string                `json:"committedTransactionIds"`
 	AppliedFundingIDs       []string                `json:"appliedFundingIds"`
 	ValidatorSnapshot       ValidatorSnapshot       `json:"validatorSnapshot"`
+	Proposals               []consensus.Proposal    `json:"proposals"`
+	Votes                   []VoteRecord            `json:"votes"`
+	CommitCertificates      []CommitCertificate     `json:"commitCertificates"`
 }
 
 type pendingState struct {
@@ -104,6 +108,9 @@ type persistedState struct {
 	CommittedTransactionIDs []string                `json:"committedTransactionIds"`
 	AppliedFundingIDs       []string                `json:"appliedFundingIds"`
 	ValidatorSnapshot       ValidatorSnapshot       `json:"validatorSnapshot"`
+	Proposals               []consensus.Proposal    `json:"proposals"`
+	Votes                   []VoteRecord            `json:"votes"`
+	CommitCertificates      []CommitCertificate     `json:"commitCertificates"`
 }
 
 type Store struct {
@@ -117,6 +124,9 @@ type Store struct {
 	committedTransactions map[string]struct{}
 	appliedFundingIDs     map[string]struct{}
 	validatorSnapshot     ValidatorSnapshot
+	proposals             []consensus.Proposal
+	votes                 []VoteRecord
+	commitCertificates    []CommitCertificate
 }
 
 func NewStore(dataDir string) (*Store, error) {
@@ -138,6 +148,9 @@ func NewStore(dataDir string) (*Store, error) {
 		committedTransactions: make(map[string]struct{}),
 		appliedFundingIDs:     make(map[string]struct{}),
 		validatorSnapshot:     normalizeValidatorSnapshot(ValidatorSnapshot{}),
+		proposals:             make([]consensus.Proposal, 0),
+		votes:                 make([]VoteRecord, 0),
+		commitCertificates:    make([]CommitCertificate, 0),
 	}
 
 	if err := store.load(); err != nil {
@@ -433,6 +446,9 @@ func (s *Store) snapshotLocked() persistedState {
 		CommittedTransactionIDs: committedIDs,
 		AppliedFundingIDs:       appliedFundingIDs,
 		ValidatorSnapshot:       cloneValidatorSnapshot(s.validatorSnapshot),
+		Proposals:               cloneProposals(s.proposals),
+		Votes:                   cloneVoteRecords(s.votes),
+		CommitCertificates:      cloneCommitCertificates(s.commitCertificates),
 	}
 }
 
@@ -442,6 +458,9 @@ func (s *Store) applyStateLocked(state persistedState) {
 	s.mempool = cloneMempool(state.Mempool)
 	s.blocks = cloneBlocks(state.Blocks)
 	s.validatorSnapshot = cloneValidatorSnapshot(state.ValidatorSnapshot)
+	s.proposals = cloneProposals(state.Proposals)
+	s.votes = cloneVoteRecords(state.Votes)
+	s.commitCertificates = cloneCommitCertificates(state.CommitCertificates)
 	s.committedTransactions = make(map[string]struct{}, len(state.CommittedTransactionIDs))
 	for _, id := range state.CommittedTransactionIDs {
 		s.committedTransactions[id] = struct{}{}
@@ -648,6 +667,15 @@ func normalizeState(state persistedState) persistedState {
 	if state.AppliedFundingIDs == nil {
 		state.AppliedFundingIDs = make([]string, 0)
 	}
+	if state.Proposals == nil {
+		state.Proposals = make([]consensus.Proposal, 0)
+	}
+	if state.Votes == nil {
+		state.Votes = make([]VoteRecord, 0)
+	}
+	if state.CommitCertificates == nil {
+		state.CommitCertificates = make([]CommitCertificate, 0)
+	}
 	state.ValidatorSnapshot = normalizeValidatorSnapshot(state.ValidatorSnapshot)
 	state.CommittedTransactionIDs = uniqueSortedStrings(state.CommittedTransactionIDs)
 	state.AppliedFundingIDs = uniqueSortedStrings(state.AppliedFundingIDs)
@@ -663,6 +691,9 @@ func snapshotFromPersisted(state persistedState) Snapshot {
 		CommittedTransactionIDs: append([]string(nil), state.CommittedTransactionIDs...),
 		AppliedFundingIDs:       append([]string(nil), state.AppliedFundingIDs...),
 		ValidatorSnapshot:       cloneValidatorSnapshot(state.ValidatorSnapshot),
+		Proposals:               cloneProposals(state.Proposals),
+		Votes:                   cloneVoteRecords(state.Votes),
+		CommitCertificates:      cloneCommitCertificates(state.CommitCertificates),
 	}
 }
 
@@ -674,6 +705,9 @@ func persistedFromSnapshot(snapshot Snapshot) persistedState {
 		CommittedTransactionIDs: append([]string(nil), snapshot.CommittedTransactionIDs...),
 		AppliedFundingIDs:       append([]string(nil), snapshot.AppliedFundingIDs...),
 		ValidatorSnapshot:       cloneValidatorSnapshot(snapshot.ValidatorSnapshot),
+		Proposals:               cloneProposals(snapshot.Proposals),
+		Votes:                   cloneVoteRecords(snapshot.Votes),
+		CommitCertificates:      cloneCommitCertificates(snapshot.CommitCertificates),
 	})
 }
 

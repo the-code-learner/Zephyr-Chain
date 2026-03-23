@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/zephyr-chain/zephyr-chain/internal/consensus"
 	"github.com/zephyr-chain/zephyr-chain/internal/dpos"
 	"github.com/zephyr-chain/zephyr-chain/internal/ledger"
 	"github.com/zephyr-chain/zephyr-chain/internal/tx"
@@ -101,11 +102,12 @@ type StatusResponse struct {
 }
 
 type ConsensusResponse struct {
-	NodeID                   string                   `json:"nodeId"`
-	ValidatorAddress         string                   `json:"validatorAddress,omitempty"`
-	ProposerScheduleEnforced bool                     `json:"proposerScheduleEnforced"`
-	ValidatorSet             ledger.ValidatorSnapshot `json:"validatorSet"`
-	Consensus                ledger.ConsensusView     `json:"consensus"`
+	NodeID                   string                        `json:"nodeId"`
+	ValidatorAddress         string                        `json:"validatorAddress,omitempty"`
+	ProposerScheduleEnforced bool                          `json:"proposerScheduleEnforced"`
+	ValidatorSet             ledger.ValidatorSnapshot      `json:"validatorSet"`
+	Artifacts                ledger.ConsensusArtifactsView `json:"artifacts"`
+	Consensus                ledger.ConsensusView          `json:"consensus"`
 }
 
 type LatestBlockResponse struct {
@@ -130,6 +132,7 @@ type Server struct {
 	config     Config
 	nodeID     string
 	httpClient *http.Client
+	transport  peerTransport
 	peerMu     sync.RWMutex
 	peerViews  map[string]PeerView
 	stopCh     chan struct{}
@@ -153,12 +156,14 @@ func NewServerWithConfig(config Config) (*Server, error) {
 		return nil, err
 	}
 
+	client := &http.Client{Timeout: 5 * time.Second}
 	server := &Server{
 		mux:        http.NewServeMux(),
 		ledger:     store,
 		config:     config,
 		nodeID:     config.NodeID,
-		httpClient: &http.Client{Timeout: 5 * time.Second},
+		httpClient: client,
+		transport:  newHTTPPeerTransport(client, config.NodeID),
 		peerViews:  make(map[string]PeerView),
 		stopCh:     make(chan struct{}),
 	}
@@ -184,6 +189,8 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/v1/status", s.handleStatus)
 	s.mux.HandleFunc("/v1/peers", s.handlePeers)
 	s.mux.HandleFunc("/v1/consensus", s.handleConsensus)
+	s.mux.HandleFunc("/v1/consensus/proposals", s.handleConsensusProposal)
+	s.mux.HandleFunc("/v1/consensus/votes", s.handleConsensusVote)
 	s.mux.HandleFunc("/v1/election", s.handleElection)
 	s.mux.HandleFunc("/v1/validators", s.handleValidators)
 	s.mux.HandleFunc("/v1/transactions", s.handleBroadcastTransaction)
@@ -241,6 +248,7 @@ func (s *Server) handleConsensus(w http.ResponseWriter, r *http.Request) {
 		ValidatorAddress:         s.config.ValidatorAddress,
 		ProposerScheduleEnforced: s.config.EnforceProposerSchedule,
 		ValidatorSet:             s.ledger.ValidatorSet(),
+		Artifacts:                s.ledger.ConsensusArtifacts(),
 		Consensus:                s.ledger.Consensus(),
 	})
 }
@@ -562,7 +570,14 @@ func statusForError(err error) int {
 		errors.Is(err, tx.ErrInvalidPayload),
 		errors.Is(err, tx.ErrInvalidPublicKey),
 		errors.Is(err, tx.ErrInvalidAddress),
-		errors.Is(err, tx.ErrInvalidSignature):
+		errors.Is(err, tx.ErrInvalidSignature),
+		errors.Is(err, consensus.ErrMissingFields),
+		errors.Is(err, consensus.ErrInvalidPayload),
+		errors.Is(err, consensus.ErrInvalidPublicKey),
+		errors.Is(err, consensus.ErrInvalidAddress),
+		errors.Is(err, consensus.ErrInvalidSignature),
+		errors.Is(err, consensus.ErrInvalidHash),
+		errors.Is(err, consensus.ErrInvalidHeight):
 		return http.StatusBadRequest
 	case errors.Is(err, ledger.ErrDuplicateTransaction),
 		errors.Is(err, ledger.ErrInvalidNonce),
@@ -570,6 +585,13 @@ func statusForError(err error) int {
 		errors.Is(err, ledger.ErrNoTransactionsToBlock),
 		errors.Is(err, ledger.ErrBlockOutOfSequence),
 		errors.Is(err, ledger.ErrBlockConflict),
+		errors.Is(err, ledger.ErrNoValidatorSet),
+		errors.Is(err, ledger.ErrValidatorNotActive),
+		errors.Is(err, ledger.ErrUnexpectedProposer),
+		errors.Is(err, ledger.ErrConsensusHeightMismatch),
+		errors.Is(err, ledger.ErrConflictingProposal),
+		errors.Is(err, ledger.ErrUnknownProposal),
+		errors.Is(err, ledger.ErrConflictingVote),
 		errors.Is(err, errBlockProductionDisabled),
 		errors.Is(err, errValidatorAddressRequired),
 		errors.Is(err, errNotScheduledProposer):

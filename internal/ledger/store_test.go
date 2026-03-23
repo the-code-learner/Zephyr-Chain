@@ -7,10 +7,12 @@ import (
 	"crypto/sha256"
 	"crypto/x509"
 	"encoding/base64"
+	"encoding/hex"
 	"errors"
 	"math/big"
 	"testing"
 
+	"github.com/zephyr-chain/zephyr-chain/internal/consensus"
 	"github.com/zephyr-chain/zephyr-chain/internal/dpos"
 	"github.com/zephyr-chain/zephyr-chain/internal/tx"
 )
@@ -386,6 +388,93 @@ func TestStoreSnapshotRestoreRehydratesState(t *testing.T) {
 	}
 }
 
+func TestStoreRecordProposalVotesAndCertificatePersistAcrossRestart(t *testing.T) {
+	dataDir := t.TempDir()
+	store, err := NewStore(dataDir)
+	if err != nil {
+		t.Fatalf("create store: %v", err)
+	}
+
+	proposer := newConsensusSigner(t)
+	voter := newConsensusSigner(t)
+	if _, err := store.SetValidators([]dpos.Validator{
+		{Rank: 1, Address: proposer.address, VotingPower: 60, SelfStake: 40, DelegatedStake: 20},
+		{Rank: 2, Address: voter.address, VotingPower: 40, SelfStake: 25, DelegatedStake: 15},
+	}, dpos.ElectionConfig{MaxValidators: 2}); err != nil {
+		t.Fatalf("set validators: %v", err)
+	}
+
+	proposal := signedProposalWithSigner(t, proposer, 1, 0, testHash("block-1"), "")
+	if err := store.RecordProposal(proposal); err != nil {
+		t.Fatalf("record proposal: %v", err)
+	}
+
+	firstVote := signedVoteWithSigner(t, proposer, 1, 0, proposal.BlockHash)
+	tally, certificate, err := store.RecordVote(firstVote)
+	if err != nil {
+		t.Fatalf("record first vote: %v", err)
+	}
+	if certificate != nil {
+		t.Fatal("expected no certificate after first vote")
+	}
+	if tally.QuorumReached {
+		t.Fatal("expected quorum to remain unmet after first vote")
+	}
+
+	secondVote := signedVoteWithSigner(t, voter, 1, 0, proposal.BlockHash)
+	tally, certificate, err = store.RecordVote(secondVote)
+	if err != nil {
+		t.Fatalf("record second vote: %v", err)
+	}
+	if certificate == nil {
+		t.Fatal("expected certificate after quorum vote")
+	}
+	if !tally.QuorumReached {
+		t.Fatal("expected quorum after second vote")
+	}
+
+	artifacts := store.ConsensusArtifacts()
+	if artifacts.ProposalCount != 1 || artifacts.VoteCount != 2 || artifacts.CertificateCount != 1 {
+		t.Fatalf("unexpected consensus artifact counts: %+v", artifacts)
+	}
+	if artifacts.LatestCertificate == nil || artifacts.LatestCertificate.BlockHash != proposal.BlockHash {
+		t.Fatalf("expected latest certificate for block %s, got %+v", proposal.BlockHash, artifacts.LatestCertificate)
+	}
+
+	reopened, err := NewStore(dataDir)
+	if err != nil {
+		t.Fatalf("reopen store: %v", err)
+	}
+	if reopened.ConsensusArtifacts().LatestCertificate == nil {
+		t.Fatal("expected certificate after reopen")
+	}
+
+	replica := newTestStore(t)
+	if err := replica.Restore(store.Snapshot()); err != nil {
+		t.Fatalf("restore snapshot: %v", err)
+	}
+	if replica.ConsensusArtifacts().LatestCertificate == nil {
+		t.Fatal("expected certificate after snapshot restore")
+	}
+}
+
+func TestStoreRecordProposalRejectsUnexpectedProposer(t *testing.T) {
+	store := newTestStore(t)
+	proposer := newConsensusSigner(t)
+	other := newConsensusSigner(t)
+	if _, err := store.SetValidators([]dpos.Validator{
+		{Rank: 1, Address: proposer.address, VotingPower: 70, SelfStake: 50, DelegatedStake: 20},
+		{Rank: 2, Address: other.address, VotingPower: 30, SelfStake: 20, DelegatedStake: 10},
+	}, dpos.ElectionConfig{MaxValidators: 2}); err != nil {
+		t.Fatalf("set validators: %v", err)
+	}
+
+	proposal := signedProposalWithSigner(t, other, 1, 0, testHash("wrong-proposer"), "")
+	if err := store.RecordProposal(proposal); !errors.Is(err, ErrUnexpectedProposer) {
+		t.Fatalf("expected unexpected proposer error, got %v", err)
+	}
+}
+
 func newTestStore(t *testing.T) *Store {
 	t.Helper()
 
@@ -452,4 +541,65 @@ func pad32(value *big.Int) []byte {
 	padded := make([]byte, 32)
 	copy(padded[32-len(bytes):], bytes)
 	return padded
+}
+
+type consensusSigner struct {
+	privateKey *ecdsa.PrivateKey
+	address    string
+	publicKey  string
+}
+
+func newConsensusSigner(t *testing.T) consensusSigner {
+	t.Helper()
+
+	privateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("generate consensus key: %v", err)
+	}
+	publicKeyBytes, err := x509.MarshalPKIXPublicKey(&privateKey.PublicKey)
+	if err != nil {
+		t.Fatalf("marshal consensus public key: %v", err)
+	}
+	encodedPublicKey := base64.StdEncoding.EncodeToString(publicKeyBytes)
+	address, err := tx.DeriveAddressFromPublicKey(encodedPublicKey)
+	if err != nil {
+		t.Fatalf("derive consensus address: %v", err)
+	}
+	return consensusSigner{privateKey: privateKey, address: address, publicKey: encodedPublicKey}
+}
+
+func signedProposalWithSigner(t *testing.T, signer consensusSigner, height uint64, round uint64, blockHash string, previousHash string) consensus.Proposal {
+	t.Helper()
+
+	proposal := consensus.Proposal{
+		Height:       height,
+		Round:        round,
+		BlockHash:    blockHash,
+		PreviousHash: previousHash,
+		Proposer:     signer.address,
+		PublicKey:    signer.publicKey,
+	}
+	proposal.Payload = proposal.CanonicalPayload()
+	proposal.Signature = signPayload(t, signer.privateKey, proposal.Payload)
+	return proposal
+}
+
+func signedVoteWithSigner(t *testing.T, signer consensusSigner, height uint64, round uint64, blockHash string) consensus.Vote {
+	t.Helper()
+
+	vote := consensus.Vote{
+		Height:    height,
+		Round:     round,
+		BlockHash: blockHash,
+		Voter:     signer.address,
+		PublicKey: signer.publicKey,
+	}
+	vote.Payload = vote.CanonicalPayload()
+	vote.Signature = signPayload(t, signer.privateKey, vote.Payload)
+	return vote
+}
+
+func testHash(seed string) string {
+	sum := sha256.Sum256([]byte(seed))
+	return hex.EncodeToString(sum[:])
 }

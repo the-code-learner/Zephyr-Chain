@@ -8,6 +8,7 @@ import (
 	"crypto/sha256"
 	"crypto/x509"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"math/big"
 	"net/http"
@@ -16,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/zephyr-chain/zephyr-chain/internal/consensus"
 	"github.com/zephyr-chain/zephyr-chain/internal/dpos"
 	"github.com/zephyr-chain/zephyr-chain/internal/tx"
 )
@@ -305,6 +307,168 @@ func TestHandleProduceBlockRejectsWhenLocalValidatorIsNotScheduled(t *testing.T)
 	}
 }
 
+func TestHandleConsensusProposalAndVotesExposeArtifacts(t *testing.T) {
+	server := newTestServer(t, Config{
+		DataDir:                 t.TempDir(),
+		BlockInterval:           0,
+		SyncInterval:            0,
+		MaxTransactionsPerBlock: 10,
+		EnableBlockProduction:   false,
+		EnablePeerSync:          false,
+	})
+
+	proposer := newConsensusSigner(t)
+	voter := newConsensusSigner(t)
+	if _, err := server.ledger.SetValidators([]dpos.Validator{
+		{Rank: 1, Address: proposer.address, VotingPower: 60, SelfStake: 40, DelegatedStake: 20},
+		{Rank: 2, Address: voter.address, VotingPower: 40, SelfStake: 25, DelegatedStake: 15},
+	}, dpos.ElectionConfig{MaxValidators: 2}); err != nil {
+		t.Fatalf("set validators: %v", err)
+	}
+
+	proposal := signedConsensusProposal(t, proposer, 1, 0, consensusTestHash("block-1"), "")
+	proposalBody, err := json.Marshal(proposal)
+	if err != nil {
+		t.Fatalf("marshal proposal: %v", err)
+	}
+	proposalRequest := httptest.NewRequest(http.MethodPost, "/v1/consensus/proposals", bytes.NewReader(proposalBody))
+	proposalRecorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(proposalRecorder, proposalRequest)
+	if proposalRecorder.Code != http.StatusAccepted {
+		t.Fatalf("expected proposal status 202, got %d", proposalRecorder.Code)
+	}
+
+	firstVote := signedConsensusVote(t, proposer, 1, 0, proposal.BlockHash)
+	firstVoteBody, err := json.Marshal(firstVote)
+	if err != nil {
+		t.Fatalf("marshal first vote: %v", err)
+	}
+	firstVoteRequest := httptest.NewRequest(http.MethodPost, "/v1/consensus/votes", bytes.NewReader(firstVoteBody))
+	firstVoteRecorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(firstVoteRecorder, firstVoteRequest)
+	if firstVoteRecorder.Code != http.StatusAccepted {
+		t.Fatalf("expected first vote status 202, got %d", firstVoteRecorder.Code)
+	}
+
+	secondVote := signedConsensusVote(t, voter, 1, 0, proposal.BlockHash)
+	secondVoteBody, err := json.Marshal(secondVote)
+	if err != nil {
+		t.Fatalf("marshal second vote: %v", err)
+	}
+	secondVoteRequest := httptest.NewRequest(http.MethodPost, "/v1/consensus/votes", bytes.NewReader(secondVoteBody))
+	secondVoteRecorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(secondVoteRecorder, secondVoteRequest)
+	if secondVoteRecorder.Code != http.StatusAccepted {
+		t.Fatalf("expected second vote status 202, got %d", secondVoteRecorder.Code)
+	}
+
+	consensusRequest := httptest.NewRequest(http.MethodGet, "/v1/consensus", nil)
+	consensusRecorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(consensusRecorder, consensusRequest)
+	if consensusRecorder.Code != http.StatusOK {
+		t.Fatalf("expected consensus status 200, got %d", consensusRecorder.Code)
+	}
+
+	var response ConsensusResponse
+	if err := json.NewDecoder(consensusRecorder.Body).Decode(&response); err != nil {
+		t.Fatalf("decode consensus response: %v", err)
+	}
+	if response.Artifacts.LatestCertificate == nil {
+		t.Fatal("expected latest certificate in consensus response")
+	}
+	if response.Artifacts.LatestCertificate.BlockHash != proposal.BlockHash {
+		t.Fatalf("expected certificate for block %s, got %+v", proposal.BlockHash, response.Artifacts.LatestCertificate)
+	}
+	if response.Artifacts.ProposalCount != 1 || response.Artifacts.VoteCount != 2 || response.Artifacts.CertificateCount != 1 {
+		t.Fatalf("unexpected artifact counts: %+v", response.Artifacts)
+	}
+}
+
+func TestPeerReplicationPropagatesConsensusProposalAndVotes(t *testing.T) {
+	peerServer := newTestServer(t, Config{
+		DataDir:                 t.TempDir(),
+		NodeID:                  "node-b",
+		BlockInterval:           0,
+		SyncInterval:            0,
+		MaxTransactionsPerBlock: 10,
+		EnableBlockProduction:   false,
+		EnablePeerSync:          false,
+	})
+	peerHTTP := httptest.NewServer(peerServer.Handler())
+	defer peerHTTP.Close()
+
+	mainServer := newTestServer(t, Config{
+		DataDir:                 t.TempDir(),
+		NodeID:                  "node-a",
+		PeerURLs:                []string{peerHTTP.URL},
+		BlockInterval:           0,
+		SyncInterval:            50 * time.Millisecond,
+		MaxTransactionsPerBlock: 10,
+		EnableBlockProduction:   false,
+		EnablePeerSync:          true,
+	})
+
+	proposer := newConsensusSigner(t)
+	voter := newConsensusSigner(t)
+	validators := []dpos.Validator{
+		{Rank: 1, Address: proposer.address, VotingPower: 60, SelfStake: 40, DelegatedStake: 20},
+		{Rank: 2, Address: voter.address, VotingPower: 40, SelfStake: 25, DelegatedStake: 15},
+	}
+	if _, err := mainServer.ledger.SetValidators(validators, dpos.ElectionConfig{MaxValidators: 2}); err != nil {
+		t.Fatalf("set main validators: %v", err)
+	}
+	if _, err := peerServer.ledger.SetValidators(validators, dpos.ElectionConfig{MaxValidators: 2}); err != nil {
+		t.Fatalf("set peer validators: %v", err)
+	}
+
+	proposal := signedConsensusProposal(t, proposer, 1, 0, consensusTestHash("peer-block-1"), "")
+	proposalBody, err := json.Marshal(proposal)
+	if err != nil {
+		t.Fatalf("marshal proposal: %v", err)
+	}
+	proposalRequest := httptest.NewRequest(http.MethodPost, "/v1/consensus/proposals", bytes.NewReader(proposalBody))
+	proposalRecorder := httptest.NewRecorder()
+	mainServer.Handler().ServeHTTP(proposalRecorder, proposalRequest)
+	if proposalRecorder.Code != http.StatusAccepted {
+		t.Fatalf("expected proposal status 202, got %d", proposalRecorder.Code)
+	}
+
+	waitFor(t, func() bool {
+		return peerServer.ledger.ConsensusArtifacts().ProposalCount == 1
+	})
+
+	voteA := signedConsensusVote(t, proposer, 1, 0, proposal.BlockHash)
+	voteABody, err := json.Marshal(voteA)
+	if err != nil {
+		t.Fatalf("marshal vote A: %v", err)
+	}
+	voteARequest := httptest.NewRequest(http.MethodPost, "/v1/consensus/votes", bytes.NewReader(voteABody))
+	voteARecorder := httptest.NewRecorder()
+	mainServer.Handler().ServeHTTP(voteARecorder, voteARequest)
+	if voteARecorder.Code != http.StatusAccepted {
+		t.Fatalf("expected vote A status 202, got %d", voteARecorder.Code)
+	}
+
+	voteB := signedConsensusVote(t, voter, 1, 0, proposal.BlockHash)
+	voteBBody, err := json.Marshal(voteB)
+	if err != nil {
+		t.Fatalf("marshal vote B: %v", err)
+	}
+	voteBRequest := httptest.NewRequest(http.MethodPost, "/v1/consensus/votes", bytes.NewReader(voteBBody))
+	voteBRecorder := httptest.NewRecorder()
+	mainServer.Handler().ServeHTTP(voteBRecorder, voteBRequest)
+	if voteBRecorder.Code != http.StatusAccepted {
+		t.Fatalf("expected vote B status 202, got %d", voteBRecorder.Code)
+	}
+
+	waitFor(t, func() bool {
+		return peerServer.ledger.ConsensusArtifacts().LatestCertificate != nil
+	})
+	if peerServer.ledger.ConsensusArtifacts().LatestCertificate.BlockHash != proposal.BlockHash {
+		t.Fatalf("expected replicated certificate for block %s, got %+v", proposal.BlockHash, peerServer.ledger.ConsensusArtifacts().LatestCertificate)
+	}
+}
+
 func TestPeerReplicationPropagatesFaucetTransactionAndBlock(t *testing.T) {
 	peerServer := newTestServer(t, Config{
 		DataDir:                 t.TempDir(),
@@ -579,4 +743,65 @@ func pad32(value *big.Int) []byte {
 	padded := make([]byte, 32)
 	copy(padded[32-len(bytes):], bytes)
 	return padded
+}
+
+type consensusSigner struct {
+	privateKey *ecdsa.PrivateKey
+	address    string
+	publicKey  string
+}
+
+func newConsensusSigner(t *testing.T) consensusSigner {
+	t.Helper()
+
+	privateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("generate consensus key: %v", err)
+	}
+	publicKeyBytes, err := x509.MarshalPKIXPublicKey(&privateKey.PublicKey)
+	if err != nil {
+		t.Fatalf("marshal consensus public key: %v", err)
+	}
+	encodedPublicKey := base64.StdEncoding.EncodeToString(publicKeyBytes)
+	address, err := tx.DeriveAddressFromPublicKey(encodedPublicKey)
+	if err != nil {
+		t.Fatalf("derive consensus address: %v", err)
+	}
+	return consensusSigner{privateKey: privateKey, address: address, publicKey: encodedPublicKey}
+}
+
+func signedConsensusProposal(t *testing.T, signer consensusSigner, height uint64, round uint64, blockHash string, previousHash string) consensus.Proposal {
+	t.Helper()
+
+	proposal := consensus.Proposal{
+		Height:       height,
+		Round:        round,
+		BlockHash:    blockHash,
+		PreviousHash: previousHash,
+		Proposer:     signer.address,
+		PublicKey:    signer.publicKey,
+	}
+	proposal.Payload = proposal.CanonicalPayload()
+	proposal.Signature = signPayload(t, signer.privateKey, proposal.Payload)
+	return proposal
+}
+
+func signedConsensusVote(t *testing.T, signer consensusSigner, height uint64, round uint64, blockHash string) consensus.Vote {
+	t.Helper()
+
+	vote := consensus.Vote{
+		Height:    height,
+		Round:     round,
+		BlockHash: blockHash,
+		Voter:     signer.address,
+		PublicKey: signer.publicKey,
+	}
+	vote.Payload = vote.CanonicalPayload()
+	vote.Signature = signPayload(t, signer.privateKey, vote.Payload)
+	return vote
+}
+
+func consensusTestHash(seed string) string {
+	sum := sha256.Sum256([]byte(seed))
+	return hex.EncodeToString(sum[:])
 }
