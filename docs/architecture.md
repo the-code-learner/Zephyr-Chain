@@ -2,17 +2,22 @@
 
 ## Overview
 
-The current MVP is a three-part local development system:
+The current MVP is a four-part local development system:
 
 - a Go node API that validates transactions, persists chain state, produces blocks, and replicates state to configured peers
-- a durable ledger that stores accounts, mempool entries, committed blocks, and restart-safe metadata on disk
+- a durable ledger that stores accounts, mempool entries, committed blocks, validator snapshots, and restart-safe metadata on disk
+- a DPoS election module that ranks validators deterministically from candidate and vote inputs
 - a Vue wallet that runs in the browser and acts as a light client
 
 The current data flow is:
 
 `wallet UI -> wallet signing logic -> node HTTP API -> durable mempool -> local block production -> durable block/account state -> static peer replication over HTTP`
 
-This is the first multi-node devnet slice. It is not libp2p and it is not consensus yet.
+With this iteration, the node also maintains a durable consensus view:
+
+`validator election -> durable validator snapshot -> derived voting-power totals -> derived quorum target -> derived next proposer`
+
+This is still a development-stage system. It is not libp2p yet and it is not full validator finality yet.
 
 ## Components
 
@@ -26,7 +31,7 @@ The reference wallet lives in `apps/wallet` and is responsible for:
 - storing the wallet backup JSON in browser `localStorage`
 - creating a canonical transaction payload
 - signing the payload locally
-- calling the node API for health, account inspection, faucet funding, and transaction broadcast
+- calling the node API for health, account inspection, faucet funding, transaction broadcast, and status inspection
 
 The wallet is still a light client. It does not run consensus logic or store full chain state.
 
@@ -39,8 +44,9 @@ The API layer currently handles:
 - liveness through `GET /health`
 - runtime status through `GET /v1/status`
 - peer visibility through `GET /v1/peers`
+- consensus visibility through `GET /v1/consensus`
 - validator election inputs through `POST /v1/election`
-- the latest local validator snapshot through `GET /v1/validators`
+- the latest durable validator snapshot through `GET /v1/validators`
 - persisted account state through `GET /v1/accounts/{address}`
 - signed transaction envelopes through `POST /v1/transactions`
 - committed blocks through `GET /v1/blocks/latest` and `GET /v1/blocks/{height}`
@@ -59,25 +65,13 @@ The store currently persists:
 - committed blocks
 - known committed transaction IDs
 - applied faucet request IDs used for idempotent peer funding replication
+- the active validator snapshot selected by the latest election call
+- validator snapshot version and update time
+- enough consensus metadata to derive the next scheduled proposer and quorum threshold
 
-On startup, the node reloads this state and rebuilds pending balance and nonce reservations from the persisted mempool.
+On startup, the node reloads this state and rebuilds pending balance and nonce reservations from the persisted mempool. Validator metadata also survives restart and snapshot restore.
 
-### Static Peer Replication Layer
-
-The current multi-node layer is intentionally simple.
-
-Each node can be configured with a fixed list of peer base URLs through `ZEPHYR_PEERS`. When enabled:
-
-- accepted transactions are forwarded to peers over HTTP
-- dev faucet credits are forwarded with a request ID so duplicate credits are ignored safely
-- locally produced blocks are posted to peers for import
-- a background sync loop polls peer status on `ZEPHYR_SYNC_INTERVAL`
-- if a node is behind, it fetches missing blocks by height
-- if block import fails or the node detects divergent state at the same height, it falls back to a full snapshot restore
-
-This gives the project a workable devnet replication path without yet claiming full peer-to-peer networking or consensus safety.
-
-## DPoS Election Flow
+### DPoS Election Module
 
 The DPoS service lives in `internal/dpos` and currently models a deterministic ranking algorithm rather than a full consensus engine.
 
@@ -103,8 +97,25 @@ Election steps:
 6. Sort validators deterministically by higher `VotingPower`, higher `SelfStake`, lower `CommissionRate`, then lexicographically smaller `Address`.
 7. Trim the result to `MaxValidators`.
 8. Assign 1-based `Rank` values.
+9. Persist the resulting validator set in the ledger as a durable snapshot.
+10. Derive the next proposer with a simple rank-order round-robin schedule over block height.
 
-The API still stores the latest election result locally and independently from block production.
+Important caveat: the election result is now durable, but it is still written by API call, not yet by a staking/governance transaction flow.
+
+### Static Peer Replication Layer
+
+The current multi-node layer is intentionally simple.
+
+Each node can be configured with a fixed list of peer base URLs through `ZEPHYR_PEERS`. When enabled:
+
+- accepted transactions are forwarded to peers over HTTP
+- dev faucet credits are forwarded with a request ID so duplicate credits are ignored safely
+- locally produced blocks are posted to peers for import
+- a background sync loop polls peer status on `ZEPHYR_SYNC_INTERVAL`
+- if a node is behind, it fetches missing blocks by height
+- if block import fails or the node detects divergent state at the same height, it falls back to a full snapshot restore
+
+This gives the project a workable devnet replication path without yet claiming full peer-to-peer networking or consensus safety.
 
 ## Transaction Lifecycle
 
@@ -126,18 +137,38 @@ Important current behavior:
 - replication is best-effort devnet behavior, not validator finality
 - snapshot restore is a convenience sync mechanism, not a trust-minimized state proof system
 
-## Block Production And Sync Path
+## Block Production And Consensus Preparation
 
-The current block and sync path is intentionally narrow:
+The current block path is intentionally narrow:
 
-- one node can be configured as the active producer while others disable local production
+- one node can still be configured as the active producer while others disable local production
 - the producer creates blocks from mempool order up to `ZEPHYR_MAX_TXS_PER_BLOCK`
 - each block stores height, previous hash, produced time, transaction IDs, and full transaction envelopes
 - peers import blocks only if height, previous hash, transaction IDs, hashes, signatures, balances, and nonces all line up
 - a behind node fetches missing blocks by height
 - if block-by-block import cannot reconcile the state, the node restores from a peer snapshot
 
-This is enough to prove durable replication and recovery, but it is still not a validator-driven commit protocol.
+The new consensus-preparation layer adds:
+
+- a durable validator snapshot stored in the ledger instead of transient API memory
+- a versioned validator set that survives restart and snapshot restore
+- derived total voting power and quorum target
+- a deterministic next-proposer calculation for the next block height
+- an optional local safety guard that can refuse block production when the node is not the scheduled proposer
+
+This is useful operational groundwork, but it is not a validator-driven commit protocol yet. There are still no signed proposals, votes, timeout certificates, or commit certificates.
+
+## Planned Production Path
+
+The near-term production path is:
+
+1. bind node networking identity to validator identity
+2. replace static peer replication with authenticated transport and peer discovery
+3. add signed proposal, vote, and commit-certificate messages
+4. persist consensus write-ahead data for crash recovery and fork investigation
+5. introduce slashing/evidence handling and validator lifecycle management
+
+Only after that foundation is in place should the project treat block finality as a validator property rather than a local producer behavior.
 
 ## Planned WASM Contract Layer
 
@@ -167,10 +198,10 @@ This MVP intentionally favors clarity over production safety.
 
 - Private keys are stored unencrypted in browser `localStorage`.
 - Peer replication currently uses static HTTP configuration, not authenticated libp2p networking.
-- Block production is still single-producer in practice for the current devnet slice.
-- There is no validator acknowledgment, slashing, or Byzantine fault tolerance yet.
+- Block production is still local execution with optional schedule enforcement, not proven validator finality.
+- There are no validator votes, timeout handling, or Byzantine fault tolerance yet.
 - Snapshot restore trusts the peer it restores from.
-- DPoS election output is still an API-level calculation, not a live consensus round.
+- DPoS election output is durable now, but still API-level control-plane data rather than on-chain governance/state transition data.
 - WASM contracts and confidential compute are planned architecture targets, not implemented runtime features.
 
 For those reasons, the current implementation is suitable for local development, API experimentation, and early distributed-state testing, but not for real funds or public deployment.

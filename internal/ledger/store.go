@@ -11,18 +11,19 @@ import (
 	"sync"
 	"time"
 
+	"github.com/zephyr-chain/zephyr-chain/internal/dpos"
 	"github.com/zephyr-chain/zephyr-chain/internal/tx"
 )
 
 var (
-	ErrDuplicateTransaction = errors.New("transaction already exists")
-	ErrInvalidNonce = errors.New("invalid nonce for account")
-	ErrInsufficientBalance = errors.New("insufficient balance")
+	ErrDuplicateTransaction  = errors.New("transaction already exists")
+	ErrInvalidNonce          = errors.New("invalid nonce for account")
+	ErrInsufficientBalance   = errors.New("insufficient balance")
 	ErrNoTransactionsToBlock = errors.New("no transactions available for block production")
-	ErrBlockInvariant = errors.New("block production invariant failed")
-	ErrInvalidBlock = errors.New("invalid block")
-	ErrBlockOutOfSequence = errors.New("block out of sequence")
-	ErrBlockConflict = errors.New("conflicting block at height")
+	ErrBlockInvariant        = errors.New("block production invariant failed")
+	ErrInvalidBlock          = errors.New("invalid block")
+	ErrBlockOutOfSequence    = errors.New("block out of sequence")
+	ErrBlockConflict         = errors.New("conflicting block at height")
 )
 
 type AccountState struct {
@@ -63,12 +64,31 @@ type StatusView struct {
 	MempoolSize     int        `json:"mempoolSize"`
 }
 
+type ValidatorSnapshot struct {
+	Validators     []dpos.Validator    `json:"validators"`
+	ElectionConfig dpos.ElectionConfig `json:"electionConfig"`
+	Version        uint64              `json:"version"`
+	UpdatedAt      *time.Time          `json:"updatedAt,omitempty"`
+}
+
+type ConsensusView struct {
+	CurrentHeight         uint64     `json:"currentHeight"`
+	NextHeight            uint64     `json:"nextHeight"`
+	ValidatorSetVersion   uint64     `json:"validatorSetVersion"`
+	ValidatorSetUpdatedAt *time.Time `json:"validatorSetUpdatedAt,omitempty"`
+	ValidatorCount        int        `json:"validatorCount"`
+	TotalVotingPower      uint64     `json:"totalVotingPower"`
+	QuorumVotingPower     uint64     `json:"quorumVotingPower"`
+	NextProposer          string     `json:"nextProposer,omitempty"`
+}
+
 type Snapshot struct {
 	Accounts                map[string]AccountState `json:"accounts"`
 	Mempool                 []MempoolEntry          `json:"mempool"`
 	Blocks                  []Block                 `json:"blocks"`
 	CommittedTransactionIDs []string                `json:"committedTransactionIds"`
 	AppliedFundingIDs       []string                `json:"appliedFundingIds"`
+	ValidatorSnapshot       ValidatorSnapshot       `json:"validatorSnapshot"`
 }
 
 type pendingState struct {
@@ -83,6 +103,7 @@ type persistedState struct {
 	Blocks                  []Block                 `json:"blocks"`
 	CommittedTransactionIDs []string                `json:"committedTransactionIds"`
 	AppliedFundingIDs       []string                `json:"appliedFundingIds"`
+	ValidatorSnapshot       ValidatorSnapshot       `json:"validatorSnapshot"`
 }
 
 type Store struct {
@@ -95,6 +116,7 @@ type Store struct {
 	blocks                []Block
 	committedTransactions map[string]struct{}
 	appliedFundingIDs     map[string]struct{}
+	validatorSnapshot     ValidatorSnapshot
 }
 
 func NewStore(dataDir string) (*Store, error) {
@@ -115,6 +137,7 @@ func NewStore(dataDir string) (*Store, error) {
 		blocks:                make([]Block, 0),
 		committedTransactions: make(map[string]struct{}),
 		appliedFundingIDs:     make(map[string]struct{}),
+		validatorSnapshot:     normalizeValidatorSnapshot(ValidatorSnapshot{}),
 	}
 
 	if err := store.load(); err != nil {
@@ -215,6 +238,41 @@ func (s *Store) Status() StatusView {
 	status.LatestBlockHash = latest.Hash
 	status.LatestBlockAt = &producedAt
 	return status
+}
+
+func (s *Store) ValidatorSet() ValidatorSnapshot {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	return cloneValidatorSnapshot(s.validatorSnapshot)
+}
+
+func (s *Store) SetValidators(validators []dpos.Validator, config dpos.ElectionConfig) (ValidatorSnapshot, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	state := s.snapshotLocked()
+	now := time.Now().UTC()
+	state.ValidatorSnapshot = normalizeValidatorSnapshot(ValidatorSnapshot{
+		Validators:     cloneValidators(validators),
+		ElectionConfig: dpos.NormalizeElectionConfig(config),
+		Version:        state.ValidatorSnapshot.Version + 1,
+		UpdatedAt:      &now,
+	})
+
+	if err := s.writeState(state); err != nil {
+		return ValidatorSnapshot{}, err
+	}
+
+	s.applyStateLocked(state)
+	return cloneValidatorSnapshot(s.validatorSnapshot), nil
+}
+
+func (s *Store) Consensus() ConsensusView {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	return consensusFromState(s.blocks, s.validatorSnapshot)
 }
 
 func (s *Store) Snapshot() Snapshot {
@@ -374,6 +432,7 @@ func (s *Store) snapshotLocked() persistedState {
 		Blocks:                  cloneBlocks(s.blocks),
 		CommittedTransactionIDs: committedIDs,
 		AppliedFundingIDs:       appliedFundingIDs,
+		ValidatorSnapshot:       cloneValidatorSnapshot(s.validatorSnapshot),
 	}
 }
 
@@ -382,6 +441,7 @@ func (s *Store) applyStateLocked(state persistedState) {
 	s.accounts = cloneAccounts(state.Accounts)
 	s.mempool = cloneMempool(state.Mempool)
 	s.blocks = cloneBlocks(state.Blocks)
+	s.validatorSnapshot = cloneValidatorSnapshot(state.ValidatorSnapshot)
 	s.committedTransactions = make(map[string]struct{}, len(state.CommittedTransactionIDs))
 	for _, id := range state.CommittedTransactionIDs {
 		s.committedTransactions[id] = struct{}{}
@@ -588,6 +648,7 @@ func normalizeState(state persistedState) persistedState {
 	if state.AppliedFundingIDs == nil {
 		state.AppliedFundingIDs = make([]string, 0)
 	}
+	state.ValidatorSnapshot = normalizeValidatorSnapshot(state.ValidatorSnapshot)
 	state.CommittedTransactionIDs = uniqueSortedStrings(state.CommittedTransactionIDs)
 	state.AppliedFundingIDs = uniqueSortedStrings(state.AppliedFundingIDs)
 	return state
@@ -601,6 +662,7 @@ func snapshotFromPersisted(state persistedState) Snapshot {
 		Blocks:                  cloneBlocks(state.Blocks),
 		CommittedTransactionIDs: append([]string(nil), state.CommittedTransactionIDs...),
 		AppliedFundingIDs:       append([]string(nil), state.AppliedFundingIDs...),
+		ValidatorSnapshot:       cloneValidatorSnapshot(state.ValidatorSnapshot),
 	}
 }
 
@@ -611,7 +673,78 @@ func persistedFromSnapshot(snapshot Snapshot) persistedState {
 		Blocks:                  cloneBlocks(snapshot.Blocks),
 		CommittedTransactionIDs: append([]string(nil), snapshot.CommittedTransactionIDs...),
 		AppliedFundingIDs:       append([]string(nil), snapshot.AppliedFundingIDs...),
+		ValidatorSnapshot:       cloneValidatorSnapshot(snapshot.ValidatorSnapshot),
 	})
+}
+
+func consensusFromState(blocks []Block, snapshot ValidatorSnapshot) ConsensusView {
+	snapshot = normalizeValidatorSnapshot(snapshot)
+	currentHeight := uint64(len(blocks))
+	nextHeight := currentHeight + 1
+	totalVotingPower := uint64(0)
+	for _, validator := range snapshot.Validators {
+		totalVotingPower += validator.VotingPower
+	}
+
+	return ConsensusView{
+		CurrentHeight:         currentHeight,
+		NextHeight:            nextHeight,
+		ValidatorSetVersion:   snapshot.Version,
+		ValidatorSetUpdatedAt: cloneTimePointer(snapshot.UpdatedAt),
+		ValidatorCount:        len(snapshot.Validators),
+		TotalVotingPower:      totalVotingPower,
+		QuorumVotingPower:     quorumVotingPower(totalVotingPower),
+		NextProposer:          proposerForHeight(snapshot.Validators, nextHeight),
+	}
+}
+
+func normalizeValidatorSnapshot(snapshot ValidatorSnapshot) ValidatorSnapshot {
+	if snapshot.Validators == nil {
+		snapshot.Validators = make([]dpos.Validator, 0)
+	}
+	if snapshot.Version > 0 || len(snapshot.Validators) > 0 || snapshot.UpdatedAt != nil {
+		snapshot.ElectionConfig = dpos.NormalizeElectionConfig(snapshot.ElectionConfig)
+	}
+	return snapshot
+}
+
+func cloneValidatorSnapshot(snapshot ValidatorSnapshot) ValidatorSnapshot {
+	snapshot = normalizeValidatorSnapshot(snapshot)
+	return ValidatorSnapshot{
+		Validators:     cloneValidators(snapshot.Validators),
+		ElectionConfig: snapshot.ElectionConfig,
+		Version:        snapshot.Version,
+		UpdatedAt:      cloneTimePointer(snapshot.UpdatedAt),
+	}
+}
+
+func cloneValidators(validators []dpos.Validator) []dpos.Validator {
+	cloned := make([]dpos.Validator, len(validators))
+	copy(cloned, validators)
+	return cloned
+}
+
+func proposerForHeight(validators []dpos.Validator, height uint64) string {
+	if len(validators) == 0 || height == 0 {
+		return ""
+	}
+	index := int((height - 1) % uint64(len(validators)))
+	return validators[index].Address
+}
+
+func quorumVotingPower(totalVotingPower uint64) uint64 {
+	if totalVotingPower == 0 {
+		return 0
+	}
+	return (totalVotingPower*2)/3 + 1
+}
+
+func cloneTimePointer(value *time.Time) *time.Time {
+	if value == nil {
+		return nil
+	}
+	cloned := *value
+	return &cloned
 }
 
 func rebuildPendingState(accounts map[string]AccountState, mempool []MempoolEntry) map[string]pendingState {

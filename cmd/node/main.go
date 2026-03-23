@@ -21,6 +21,9 @@ func main() {
 	if nodeID := os.Getenv("ZEPHYR_NODE_ID"); nodeID != "" {
 		config.NodeID = nodeID
 	}
+	if validatorAddress := os.Getenv("ZEPHYR_VALIDATOR_ADDRESS"); validatorAddress != "" {
+		config.ValidatorAddress = validatorAddress
+	}
 	if dataDir := os.Getenv("ZEPHYR_DATA_DIR"); dataDir != "" {
 		config.DataDir = dataDir
 	}
@@ -62,6 +65,13 @@ func main() {
 		}
 		config.EnablePeerSync = parsed
 	}
+	if enabled := os.Getenv("ZEPHYR_ENFORCE_PROPOSER_SCHEDULE"); enabled != "" {
+		parsed, err := strconv.ParseBool(enabled)
+		if err != nil {
+			log.Fatalf("invalid ZEPHYR_ENFORCE_PROPOSER_SCHEDULE %q", enabled)
+		}
+		config.EnforceProposerSchedule = parsed
+	}
 
 	server, err := api.NewServerWithConfig(config)
 	if err != nil {
@@ -70,12 +80,14 @@ func main() {
 	defer server.Close()
 
 	log.Printf(
-		"zephyr node %s listening on %s (data dir: %s, block interval: %s, peer sync: %t, peers: %d)",
+		"zephyr node %s listening on %s (validator: %s, data dir: %s, block interval: %s, peer sync: %t, proposer schedule enforced: %t, peers: %d)",
 		config.NodeID,
 		addr,
+		config.ValidatorAddress,
 		config.DataDir,
 		config.BlockInterval,
 		config.EnablePeerSync,
+		config.EnforceProposerSchedule,
 		len(config.PeerURLs),
 	)
 	if err := http.ListenAndServe(addr, server.Handler()); err != nil {

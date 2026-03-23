@@ -2,10 +2,11 @@
 
 ## What This MVP Does
 
-The current repository gives you two practical local development flows:
+The current repository gives you three practical local development flows:
 
 - a single-node flow where one Go node persists chain state, funds test accounts, validates transactions, and commits blocks
 - a small multi-node devnet flow where one node produces blocks and other configured nodes follow through HTTP-based replication and sync
+- a consensus-preparation flow where you elect a validator set, inspect the derived proposer schedule, and optionally enforce that schedule for local block production
 
 The browser wallet can create a local account, export and import it, inspect node-side account state, sign a transaction, and send it to the node.
 
@@ -41,12 +42,13 @@ Expected behavior:
 - default bind address is `:8080`
 - default data directory is `var/node`
 - default automatic block interval is `15s`
-- the node exposes `/health`, `/v1/status`, `/v1/peers`, `/v1/election`, `/v1/validators`, `/v1/accounts/{address}`, `/v1/blocks/latest`, `/v1/blocks/{height}`, `/v1/dev/faucet`, `/v1/dev/produce-block`, and `/v1/transactions`
+- the node exposes `/health`, `/v1/status`, `/v1/peers`, `/v1/consensus`, `/v1/election`, `/v1/validators`, `/v1/accounts/{address}`, `/v1/blocks/latest`, `/v1/blocks/{height}`, `/v1/dev/faucet`, `/v1/dev/produce-block`, and `/v1/transactions`
 
-To change the bind address, node identity, data directory, or block interval:
+To change the bind address, node identity, validator identity, data directory, or block interval:
 
 ```powershell
 $env:ZEPHYR_NODE_ID="node-a"
+$env:ZEPHYR_VALIDATOR_ADDRESS="zph_validator_a"
 $env:ZEPHYR_HTTP_ADDR=":9090"
 $env:ZEPHYR_DATA_DIR="var/devnet-a"
 $env:ZEPHYR_BLOCK_INTERVAL="5s"
@@ -59,6 +61,7 @@ Sanity-check the node with:
 ```powershell
 Invoke-RestMethod http://localhost:8080/health
 Invoke-RestMethod http://localhost:8080/v1/status
+Invoke-RestMethod http://localhost:8080/v1/consensus
 ```
 
 ## Run A Two-Node Devnet
@@ -173,6 +176,66 @@ Important:
 - replication is devnet synchronization, not consensus finality
 - this is still a prototype network layer, not the final peer-to-peer transport
 
+## Inspect Validator Scheduling
+
+The current MVP can persist a validator set and derive a next-proposer schedule, even though it does not yet implement validator voting/finality.
+
+1. Start a node with a validator address:
+
+```powershell
+$env:ZEPHYR_NODE_ID="node-a"
+$env:ZEPHYR_VALIDATOR_ADDRESS="zph_validator_a"
+go run ./cmd/node
+```
+
+2. Submit an election:
+
+```powershell
+$election = @{
+  candidates = @(
+    @{ address = "zph_validator_a"; selfStake = 20000; commissionRate = 0.05; missedBlocks = 1 },
+    @{ address = "zph_validator_b"; selfStake = 15000; commissionRate = 0.08; missedBlocks = 0 }
+  )
+  votes = @(
+    @{ delegator = "delegator-1"; candidate = "zph_validator_a"; amount = 5000 },
+    @{ delegator = "delegator-2"; candidate = "zph_validator_b"; amount = 3000 }
+  )
+  config = @{ maxValidators = 2; minSelfStake = 10000; maxMissedBlocks = 50 }
+} | ConvertTo-Json -Depth 4
+
+Invoke-RestMethod -Method Post -Uri "http://localhost:8080/v1/election" -ContentType "application/json" -Body $election
+```
+
+3. Inspect the durable consensus view:
+
+```powershell
+Invoke-RestMethod http://localhost:8080/v1/validators
+Invoke-RestMethod http://localhost:8080/v1/consensus
+```
+
+You should see:
+
+- a validator snapshot version that increases when the election result is replaced
+- the persisted validator list and normalized election config
+- `totalVotingPower`, `quorumVotingPower`, and `nextProposer`
+
+## Enforce Proposer Scheduling Locally
+
+This is a local safety guard, not finality.
+
+Run the node with:
+
+```powershell
+$env:ZEPHYR_NODE_ID="node-b"
+$env:ZEPHYR_VALIDATOR_ADDRESS="zph_validator_b"
+$env:ZEPHYR_ENFORCE_PROPOSER_SCHEDULE="true"
+go run ./cmd/node
+```
+
+After an election is stored, `POST /v1/dev/produce-block` will return `409` if the local validator is not the scheduled proposer for the next height.
+
+This is useful for local consensus-preparation testing because it prevents the wrong node from producing blocks manually or on the automatic timer.
+
 ## Force A Local Block
 
 For deterministic local testing, you can force immediate block production on a producer node:
@@ -228,6 +291,13 @@ Use it only for local development. In the current MVP:
 - confirm producer and replica use different `ZEPHYR_DATA_DIR` values
 - check `GET /v1/peers` for reachability and last error details
 
+### Block Production Is Rejected By Proposer Scheduling
+
+- confirm `GET /v1/consensus` shows a non-empty validator set
+- confirm `ZEPHYR_VALIDATOR_ADDRESS` matches the local validator you expect this node to represent
+- confirm `GET /v1/consensus` reports the same address in `nextProposer`
+- disable `ZEPHYR_ENFORCE_PROPOSER_SCHEDULE` if you intentionally want local dev-only block production without schedule checks
+
 ### Runtime State Is Not Where You Expect
 
 - confirm `ZEPHYR_DATA_DIR` points to the intended local directory
@@ -254,3 +324,5 @@ Use it only for local development. In the current MVP:
 8. Broadcast it to Node A.
 9. Wait for automatic block production or call `POST /v1/dev/produce-block`.
 10. Inspect `GET /v1/status`, `GET /v1/peers`, `GET /v1/blocks/latest`, and `GET /v1/accounts/{address}` on both nodes.
+11. Submit a validator election and inspect `GET /v1/validators` plus `GET /v1/consensus`.
+12. Optionally restart a node and confirm the validator snapshot and consensus view survived.

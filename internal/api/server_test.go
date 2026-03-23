@@ -12,9 +12,11 @@ import (
 	"math/big"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/zephyr-chain/zephyr-chain/internal/dpos"
 	"github.com/zephyr-chain/zephyr-chain/internal/tx"
 )
 
@@ -169,6 +171,137 @@ func TestHandleProduceBlockCommitsAndExposesLatestBlock(t *testing.T) {
 	}
 	if latestResponse.Block.Hash != produceResponse.Block.Hash {
 		t.Fatalf("expected latest block hash %s, got %s", produceResponse.Block.Hash, latestResponse.Block.Hash)
+	}
+}
+
+func TestHandleElectionPersistsValidatorsAndConsensusAcrossRestart(t *testing.T) {
+	dataDir := t.TempDir()
+	server := newTestServer(t, Config{
+		DataDir:                 dataDir,
+		BlockInterval:           0,
+		SyncInterval:            0,
+		MaxTransactionsPerBlock: 10,
+		EnableBlockProduction:   true,
+		EnablePeerSync:          false,
+	})
+
+	requestBody := bytes.NewBufferString(`{
+		"candidates": [
+			{"address":"zph_validator_a","selfStake":20000,"commissionRate":0.05,"missedBlocks":1},
+			{"address":"zph_validator_b","selfStake":15000,"commissionRate":0.08,"missedBlocks":0}
+		],
+		"votes": [
+			{"delegator":"delegator-1","candidate":"zph_validator_a","amount":5000},
+			{"delegator":"delegator-2","candidate":"zph_validator_b","amount":3000}
+		],
+		"config": {"maxValidators":2,"minSelfStake":10000,"maxMissedBlocks":50}
+	}`)
+	request := httptest.NewRequest(http.MethodPost, "/v1/election", requestBody)
+	recorder := httptest.NewRecorder()
+
+	server.Handler().ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected election status 200, got %d", recorder.Code)
+	}
+
+	var electionResponse ElectionResponse
+	if err := json.NewDecoder(recorder.Body).Decode(&electionResponse); err != nil {
+		t.Fatalf("decode election response: %v", err)
+	}
+	if electionResponse.ValidatorSetVersion != 1 {
+		t.Fatalf("expected validator set version 1, got %d", electionResponse.ValidatorSetVersion)
+	}
+	if len(electionResponse.Validators) != 2 {
+		t.Fatalf("expected 2 validators, got %d", len(electionResponse.Validators))
+	}
+	if electionResponse.Consensus.NextProposer != "zph_validator_a" {
+		t.Fatalf("expected proposer zph_validator_a, got %s", electionResponse.Consensus.NextProposer)
+	}
+
+	validatorsRequest := httptest.NewRequest(http.MethodGet, "/v1/validators", nil)
+	validatorsRecorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(validatorsRecorder, validatorsRequest)
+	if validatorsRecorder.Code != http.StatusOK {
+		t.Fatalf("expected validators status 200, got %d", validatorsRecorder.Code)
+	}
+
+	server.Close()
+	reopened, err := NewServerWithConfig(Config{
+		DataDir:                 dataDir,
+		BlockInterval:           0,
+		SyncInterval:            0,
+		MaxTransactionsPerBlock: 10,
+		EnableBlockProduction:   true,
+		EnablePeerSync:          false,
+	})
+	if err != nil {
+		t.Fatalf("reopen server: %v", err)
+	}
+	defer reopened.Close()
+
+	consensusRequest := httptest.NewRequest(http.MethodGet, "/v1/consensus", nil)
+	consensusRecorder := httptest.NewRecorder()
+	reopened.Handler().ServeHTTP(consensusRecorder, consensusRequest)
+	if consensusRecorder.Code != http.StatusOK {
+		t.Fatalf("expected consensus status 200, got %d", consensusRecorder.Code)
+	}
+
+	var consensusResponse ConsensusResponse
+	if err := json.NewDecoder(consensusRecorder.Body).Decode(&consensusResponse); err != nil {
+		t.Fatalf("decode consensus response: %v", err)
+	}
+	if consensusResponse.ValidatorSet.Version != 1 {
+		t.Fatalf("expected reopened validator set version 1, got %d", consensusResponse.ValidatorSet.Version)
+	}
+	if len(consensusResponse.ValidatorSet.Validators) != 2 {
+		t.Fatalf("expected reopened validator count 2, got %d", len(consensusResponse.ValidatorSet.Validators))
+	}
+	if consensusResponse.Consensus.NextProposer != "zph_validator_a" {
+		t.Fatalf("expected reopened proposer zph_validator_a, got %s", consensusResponse.Consensus.NextProposer)
+	}
+}
+
+func TestHandleProduceBlockRejectsWhenLocalValidatorIsNotScheduled(t *testing.T) {
+	server := newTestServer(t, Config{
+		DataDir:                 t.TempDir(),
+		NodeID:                  "node-b",
+		ValidatorAddress:        "zph_validator_b",
+		BlockInterval:           0,
+		SyncInterval:            0,
+		MaxTransactionsPerBlock: 10,
+		EnableBlockProduction:   true,
+		EnablePeerSync:          false,
+		EnforceProposerSchedule: true,
+	})
+
+	if _, err := server.ledger.SetValidators([]dpos.Validator{
+		{Rank: 1, Address: "zph_validator_a", VotingPower: 60, SelfStake: 40, DelegatedStake: 20},
+		{Rank: 2, Address: "zph_validator_b", VotingPower: 30, SelfStake: 20, DelegatedStake: 10},
+	}, dpos.ElectionConfig{MaxValidators: 2}); err != nil {
+		t.Fatalf("set validators: %v", err)
+	}
+
+	envelope := signedEnvelope(t, 25, 1, "scheduled")
+	if _, err := server.ledger.Credit(envelope.From, 100); err != nil {
+		t.Fatalf("credit sender: %v", err)
+	}
+	if _, err := server.ledger.Accept(envelope); err != nil {
+		t.Fatalf("accept tx: %v", err)
+	}
+
+	produceRequest := httptest.NewRequest(http.MethodPost, "/v1/dev/produce-block", nil)
+	produceRecorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(produceRecorder, produceRequest)
+	if produceRecorder.Code != http.StatusConflict {
+		t.Fatalf("expected produce block status 409, got %d", produceRecorder.Code)
+	}
+
+	var response map[string]string
+	if err := json.NewDecoder(produceRecorder.Body).Decode(&response); err != nil {
+		t.Fatalf("decode error response: %v", err)
+	}
+	if !strings.Contains(response["error"], "zph_validator_a") {
+		t.Fatalf("expected scheduled proposer in error message, got %q", response["error"])
 	}
 }
 
@@ -364,6 +497,7 @@ func TestPeerSyncRestoresSnapshotWhenSameHeightDiverges(t *testing.T) {
 		t.Fatalf("unexpected replica sender state after divergence repair: %+v", replicaAccount)
 	}
 }
+
 func newTestServer(t *testing.T, config Config) *Server {
 	t.Helper()
 
@@ -446,4 +580,3 @@ func pad32(value *big.Int) []byte {
 	copy(padded[32-len(bytes):], bytes)
 	return padded
 }
-
