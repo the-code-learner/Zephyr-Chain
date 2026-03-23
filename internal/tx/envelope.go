@@ -61,10 +61,6 @@ func (e Envelope) ValidateStatic() error {
 		return ErrInvalidAmount
 	}
 
-	if e.Payload != e.CanonicalPayload() {
-		return ErrInvalidPayload
-	}
-
 	address, err := DeriveAddressFromPublicKey(e.PublicKey)
 	if err != nil {
 		return err
@@ -72,6 +68,10 @@ func (e Envelope) ValidateStatic() error {
 
 	if address != e.From {
 		return ErrInvalidAddress
+	}
+
+	if e.Payload != e.CanonicalPayload() {
+		return ErrInvalidPayload
 	}
 
 	return VerifySignature(e.PublicKey, e.Payload, e.Signature)

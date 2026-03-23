@@ -1,7 +1,14 @@
 package ledger
 
 import (
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/sha256"
+	"crypto/x509"
+	"encoding/base64"
 	"errors"
+	"math/big"
 	"testing"
 
 	"github.com/zephyr-chain/zephyr-chain/internal/tx"
@@ -31,11 +38,9 @@ func TestStoreAcceptReservesBalanceAndAdvancesPendingNonce(t *testing.T) {
 	if view.AvailableBalance != 60 {
 		t.Fatalf("expected available balance 60, got %d", view.AvailableBalance)
 	}
-
 	if view.NextNonce != 2 {
 		t.Fatalf("expected next nonce 2, got %d", view.NextNonce)
 	}
-
 	if view.PendingTransactions != 1 {
 		t.Fatalf("expected 1 pending transaction, got %d", view.PendingTransactions)
 	}
@@ -57,7 +62,6 @@ func TestStoreAcceptRejectsDuplicateTransactions(t *testing.T) {
 	if _, err := store.Accept(envelope); err != nil {
 		t.Fatalf("expected first transaction to be accepted, got %v", err)
 	}
-
 	if _, err := store.Accept(envelope); !errors.Is(err, ErrDuplicateTransaction) {
 		t.Fatalf("expected duplicate transaction error, got %v", err)
 	}
@@ -94,6 +98,26 @@ func TestStoreAcceptRejectsNonceGapsAndInsufficientBalance(t *testing.T) {
 		Nonce:  2,
 	}); !errors.Is(err, ErrInsufficientBalance) {
 		t.Fatalf("expected insufficient balance error, got %v", err)
+	}
+}
+
+func TestStoreCreditWithIDIsIdempotent(t *testing.T) {
+	store := newTestStore(t)
+
+	first, err := store.CreditWithID("fund-1", "zph_sender", 100)
+	if err != nil {
+		t.Fatalf("first credit: %v", err)
+	}
+	second, err := store.CreditWithID("fund-1", "zph_sender", 100)
+	if err != nil {
+		t.Fatalf("second credit: %v", err)
+	}
+
+	if first.Balance != 100 || second.Balance != 100 {
+		t.Fatalf("expected idempotent funding balance 100, got first=%d second=%d", first.Balance, second.Balance)
+	}
+	if store.View("zph_sender").Balance != 100 {
+		t.Fatalf("expected stored balance 100, got %d", store.View("zph_sender").Balance)
 	}
 }
 
@@ -197,6 +221,79 @@ func TestStoreProduceBlockCommitsTransactionsAndPersistsState(t *testing.T) {
 	}
 }
 
+func TestStoreImportBlockCommitsValidRemoteBlock(t *testing.T) {
+	producer := newTestStore(t)
+	envelope := signedEnvelope(t, 25, 1, "replicated")
+	if _, err := producer.Credit(envelope.From, 100); err != nil {
+		t.Fatalf("credit producer sender: %v", err)
+	}
+	if _, err := producer.Accept(envelope); err != nil {
+		t.Fatalf("accept producer tx: %v", err)
+	}
+
+	block, err := producer.ProduceBlock(10)
+	if err != nil {
+		t.Fatalf("produce block: %v", err)
+	}
+
+	replica := newTestStore(t)
+	if _, err := replica.Credit(envelope.From, 100); err != nil {
+		t.Fatalf("credit replica sender: %v", err)
+	}
+	if err := replica.ImportBlock(block); err != nil {
+		t.Fatalf("import block: %v", err)
+	}
+
+	if replica.Status().Height != 1 {
+		t.Fatalf("expected replica height 1, got %d", replica.Status().Height)
+	}
+	view := replica.View(envelope.From)
+	if view.Balance != 75 || view.Nonce != 1 {
+		t.Fatalf("unexpected imported sender state: %+v", view)
+	}
+	if replica.View(envelope.To).Balance != 25 {
+		t.Fatalf("expected receiver balance 25, got %d", replica.View(envelope.To).Balance)
+	}
+}
+
+func TestStoreSnapshotRestoreRehydratesState(t *testing.T) {
+	producer := newTestStore(t)
+	envelope := signedEnvelope(t, 25, 1, "snapshot")
+	if _, err := producer.CreditWithID("fund-restore", envelope.From, 100); err != nil {
+		t.Fatalf("credit producer sender: %v", err)
+	}
+	if _, err := producer.Accept(envelope); err != nil {
+		t.Fatalf("accept producer tx: %v", err)
+	}
+	block, err := producer.ProduceBlock(10)
+	if err != nil {
+		t.Fatalf("produce block: %v", err)
+	}
+
+	replica := newTestStore(t)
+	if err := replica.Restore(producer.Snapshot()); err != nil {
+		t.Fatalf("restore snapshot: %v", err)
+	}
+
+	latest, ok := replica.LatestBlock()
+	if !ok {
+		t.Fatal("expected latest block after restore")
+	}
+	if latest.Hash != block.Hash {
+		t.Fatalf("expected restored block hash %s, got %s", block.Hash, latest.Hash)
+	}
+	if replica.View(envelope.From).Balance != 75 {
+		t.Fatalf("expected restored sender balance 75, got %d", replica.View(envelope.From).Balance)
+	}
+
+	if _, err := replica.CreditWithID("fund-restore", envelope.From, 25); err != nil {
+		t.Fatalf("replay funding id: %v", err)
+	}
+	if replica.View(envelope.From).Balance != 75 {
+		t.Fatalf("expected replayed funding id to stay idempotent, got %d", replica.View(envelope.From).Balance)
+	}
+}
+
 func newTestStore(t *testing.T) *Store {
 	t.Helper()
 
@@ -206,4 +303,61 @@ func newTestStore(t *testing.T) *Store {
 	}
 
 	return store
+}
+
+func signedEnvelope(t *testing.T, amount uint64, nonce uint64, memo string) tx.Envelope {
+	t.Helper()
+
+	privateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("generate key: %v", err)
+	}
+
+	publicKeyBytes, err := x509.MarshalPKIXPublicKey(&privateKey.PublicKey)
+	if err != nil {
+		t.Fatalf("marshal public key: %v", err)
+	}
+
+	encodedPublicKey := base64.StdEncoding.EncodeToString(publicKeyBytes)
+	address, err := tx.DeriveAddressFromPublicKey(encodedPublicKey)
+	if err != nil {
+		t.Fatalf("derive address: %v", err)
+	}
+
+	envelope := tx.Envelope{
+		From:      address,
+		To:        "zph_receiver",
+		Amount:    amount,
+		Nonce:     nonce,
+		Memo:      memo,
+		PublicKey: encodedPublicKey,
+	}
+	envelope.Payload = envelope.CanonicalPayload()
+	envelope.Signature = signPayload(t, privateKey, envelope.Payload)
+
+	return envelope
+}
+
+func signPayload(t *testing.T, privateKey *ecdsa.PrivateKey, payload string) string {
+	t.Helper()
+
+	digest := sha256.Sum256([]byte(payload))
+	r, s, err := ecdsa.Sign(rand.Reader, privateKey, digest[:])
+	if err != nil {
+		t.Fatalf("sign payload: %v", err)
+	}
+
+	signature := append(pad32(r), pad32(s)...)
+	return base64.StdEncoding.EncodeToString(signature)
+}
+
+func pad32(value *big.Int) []byte {
+	bytes := value.Bytes()
+	if len(bytes) >= 32 {
+		return bytes[len(bytes)-32:]
+	}
+
+	padded := make([]byte, 32)
+	copy(padded[32-len(bytes):], bytes)
+	return padded
 }

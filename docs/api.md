@@ -8,14 +8,19 @@ The default local base URL is:
 http://localhost:8080
 ```
 
-You can change it with `ZEPHYR_HTTP_ADDR` when starting the node.
+Change it with `ZEPHYR_HTTP_ADDR` when starting the node.
 
 ## Node Runtime Configuration
 
 - `ZEPHYR_HTTP_ADDR`: HTTP bind address, default `:8080`
+- `ZEPHYR_NODE_ID`: node identifier, default `node-local`
 - `ZEPHYR_DATA_DIR`: durable node state directory, default `var/node`
+- `ZEPHYR_PEERS`: comma-separated peer base URLs, default empty
 - `ZEPHYR_BLOCK_INTERVAL`: automatic block-production interval, default `15s`
+- `ZEPHYR_SYNC_INTERVAL`: peer poll/sync interval, default `5s`
 - `ZEPHYR_MAX_TXS_PER_BLOCK`: maximum committed transactions per block, default `100`
+- `ZEPHYR_ENABLE_BLOCK_PRODUCTION`: enable local block production, default `true`
+- `ZEPHYR_ENABLE_PEER_SYNC`: enable background peer sync, default `true`
 
 ## Types
 
@@ -87,7 +92,8 @@ Current node behavior:
 - `from` must match the address derived from `publicKey`
 - the node verifies the P-256 signature over `payload`
 - the node enforces duplicate detection, next-nonce rules, and available-balance checks before mempool admission
-- accepted transactions are persisted in the local node state until they are committed into a block
+- accepted transactions are persisted in local node state until they are committed into a block
+- when peers are configured, locally accepted transactions are also forwarded to them over HTTP
 
 ### BroadcastTransactionResponse
 
@@ -113,12 +119,6 @@ Current node behavior:
 }
 ```
 
-- `balance`: current committed account balance
-- `availableBalance`: balance left after reserving amounts for pending mempool transactions
-- `nonce`: latest committed nonce in account state
-- `nextNonce`: next nonce expected for the sender
-- `pendingTransactions`: number of accepted mempool transactions reserved for this account
-
 ### StatusView
 
 ```json
@@ -127,6 +127,39 @@ Current node behavior:
   "latestBlockHash": "<block-hash>",
   "latestBlockAt": "2026-03-23T15:31:00Z",
   "mempoolSize": 0
+}
+```
+
+### StatusResponse
+
+```json
+{
+  "nodeId": "node-a",
+  "peerCount": 1,
+  "blockProduction": true,
+  "peerSyncEnabled": true,
+  "status": {
+    "height": 1,
+    "latestBlockHash": "<block-hash>",
+    "latestBlockAt": "2026-03-23T15:31:00Z",
+    "mempoolSize": 0
+  }
+}
+```
+
+### PeerView
+
+```json
+{
+  "url": "http://localhost:8081",
+  "nodeId": "node-b",
+  "height": 1,
+  "latestBlockHash": "<block-hash>",
+  "mempoolSize": 0,
+  "blockProduction": false,
+  "lastSeenAt": "2026-03-23T15:31:05Z",
+  "reachable": true,
+  "error": ""
 }
 ```
 
@@ -159,12 +192,13 @@ Current node behavior:
 
 ```json
 {
+  "requestId": "fund-node-a-123456789",
   "address": "zph_sender",
   "amount": 100
 }
 ```
 
-This is a development-only funding helper for the current MVP.
+`requestId` is optional for client calls. The node uses it internally to make replicated faucet credits idempotent across peers.
 
 ## Endpoints
 
@@ -178,24 +212,21 @@ curl http://localhost:8080/health
 
 ### GET /v1/status
 
-Returns the local chain status for the current node.
+Returns the local runtime status for the current node.
 
 ```bash
 curl http://localhost:8080/v1/status
 ```
 
-Response:
+### GET /v1/peers
 
-```json
-{
-  "status": {
-    "height": 1,
-    "latestBlockHash": "<block-hash>",
-    "latestBlockAt": "2026-03-23T15:31:00Z",
-    "mempoolSize": 0
-  }
-}
+Returns the latest known view of configured peers.
+
+```bash
+curl http://localhost:8080/v1/peers
 ```
+
+If no peer sync has happened yet, peers may appear with only their configured URL.
 
 ### POST /v1/election
 
@@ -223,6 +254,14 @@ curl http://localhost:8080/v1/blocks/latest
 
 If no block has been committed yet, the endpoint returns `404`.
 
+### GET /v1/blocks/{height}
+
+Returns a committed block by exact height.
+
+```bash
+curl http://localhost:8080/v1/blocks/1
+```
+
 ### POST /v1/dev/faucet
 
 Credits a local account for development and testing.
@@ -236,9 +275,11 @@ curl -X POST http://localhost:8080/v1/dev/faucet \
   }'
 ```
 
+When peers are configured, the node forwards the same funding request to them with an internal source header so replicated credits stay idempotent.
+
 ### POST /v1/transactions
 
-Accepts a signed transaction envelope and queues it in the node's persisted local mempool after validation.
+Accepts a signed transaction envelope and queues it in the node's persisted mempool after validation.
 
 ```bash
 curl -X POST http://localhost:8080/v1/transactions \
@@ -257,8 +298,9 @@ curl -X POST http://localhost:8080/v1/transactions \
 
 Meaning:
 
-- `accepted` means the transaction passed validation and was queued in the node's persisted local mempool
-- it does not imply peer replication or network finality yet
+- `accepted` means the transaction passed validation and was queued in the local durable mempool
+- when peers are configured, the node also schedules replication to them
+- it still does not imply validator agreement or finality
 
 ### POST /v1/dev/produce-block
 
@@ -268,11 +310,23 @@ Forces immediate block production from the current local mempool.
 curl -X POST http://localhost:8080/v1/dev/produce-block
 ```
 
-This endpoint is intended for local development and tests. In normal operation, the node also produces blocks automatically on `ZEPHYR_BLOCK_INTERVAL` when the mempool is non-empty.
+If block production is disabled on that node, the endpoint returns `409`.
+
+## Internal Node-To-Node Endpoints
+
+These endpoints are used by the current HTTP devnet sync layer. They exist for node replication, not wallet clients.
+
+### POST /v1/internal/blocks
+
+Imports a committed block from another node.
+
+### GET /v1/internal/snapshot
+
+Returns the current durable node snapshot used for catch-up restore.
 
 ## PowerShell Example
 
-The following example funds an account, submits a transaction, and forces a block locally from PowerShell:
+The following example funds an account, submits a transaction, forces a block on one node, and inspects peer state from PowerShell:
 
 ```powershell
 $faucet = @{ address = "zph_sender"; amount = 100 } | ConvertTo-Json
@@ -292,4 +346,5 @@ $tx = @{
 Invoke-RestMethod -Method Post -Uri "http://localhost:8080/v1/transactions" -ContentType "application/json" -Body $tx
 Invoke-RestMethod -Method Post -Uri "http://localhost:8080/v1/dev/produce-block"
 Invoke-RestMethod -Method Get -Uri "http://localhost:8080/v1/blocks/latest"
+Invoke-RestMethod -Method Get -Uri "http://localhost:8080/v1/peers"
 ```

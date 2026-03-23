@@ -13,12 +13,20 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/zephyr-chain/zephyr-chain/internal/tx"
 )
 
 func TestHandleFaucetAndAccount(t *testing.T) {
-	server := newTestServer(t)
+	server := newTestServer(t, Config{
+		DataDir:                 t.TempDir(),
+		BlockInterval:           0,
+		SyncInterval:            0,
+		MaxTransactionsPerBlock: 10,
+		EnableBlockProduction:   true,
+		EnablePeerSync:          false,
+	})
 
 	faucetBody := bytes.NewBufferString(`{"address":"zph_test","amount":125}`)
 	faucetRequest := httptest.NewRequest(http.MethodPost, "/v1/dev/faucet", faucetBody)
@@ -48,7 +56,15 @@ func TestHandleFaucetAndAccount(t *testing.T) {
 }
 
 func TestHandleBroadcastTransactionRejectsInvalidSignature(t *testing.T) {
-	server := newTestServer(t)
+	server := newTestServer(t, Config{
+		DataDir:                 t.TempDir(),
+		BlockInterval:           0,
+		SyncInterval:            0,
+		MaxTransactionsPerBlock: 10,
+		EnableBlockProduction:   true,
+		EnablePeerSync:          false,
+	})
+
 	envelope := signedEnvelope(t, 25, 1, "hello")
 	if _, err := server.ledger.Credit(envelope.From, 100); err != nil {
 		t.Fatalf("credit sender: %v", err)
@@ -70,7 +86,15 @@ func TestHandleBroadcastTransactionRejectsInvalidSignature(t *testing.T) {
 }
 
 func TestHandleBroadcastTransactionAcceptsFundedTransaction(t *testing.T) {
-	server := newTestServer(t)
+	server := newTestServer(t, Config{
+		DataDir:                 t.TempDir(),
+		BlockInterval:           0,
+		SyncInterval:            0,
+		MaxTransactionsPerBlock: 10,
+		EnableBlockProduction:   true,
+		EnablePeerSync:          false,
+	})
+
 	envelope := signedEnvelope(t, 25, 1, "hello")
 	if _, err := server.ledger.Credit(envelope.From, 100); err != nil {
 		t.Fatalf("credit sender: %v", err)
@@ -91,7 +115,15 @@ func TestHandleBroadcastTransactionAcceptsFundedTransaction(t *testing.T) {
 }
 
 func TestHandleProduceBlockCommitsAndExposesLatestBlock(t *testing.T) {
-	server := newTestServer(t)
+	server := newTestServer(t, Config{
+		DataDir:                 t.TempDir(),
+		BlockInterval:           0,
+		SyncInterval:            0,
+		MaxTransactionsPerBlock: 10,
+		EnableBlockProduction:   true,
+		EnablePeerSync:          false,
+	})
+
 	envelope := signedEnvelope(t, 25, 1, "hello")
 	if _, err := server.ledger.Credit(envelope.From, 100); err != nil {
 		t.Fatalf("credit sender: %v", err)
@@ -138,52 +170,224 @@ func TestHandleProduceBlockCommitsAndExposesLatestBlock(t *testing.T) {
 	if latestResponse.Block.Hash != produceResponse.Block.Hash {
 		t.Fatalf("expected latest block hash %s, got %s", produceResponse.Block.Hash, latestResponse.Block.Hash)
 	}
+}
 
-	statusRequest := httptest.NewRequest(http.MethodGet, "/v1/status", nil)
-	statusRecorder := httptest.NewRecorder()
-	server.Handler().ServeHTTP(statusRecorder, statusRequest)
-	if statusRecorder.Code != http.StatusOK {
-		t.Fatalf("expected status endpoint 200, got %d", statusRecorder.Code)
+func TestPeerReplicationPropagatesFaucetTransactionAndBlock(t *testing.T) {
+	peerServer := newTestServer(t, Config{
+		DataDir:                 t.TempDir(),
+		NodeID:                  "node-b",
+		BlockInterval:           0,
+		SyncInterval:            0,
+		MaxTransactionsPerBlock: 10,
+		EnableBlockProduction:   false,
+		EnablePeerSync:          false,
+	})
+	peerHTTP := httptest.NewServer(peerServer.Handler())
+	defer peerHTTP.Close()
+
+	mainServer := newTestServer(t, Config{
+		DataDir:                 t.TempDir(),
+		NodeID:                  "node-a",
+		PeerURLs:                []string{peerHTTP.URL},
+		BlockInterval:           0,
+		SyncInterval:            50 * time.Millisecond,
+		MaxTransactionsPerBlock: 10,
+		EnableBlockProduction:   true,
+		EnablePeerSync:          true,
+	})
+
+	envelope := signedEnvelope(t, 25, 1, "peer-test")
+	faucetBody := bytes.NewBufferString(`{"address":"` + envelope.From + `","amount":100}`)
+	faucetRequest := httptest.NewRequest(http.MethodPost, "/v1/dev/faucet", faucetBody)
+	faucetRecorder := httptest.NewRecorder()
+	mainServer.Handler().ServeHTTP(faucetRecorder, faucetRequest)
+	if faucetRecorder.Code != http.StatusOK {
+		t.Fatalf("expected faucet status 200, got %d", faucetRecorder.Code)
 	}
 
-	var statusResponse StatusResponse
-	if err := json.NewDecoder(statusRecorder.Body).Decode(&statusResponse); err != nil {
-		t.Fatalf("decode status response: %v", err)
-	}
-	if statusResponse.Status.Height != 1 || statusResponse.Status.MempoolSize != 0 {
-		t.Fatalf("unexpected status response: %+v", statusResponse.Status)
+	waitFor(t, func() bool {
+		return peerServer.ledger.View(envelope.From).Balance == 100
+	})
+
+	body, err := json.Marshal(envelope)
+	if err != nil {
+		t.Fatalf("marshal transaction: %v", err)
 	}
 
-	senderRequest := httptest.NewRequest(http.MethodGet, "/v1/accounts/"+envelope.From, nil)
-	senderRecorder := httptest.NewRecorder()
-	server.Handler().ServeHTTP(senderRecorder, senderRequest)
-	if senderRecorder.Code != http.StatusOK {
-		t.Fatalf("expected sender account status 200, got %d", senderRecorder.Code)
+	broadcastRequest := httptest.NewRequest(http.MethodPost, "/v1/transactions", bytes.NewReader(body))
+	broadcastRecorder := httptest.NewRecorder()
+	mainServer.Handler().ServeHTTP(broadcastRecorder, broadcastRequest)
+	if broadcastRecorder.Code != http.StatusAccepted {
+		t.Fatalf("expected broadcast status 202, got %d", broadcastRecorder.Code)
 	}
 
-	var senderResponse AccountResponse
-	if err := json.NewDecoder(senderRecorder.Body).Decode(&senderResponse); err != nil {
-		t.Fatalf("decode sender account response: %v", err)
+	waitFor(t, func() bool {
+		return peerServer.ledger.MempoolSize() == 1
+	})
+
+	produceRequest := httptest.NewRequest(http.MethodPost, "/v1/dev/produce-block", nil)
+	produceRecorder := httptest.NewRecorder()
+	mainServer.Handler().ServeHTTP(produceRecorder, produceRequest)
+	if produceRecorder.Code != http.StatusOK {
+		t.Fatalf("expected produce block status 200, got %d", produceRecorder.Code)
 	}
-	if senderResponse.Account.Balance != 75 || senderResponse.Account.Nonce != 1 {
-		t.Fatalf("unexpected sender account after block commit: %+v", senderResponse.Account)
+
+	waitFor(t, func() bool {
+		return peerServer.ledger.Status().Height == 1
+	})
+
+	peerAccount := peerServer.ledger.View(envelope.From)
+	if peerAccount.Balance != 75 || peerAccount.Nonce != 1 {
+		t.Fatalf("unexpected peer sender state after replication: %+v", peerAccount)
 	}
 }
 
-func newTestServer(t *testing.T) *Server {
+func TestPeerSyncRestoresSnapshotForLateJoiningNode(t *testing.T) {
+	producer := newTestServer(t, Config{
+		DataDir:                 t.TempDir(),
+		NodeID:                  "producer",
+		BlockInterval:           0,
+		SyncInterval:            0,
+		MaxTransactionsPerBlock: 10,
+		EnableBlockProduction:   true,
+		EnablePeerSync:          false,
+	})
+	producerHTTP := httptest.NewServer(producer.Handler())
+	defer producerHTTP.Close()
+
+	envelope := signedEnvelope(t, 25, 1, "late-join")
+	if _, err := producer.ledger.Credit(envelope.From, 100); err != nil {
+		t.Fatalf("credit producer sender: %v", err)
+	}
+	if _, err := producer.ledger.Accept(envelope); err != nil {
+		t.Fatalf("accept producer transaction: %v", err)
+	}
+	if _, err := producer.produceLocalBlock(); err != nil {
+		t.Fatalf("produce local block: %v", err)
+	}
+
+	replica := newTestServer(t, Config{
+		DataDir:                 t.TempDir(),
+		NodeID:                  "replica",
+		PeerURLs:                []string{producerHTTP.URL},
+		BlockInterval:           0,
+		SyncInterval:            50 * time.Millisecond,
+		MaxTransactionsPerBlock: 10,
+		EnableBlockProduction:   false,
+		EnablePeerSync:          true,
+	})
+
+	waitFor(t, func() bool {
+		return replica.ledger.Status().Height == 1
+	})
+
+	replicaAccount := replica.ledger.View(envelope.From)
+	if replicaAccount.Balance != 75 || replicaAccount.Nonce != 1 {
+		t.Fatalf("unexpected replica sender state after sync: %+v", replicaAccount)
+	}
+}
+
+func TestPeerSyncRestoresSnapshotWhenSameHeightDiverges(t *testing.T) {
+	producer := newTestServer(t, Config{
+		DataDir:                 t.TempDir(),
+		NodeID:                  "producer",
+		BlockInterval:           0,
+		SyncInterval:            0,
+		MaxTransactionsPerBlock: 10,
+		EnableBlockProduction:   true,
+		EnablePeerSync:          false,
+	})
+	producerHTTP := httptest.NewServer(producer.Handler())
+	defer producerHTTP.Close()
+
+	producerEnvelope := signedEnvelope(t, 25, 1, "canonical")
+	if _, err := producer.ledger.Credit(producerEnvelope.From, 100); err != nil {
+		t.Fatalf("credit producer sender: %v", err)
+	}
+	if _, err := producer.ledger.Accept(producerEnvelope); err != nil {
+		t.Fatalf("accept producer transaction: %v", err)
+	}
+	producerBlock, err := producer.produceLocalBlock()
+	if err != nil {
+		t.Fatalf("produce producer block: %v", err)
+	}
+
+	replicaDataDir := t.TempDir()
+	replicaSeed := newTestServer(t, Config{
+		DataDir:                 replicaDataDir,
+		NodeID:                  "replica-seed",
+		BlockInterval:           0,
+		SyncInterval:            0,
+		MaxTransactionsPerBlock: 10,
+		EnableBlockProduction:   true,
+		EnablePeerSync:          false,
+	})
+
+	replicaEnvelope := signedEnvelope(t, 10, 1, "divergent")
+	if _, err := replicaSeed.ledger.Credit(replicaEnvelope.From, 100); err != nil {
+		t.Fatalf("credit replica sender: %v", err)
+	}
+	if _, err := replicaSeed.ledger.Accept(replicaEnvelope); err != nil {
+		t.Fatalf("accept replica transaction: %v", err)
+	}
+	if _, err := replicaSeed.produceLocalBlock(); err != nil {
+		t.Fatalf("produce replica block: %v", err)
+	}
+	replicaSeed.Close()
+
+	replica := newTestServer(t, Config{
+		DataDir:                 replicaDataDir,
+		NodeID:                  "replica",
+		PeerURLs:                []string{producerHTTP.URL},
+		BlockInterval:           0,
+		SyncInterval:            50 * time.Millisecond,
+		MaxTransactionsPerBlock: 10,
+		EnableBlockProduction:   false,
+		EnablePeerSync:          true,
+	})
+
+	waitFor(t, func() bool {
+		latest, ok := replica.ledger.LatestBlock()
+		return ok && latest.Hash == producerBlock.Hash
+	})
+
+	latest, ok := replica.ledger.LatestBlock()
+	if !ok {
+		t.Fatal("expected latest block on replica after divergence repair")
+	}
+	if latest.Hash != producerBlock.Hash {
+		t.Fatalf("expected replica hash %s after repair, got %s", producerBlock.Hash, latest.Hash)
+	}
+
+	replicaAccount := replica.ledger.View(producerEnvelope.From)
+	if replicaAccount.Balance != 75 || replicaAccount.Nonce != 1 {
+		t.Fatalf("unexpected replica sender state after divergence repair: %+v", replicaAccount)
+	}
+}
+func newTestServer(t *testing.T, config Config) *Server {
 	t.Helper()
 
-	server, err := NewServerWithConfig(Config{
-		DataDir:                 t.TempDir(),
-		BlockInterval:           0,
-		MaxTransactionsPerBlock: 10,
-	})
+	server, err := NewServerWithConfig(config)
 	if err != nil {
 		t.Fatalf("create server: %v", err)
 	}
 
 	t.Cleanup(server.Close)
 	return server
+}
+
+func waitFor(t *testing.T, fn func() bool) {
+	t.Helper()
+
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		if fn() {
+			return
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+
+	t.Fatal("condition was not met before timeout")
 }
 
 func signedEnvelope(t *testing.T, amount uint64, nonce uint64, memo string) tx.Envelope {
@@ -242,3 +446,4 @@ func pad32(value *big.Int) []byte {
 	copy(padded[32-len(bytes):], bytes)
 	return padded
 }
+
