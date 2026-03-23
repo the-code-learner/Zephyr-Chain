@@ -13,18 +13,19 @@ Build Zephyr into a production-capable network with:
 
 As of this iteration, the repository has:
 
-- durable ledger state for accounts, mempool, committed blocks, and snapshots
-- HTTP-based devnet replication and snapshot catch-up
+- durable ledger state for accounts, mempool, committed blocks, snapshots, validator snapshots, proposals, votes, and quorum certificates
+- an explicit peer transport abstraction with the current implementation running over HTTP devnet replication
 - durable validator-set snapshots with versioning and restart-safe persistence
 - derived consensus metadata including total voting power, quorum target, and next scheduled proposer
-- optional local proposer-schedule enforcement for block production
+- signed proposal and vote messages validated with Zephyr addresses plus P-256 signatures
+- durable quorum certificates built when vote power crosses the `>2/3` threshold
 - a browser wallet that can create accounts, sign locally, and submit transactions
 
 What it still does not have:
 
 - authenticated validator networking
-- signed proposal, vote, timeout, or commit-certificate messages
-- validator finality
+- certificate-gated block commit and import rules
+- round timeout and re-proposal handling
 - on-chain staking/governance-driven validator updates
 - WASM contracts, fee metering, or compute markets
 - production operations tooling
@@ -43,7 +44,7 @@ Now superseded by the current manifesto and code direction:
 
 - `Tendermint` integration is not the current path; the codebase is building its own consensus stack incrementally in Go
 - `Solidity` and broad `EVM compatibility` are no longer the target; the current execution plan is deterministic WASM with Rust-first tooling
-- `Sharding` and `DAG exploration` are not the immediate next milestones; the urgent gap is validator agreement, networking, and production hardening on a single-chain execution path first
+- `Sharding` and `DAG exploration` are not the immediate next milestones; the urgent gap is validator agreement, authenticated networking, and production hardening on a single-chain execution path first
 
 In short: the old roadmap is historically informative, but the production roadmap below is the one that still applies.
 
@@ -56,18 +57,19 @@ These steps are the most detailed because they are closest to implementation and
 Status:
 
 - DPoS ranking exists
-- validator snapshots are now durable
-- proposer scheduling is now visible and can be enforced locally
-- block production is still local execution, not validator agreement
+- validator snapshots are durable
+- proposer scheduling is visible and can be enforced locally
+- signed proposals and validator votes are now durable artifacts
+- quorum certificates are now derived and persisted when vote power crosses quorum
+- block production is still local execution, not validator-agreed finality
 
 Next steps:
 
-1. Add a transport abstraction so the current HTTP devnet path can coexist with a future libp2p transport.
-2. Bind validator identity to network identity so a node can prove which validator it represents.
-3. Introduce signed block proposal messages with explicit height, round, parent hash, and proposer identity.
-4. Introduce validator vote messages and a quorum certificate format based on voting power.
-5. Persist proposal/vote/commit evidence to disk so nodes can recover safely after restart.
-6. Add deterministic integration tests for happy path, missing proposer, conflicting proposals, and node restart during a round.
+1. Bind validator identity to network identity so a node can prove which validator it represents.
+2. Require proposal and quorum-certificate checks before local block commit and remote block import.
+3. Add round timeout handling, proposer rotation within a round sequence, and re-proposal flows.
+4. Persist enough round state and evidence to support restart-safe recovery and operator investigation.
+5. Add deterministic integration tests for happy path, missing proposer, conflicting proposals, restart during a round, and recovery from partial quorum.
 
 Exit criteria:
 
@@ -78,22 +80,24 @@ Exit criteria:
 
 Status:
 
-- static peer URLs over HTTP exist
+- a transport abstraction now exists
+- the active transport is still static peer URLs over HTTP
 - behind nodes can fetch blocks or restore full snapshots
 - sync is convenient, but not trust-minimized or production-safe
 
 Next steps:
 
 1. Replace static peer configuration with authenticated peer discovery over libp2p.
-2. Add transport-level authentication, peer admission controls, and duplicate suppression.
-3. Separate dev snapshot restore from production state sync so operators can choose explicit trust models.
-4. Add checkpointing, snapshot metadata, and verification hooks for state transfer.
-5. Add structured logs, metrics, and health surfaces for validator and sync operations.
+2. Bind transport identity, validator identity, and peer admission rules together.
+3. Add transport-level authentication, duplicate suppression, and replay-safe message handling.
+4. Separate dev snapshot restore from production state sync so operators can choose explicit trust models.
+5. Add checkpointing, snapshot metadata, and verification hooks for state transfer.
+6. Add structured logs, metrics, and health surfaces for validator, sync, and transport operations.
 
 Exit criteria:
 
 - nodes can join, recover, and observe the network without relying on ad hoc static replication alone
-- operators can reason about sync health and peer identity in production
+- operators can reason about sync health, peer identity, and consensus message flow in production
 
 ### Phase 3: Staking, Validator Lifecycle, And Governance Control Plane
 
@@ -159,12 +163,12 @@ Broad direction:
 - wallet UX for network selection, validator visibility, history, and fees
 - security review, adversarial testing, and release governance
 
-## What “Production” Means For Zephyr
+## What "Production" Means For Zephyr
 
 Zephyr should not claim production readiness until all of the following are true:
 
 - validator agreement determines finality
-- validator/network identity is authenticated
+- validator and network identity are authenticated together
 - restart and recovery paths are explicit and tested
 - sync and recovery do not depend on opaque trust shortcuts
 - operator observability exists for consensus, networking, and state transitions

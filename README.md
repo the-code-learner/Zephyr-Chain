@@ -13,27 +13,30 @@ Implemented today:
 - transaction envelope validation in `internal/tx`
 - durable accounts, mempool, committed blocks, restart-safe state, and snapshot restore in `internal/ledger`
 - durable validator-set snapshots with versioning, proposer scheduling, and quorum summaries in `internal/ledger`
+- durable signed consensus proposals, validator votes, and quorum certificates in `internal/ledger`
 - automatic single-node block production plus manual dev block production
 - optional proposer-schedule enforcement for block production when a validator set and local validator address are configured
-- static multi-node devnet replication over HTTP in `internal/api`
-- peer status tracking, block fetch by height, block import, and snapshot-based catch-up for late joiners
-- consensus visibility endpoints for status, validator snapshots, and proposer schedule inspection
+- transport-backed peer replication in `internal/api` with the current implementation running over HTTP
+- peer status tracking, block fetch by height, block import, snapshot-based catch-up, and consensus artifact replication for late joiners
+- consensus visibility endpoints for status, validator snapshots, proposer schedule inspection, and latest consensus artifacts
 - Vue wallet in `apps/wallet`
 - wallet account generation, import/export, local signing, account inspection, faucet funding, and transaction broadcast
 
 Implemented in this iteration:
 
-- validator snapshots moved from transient API memory into durable ledger state
-- validator snapshots now survive restart and snapshot restore
-- `GET /v1/consensus` now exposes validator-set metadata, quorum target, and next scheduled proposer
-- `GET /v1/status` now includes consensus summary and local validator configuration
-- `POST /v1/dev/produce-block` can optionally reject unscheduled proposers when `ZEPHYR_ENFORCE_PROPOSER_SCHEDULE=true`
+- signed `Proposal` and `Vote` message types using the same Zephyr address and P-256 signature model as transactions
+- durable persistence for proposals, votes, and commit certificates across restart and snapshot restore
+- a peer transport abstraction so consensus replication is no longer hard-wired directly to HTTP calls in server logic
+- `POST /v1/consensus/proposals` and `POST /v1/consensus/votes`
+- `GET /v1/consensus` now includes the latest proposal, vote tallies, and latest quorum certificate
+- peer replication tests now cover proposal/vote/certificate propagation in addition to transactions and blocks
 
 Planned but not implemented yet:
 
 - authenticated validator identity binding and peer discovery over libp2p
-- signed block proposal, vote, and commit-certificate flows
-- validator-aware finality instead of best-effort replication
+- block commit rules that require proposal and quorum certificate state instead of local producer authority
+- round timeout handling, re-proposal rules, and consensus write-ahead recovery
+- on-chain staking and governance-driven validator updates instead of ad hoc election API writes
 - deterministic WASM smart-contract runtime with native fee metering
 - confidential compute marketplace for encrypted off-chain jobs paid in native tokens
 - production observability, recovery tooling, and public testnet operations
@@ -41,9 +44,10 @@ Planned but not implemented yet:
 ## Repository Layout
 
 - `cmd/node`: node process entrypoint and environment-based runtime configuration
-- `internal/api`: HTTP handlers, peer replication, consensus surface, sync loops, and status endpoints
+- `internal/api`: HTTP handlers, peer replication, consensus surface, transport abstraction, sync loops, and status endpoints
+- `internal/consensus`: signed proposal and vote message primitives
 - `internal/dpos`: candidate, vote, validator, and election service logic
-- `internal/ledger`: persisted accounts, mempool entries, committed blocks, validator snapshots, snapshots, and commit/import logic
+- `internal/ledger`: persisted accounts, mempool entries, committed blocks, validator snapshots, consensus artifacts, snapshots, and commit/import logic
 - `internal/tx`: transaction envelope validation, address derivation, and signature verification
 - `apps/wallet`: reference light wallet built with Vue 3, Vite, and Tailwind CSS
 - `docs/`: architecture, API, usage, and roadmap guides
@@ -121,11 +125,11 @@ $env:ZEPHYR_ENABLE_PEER_SYNC="true"
 go run ./cmd/node
 ```
 
-Use the wallet against Node A. Node B will follow through transaction, block, and snapshot sync.
+Use the wallet against Node A. Node B will follow through transaction, block, snapshot, and consensus-artifact sync.
 
-### 4. Inspect consensus scheduling
+### 4. Inspect consensus scheduling and artifacts
 
-After electing validators through `POST /v1/election`, inspect:
+After electing validators and submitting proposals or votes, inspect:
 
 ```powershell
 Invoke-RestMethod http://localhost:8080/v1/status
@@ -133,7 +137,7 @@ Invoke-RestMethod http://localhost:8080/v1/validators
 Invoke-RestMethod http://localhost:8080/v1/consensus
 ```
 
-This gives you the durable validator snapshot version, total voting power, quorum target, and next scheduled proposer for the next block height.
+This gives you the durable validator snapshot version, total voting power, quorum target, next scheduled proposer, latest proposal, current vote tallies, and latest quorum certificate.
 
 ## Runtime Configuration
 
@@ -185,15 +189,18 @@ VITE_ZEPHYR_API_BASE=http://localhost:8080
 5. The wallet signs a canonical transaction payload locally and sends the signed envelope to the node.
 6. The node validates the payload, address, signature, nonce, and available balance before persisting the transaction in the durable mempool.
 7. A block-producing node commits pending transactions into a durable local block and updates balances and nonces.
-8. Configured peer nodes receive transactions and blocks over HTTP, import them when possible, and fall back to snapshot restore when they need catch-up.
+8. Configured peer nodes receive transactions and blocks over the current transport implementation, import them when possible, and fall back to snapshot restore when they need catch-up.
 9. DPoS elections persist a durable validator snapshot with versioning, voting-power totals, and next-proposer scheduling metadata.
-10. If proposer-schedule enforcement is enabled, a node can refuse to produce a block unless its configured validator address matches the scheduled proposer for the next height.
+10. Operators can submit signed proposals and validator votes, which the node validates, persists, and replicates to peers.
+11. Once a vote set reaches quorum for a proposed block hash, the node stores a durable commit certificate artifact for that height and round.
+12. If proposer-schedule enforcement is enabled, a node can refuse to produce a block unless its configured validator address matches the scheduled proposer for the next height.
 
 ## Current Limitations
 
-- the current multi-node layer is static HTTP replication, not libp2p networking
-- block production is still single-node execution with an optional local proposer guard, not validator finality
-- there are no signed block proposals, validator votes, or commit certificates yet
+- the current multi-node layer is still HTTP-based under the new transport abstraction, not libp2p networking
+- block production is still local execution with an optional local proposer guard, not certificate-gated validator finality
+- proposals, votes, and certificates exist, but block commit and block import are not yet gated by them
+- validator identities are not yet authenticated at the network layer
 - DPoS elections still happen through an API call, not an on-chain staking/governance flow
 - snapshot restore is a state catch-up mechanism, not a trust-minimized proof-based sync protocol
 - WASM smart-contract execution is planned, but not implemented yet
@@ -208,11 +215,11 @@ The production roadmap now lives in [docs/roadmap.md](./docs/roadmap.md).
 
 Short version:
 
-1. Add authenticated validator networking and a transport abstraction that can graduate from HTTP devnet replication to libp2p.
-2. Add signed proposal, vote, timeout, and commit-certificate flows so validator agreement exists independently of local block production.
-3. Add deterministic WASM execution and native fee metering for on-chain logic.
-4. Add staking, validator lifecycle, slashing, governance, and production operations tooling.
-5. Add the confidential compute market as a separate execution lane settled on-chain.
+1. Bind validator identity to network identity and move the transport abstraction from HTTP-only behavior toward authenticated libp2p networking.
+2. Require proposal, vote, and quorum-certificate state before block commit and import.
+3. Add round timeout, re-proposal, and crash-recovery logic for consensus rounds.
+4. Move validator lifecycle changes behind staking, delegation, slashing, and governance state transitions.
+5. Add deterministic WASM execution, native fee metering, and the confidential compute lane.
 
 ## Documentation
 
