@@ -15,11 +15,14 @@ import (
 )
 
 var (
-	ErrDuplicateTransaction   = errors.New("transaction already exists")
-	ErrInvalidNonce          = errors.New("invalid nonce for account")
-	ErrInsufficientBalance   = errors.New("insufficient balance")
+	ErrDuplicateTransaction = errors.New("transaction already exists")
+	ErrInvalidNonce = errors.New("invalid nonce for account")
+	ErrInsufficientBalance = errors.New("insufficient balance")
 	ErrNoTransactionsToBlock = errors.New("no transactions available for block production")
-	ErrBlockInvariant        = errors.New("block production invariant failed")
+	ErrBlockInvariant = errors.New("block production invariant failed")
+	ErrInvalidBlock = errors.New("invalid block")
+	ErrBlockOutOfSequence = errors.New("block out of sequence")
+	ErrBlockConflict = errors.New("conflicting block at height")
 )
 
 type AccountState struct {
@@ -60,6 +63,14 @@ type StatusView struct {
 	MempoolSize     int        `json:"mempoolSize"`
 }
 
+type Snapshot struct {
+	Accounts                map[string]AccountState `json:"accounts"`
+	Mempool                 []MempoolEntry          `json:"mempool"`
+	Blocks                  []Block                 `json:"blocks"`
+	CommittedTransactionIDs []string                `json:"committedTransactionIds"`
+	AppliedFundingIDs       []string                `json:"appliedFundingIds"`
+}
+
 type pendingState struct {
 	NextNonce       uint64
 	ReservedBalance uint64
@@ -71,6 +82,7 @@ type persistedState struct {
 	Mempool                 []MempoolEntry          `json:"mempool"`
 	Blocks                  []Block                 `json:"blocks"`
 	CommittedTransactionIDs []string                `json:"committedTransactionIds"`
+	AppliedFundingIDs       []string                `json:"appliedFundingIds"`
 }
 
 type Store struct {
@@ -82,6 +94,7 @@ type Store struct {
 	mempool               []MempoolEntry
 	blocks                []Block
 	committedTransactions map[string]struct{}
+	appliedFundingIDs     map[string]struct{}
 }
 
 func NewStore(dataDir string) (*Store, error) {
@@ -101,6 +114,7 @@ func NewStore(dataDir string) (*Store, error) {
 		mempool:               make([]MempoolEntry, 0),
 		blocks:                make([]Block, 0),
 		committedTransactions: make(map[string]struct{}),
+		appliedFundingIDs:     make(map[string]struct{}),
 	}
 
 	if err := store.load(); err != nil {
@@ -118,14 +132,29 @@ func (s *Store) DataDir() string {
 }
 
 func (s *Store) Credit(address string, amount uint64) (AccountState, error) {
+	return s.CreditWithID("", address, amount)
+}
+
+func (s *Store) CreditWithID(requestID string, address string, amount uint64) (AccountState, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	state := s.snapshotLocked()
+	if requestID != "" {
+		if containsString(state.AppliedFundingIDs, requestID) {
+			account := state.Accounts[address]
+			account.Address = address
+			return account, nil
+		}
+	}
+
 	account := state.Accounts[address]
 	account.Address = address
 	account.Balance += amount
 	state.Accounts[address] = account
+	if requestID != "" {
+		state.AppliedFundingIDs = append(state.AppliedFundingIDs, requestID)
+	}
 
 	if err := s.writeState(state); err != nil {
 		return AccountState{}, err
@@ -160,14 +189,22 @@ func (s *Store) LatestBlock() (Block, bool) {
 	return cloneBlock(s.blocks[len(s.blocks)-1]), true
 }
 
+func (s *Store) BlockAtHeight(height uint64) (Block, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if height == 0 || height > uint64(len(s.blocks)) {
+		return Block{}, false
+	}
+
+	return cloneBlock(s.blocks[height-1]), true
+}
+
 func (s *Store) Status() StatusView {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	status := StatusView{
-		MempoolSize: len(s.mempool),
-	}
-
+	status := StatusView{MempoolSize: len(s.mempool)}
 	if len(s.blocks) == 0 {
 		return status
 	}
@@ -180,13 +217,33 @@ func (s *Store) Status() StatusView {
 	return status
 }
 
+func (s *Store) Snapshot() Snapshot {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	return snapshotFromPersisted(s.snapshotLocked())
+}
+
+func (s *Store) Restore(snapshot Snapshot) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	state := persistedFromSnapshot(snapshot)
+	if err := s.writeState(state); err != nil {
+		return err
+	}
+
+	s.applyStateLocked(state)
+	return nil
+}
+
 func (s *Store) Accept(envelope tx.Envelope) (string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	state := s.snapshotLocked()
 	id := tx.ID(envelope)
-	if containsCommitted(state.CommittedTransactionIDs, id) {
+	if containsString(state.CommittedTransactionIDs, id) {
 		return "", ErrDuplicateTransaction
 	}
 
@@ -242,72 +299,35 @@ func (s *Store) ProduceBlock(maxTransactions int) (Block, error) {
 	defer s.mu.Unlock()
 
 	state := s.snapshotLocked()
-	if len(state.Mempool) == 0 {
-		return Block{}, ErrNoTransactionsToBlock
-	}
-
-	if maxTransactions <= 0 || maxTransactions > len(state.Mempool) {
-		maxTransactions = len(state.Mempool)
-	}
-
-	selected := append([]MempoolEntry(nil), state.Mempool[:maxTransactions]...)
-	remaining := append([]MempoolEntry(nil), state.Mempool[maxTransactions:]...)
-
-	previousHash := ""
-	height := uint64(1)
-	if len(state.Blocks) > 0 {
-		latest := state.Blocks[len(state.Blocks)-1]
-		previousHash = latest.Hash
-		height = latest.Height + 1
-	}
-
-	transactionIDs := make([]string, 0, len(selected))
-	transactions := make([]tx.Envelope, 0, len(selected))
-	accounts := cloneAccounts(state.Accounts)
-
-	for _, entry := range selected {
-		envelope := entry.Envelope
-		sender := accounts[envelope.From]
-		sender.Address = envelope.From
-		if sender.Balance < envelope.Amount || sender.Nonce+1 != envelope.Nonce {
-			return Block{}, ErrBlockInvariant
-		}
-
-		sender.Balance -= envelope.Amount
-		sender.Nonce = envelope.Nonce
-		accounts[envelope.From] = sender
-
-		receiver := accounts[envelope.To]
-		receiver.Address = envelope.To
-		receiver.Balance += envelope.Amount
-		accounts[envelope.To] = receiver
-
-		transactionIDs = append(transactionIDs, entry.ID)
-		transactions = append(transactions, envelope)
-	}
-
-	producedAt := time.Now().UTC()
-	block := Block{
-		Height:           height,
-		PreviousHash:     previousHash,
-		ProducedAt:       producedAt,
-		TransactionCount: len(selected),
-		TransactionIDs:   append([]string(nil), transactionIDs...),
-		Transactions:     append([]tx.Envelope(nil), transactions...),
-	}
-	block.Hash = blockHash(block)
-
-	state.Accounts = accounts
-	state.Mempool = remaining
-	state.Blocks = append(state.Blocks, block)
-	state.CommittedTransactionIDs = append(state.CommittedTransactionIDs, transactionIDs...)
-
-	if err := s.writeState(state); err != nil {
+	nextState, block, err := produceBlockFromState(state, maxTransactions)
+	if err != nil {
 		return Block{}, err
 	}
 
-	s.applyStateLocked(state)
+	if err := s.writeState(nextState); err != nil {
+		return Block{}, err
+	}
+
+	s.applyStateLocked(nextState)
 	return cloneBlock(block), nil
+}
+
+func (s *Store) ImportBlock(block Block) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	state := s.snapshotLocked()
+	nextState, err := importBlockIntoState(state, block)
+	if err != nil {
+		return err
+	}
+
+	if err := s.writeState(nextState); err != nil {
+		return err
+	}
+
+	s.applyStateLocked(nextState)
+	return nil
 }
 
 func (s *Store) load() error {
@@ -327,6 +347,8 @@ func (s *Store) load() error {
 		return err
 	}
 
+	state = normalizeState(state)
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.applyStateLocked(state)
@@ -334,6 +356,7 @@ func (s *Store) load() error {
 }
 
 func (s *Store) writeState(state persistedState) error {
+	state = normalizeState(state)
 	raw, err := json.MarshalIndent(state, "", "  ")
 	if err != nil {
 		return err
@@ -343,27 +366,29 @@ func (s *Store) writeState(state persistedState) error {
 }
 
 func (s *Store) snapshotLocked() persistedState {
-	committedIDs := make([]string, 0, len(s.committedTransactions))
-	for id := range s.committedTransactions {
-		committedIDs = append(committedIDs, id)
-	}
-	sort.Strings(committedIDs)
-
+	committedIDs := mapKeys(s.committedTransactions)
+	appliedFundingIDs := mapKeys(s.appliedFundingIDs)
 	return persistedState{
 		Accounts:                cloneAccounts(s.accounts),
 		Mempool:                 cloneMempool(s.mempool),
 		Blocks:                  cloneBlocks(s.blocks),
 		CommittedTransactionIDs: committedIDs,
+		AppliedFundingIDs:       appliedFundingIDs,
 	}
 }
 
 func (s *Store) applyStateLocked(state persistedState) {
+	state = normalizeState(state)
 	s.accounts = cloneAccounts(state.Accounts)
 	s.mempool = cloneMempool(state.Mempool)
 	s.blocks = cloneBlocks(state.Blocks)
 	s.committedTransactions = make(map[string]struct{}, len(state.CommittedTransactionIDs))
 	for _, id := range state.CommittedTransactionIDs {
 		s.committedTransactions[id] = struct{}{}
+	}
+	s.appliedFundingIDs = make(map[string]struct{}, len(state.AppliedFundingIDs))
+	for _, id := range state.AppliedFundingIDs {
+		s.appliedFundingIDs[id] = struct{}{}
 	}
 	s.pending = rebuildPendingState(s.accounts, s.mempool)
 }
@@ -393,6 +418,200 @@ func (s *Store) accountViewLocked(address string) AccountView {
 		NextNonce:           nextNonce,
 		PendingTransactions: pending.PendingCount,
 	}
+}
+
+func produceBlockFromState(state persistedState, maxTransactions int) (persistedState, Block, error) {
+	state = normalizeState(state)
+	if len(state.Mempool) == 0 {
+		return state, Block{}, ErrNoTransactionsToBlock
+	}
+
+	if maxTransactions <= 0 || maxTransactions > len(state.Mempool) {
+		maxTransactions = len(state.Mempool)
+	}
+
+	selected := append([]MempoolEntry(nil), state.Mempool[:maxTransactions]...)
+	remaining := append([]MempoolEntry(nil), state.Mempool[maxTransactions:]...)
+	accounts := cloneAccounts(state.Accounts)
+
+	previousHash := ""
+	height := uint64(1)
+	if len(state.Blocks) > 0 {
+		latest := state.Blocks[len(state.Blocks)-1]
+		previousHash = latest.Hash
+		height = latest.Height + 1
+	}
+
+	transactionIDs := make([]string, 0, len(selected))
+	transactions := make([]tx.Envelope, 0, len(selected))
+	for _, entry := range selected {
+		envelope := entry.Envelope
+		sender := accounts[envelope.From]
+		sender.Address = envelope.From
+		if sender.Balance < envelope.Amount || sender.Nonce+1 != envelope.Nonce {
+			return state, Block{}, ErrBlockInvariant
+		}
+
+		sender.Balance -= envelope.Amount
+		sender.Nonce = envelope.Nonce
+		accounts[envelope.From] = sender
+
+		receiver := accounts[envelope.To]
+		receiver.Address = envelope.To
+		receiver.Balance += envelope.Amount
+		accounts[envelope.To] = receiver
+
+		transactionIDs = append(transactionIDs, entry.ID)
+		transactions = append(transactions, envelope)
+	}
+
+	block := Block{
+		Height:           height,
+		PreviousHash:     previousHash,
+		ProducedAt:       time.Now().UTC(),
+		TransactionCount: len(transactions),
+		TransactionIDs:   append([]string(nil), transactionIDs...),
+		Transactions:     append([]tx.Envelope(nil), transactions...),
+	}
+	block.Hash = blockHash(block)
+
+	state.Accounts = accounts
+	state.Mempool = remaining
+	state.Blocks = append(state.Blocks, block)
+	state.CommittedTransactionIDs = append(state.CommittedTransactionIDs, transactionIDs...)
+	state = normalizeState(state)
+	return state, block, nil
+}
+
+func importBlockIntoState(state persistedState, block Block) (persistedState, error) {
+	state = normalizeState(state)
+	if block.Height == 0 {
+		return state, ErrInvalidBlock
+	}
+	if block.TransactionCount != len(block.Transactions) || len(block.TransactionIDs) != len(block.Transactions) {
+		return state, ErrInvalidBlock
+	}
+
+	currentHeight := uint64(len(state.Blocks))
+	if block.Height <= currentHeight {
+		existing := state.Blocks[block.Height-1]
+		if existing.Hash == block.Hash {
+			return state, nil
+		}
+		return state, ErrBlockConflict
+	}
+	if block.Height != currentHeight+1 {
+		return state, ErrBlockOutOfSequence
+	}
+
+	expectedPreviousHash := ""
+	if currentHeight > 0 {
+		expectedPreviousHash = state.Blocks[currentHeight-1].Hash
+	}
+	if block.PreviousHash != expectedPreviousHash {
+		return state, ErrBlockOutOfSequence
+	}
+
+	accounts := cloneAccounts(state.Accounts)
+	transactionIDs := make([]string, 0, len(block.Transactions))
+	transactions := make([]tx.Envelope, 0, len(block.Transactions))
+	committedSet := toStringSet(state.CommittedTransactionIDs)
+
+	for index, envelope := range block.Transactions {
+		if err := envelope.ValidateStatic(); err != nil {
+			return state, ErrInvalidBlock
+		}
+
+		id := tx.ID(envelope)
+		if block.TransactionIDs[index] != id {
+			return state, ErrInvalidBlock
+		}
+		if _, exists := committedSet[id]; exists {
+			return state, ErrBlockConflict
+		}
+
+		sender := accounts[envelope.From]
+		sender.Address = envelope.From
+		if sender.Balance < envelope.Amount || sender.Nonce+1 != envelope.Nonce {
+			return state, ErrBlockInvariant
+		}
+
+		sender.Balance -= envelope.Amount
+		sender.Nonce = envelope.Nonce
+		accounts[envelope.From] = sender
+
+		receiver := accounts[envelope.To]
+		receiver.Address = envelope.To
+		receiver.Balance += envelope.Amount
+		accounts[envelope.To] = receiver
+
+		transactionIDs = append(transactionIDs, id)
+		transactions = append(transactions, envelope)
+	}
+
+	sanitized := Block{
+		Height:           block.Height,
+		PreviousHash:     block.PreviousHash,
+		ProducedAt:       block.ProducedAt,
+		TransactionCount: len(transactions),
+		TransactionIDs:   append([]string(nil), transactionIDs...),
+		Transactions:     append([]tx.Envelope(nil), transactions...),
+	}
+	expectedHash := blockHash(sanitized)
+	if block.Hash != expectedHash {
+		return state, ErrInvalidBlock
+	}
+	sanitized.Hash = expectedHash
+
+	removeSet := toStringSet(transactionIDs)
+	state.Accounts = accounts
+	state.Mempool = filterMempool(state.Mempool, removeSet)
+	state.Blocks = append(state.Blocks, sanitized)
+	state.CommittedTransactionIDs = append(state.CommittedTransactionIDs, transactionIDs...)
+	state = normalizeState(state)
+	return state, nil
+}
+
+func normalizeState(state persistedState) persistedState {
+	if state.Accounts == nil {
+		state.Accounts = make(map[string]AccountState)
+	}
+	if state.Mempool == nil {
+		state.Mempool = make([]MempoolEntry, 0)
+	}
+	if state.Blocks == nil {
+		state.Blocks = make([]Block, 0)
+	}
+	if state.CommittedTransactionIDs == nil {
+		state.CommittedTransactionIDs = make([]string, 0)
+	}
+	if state.AppliedFundingIDs == nil {
+		state.AppliedFundingIDs = make([]string, 0)
+	}
+	state.CommittedTransactionIDs = uniqueSortedStrings(state.CommittedTransactionIDs)
+	state.AppliedFundingIDs = uniqueSortedStrings(state.AppliedFundingIDs)
+	return state
+}
+
+func snapshotFromPersisted(state persistedState) Snapshot {
+	state = normalizeState(state)
+	return Snapshot{
+		Accounts:                cloneAccounts(state.Accounts),
+		Mempool:                 cloneMempool(state.Mempool),
+		Blocks:                  cloneBlocks(state.Blocks),
+		CommittedTransactionIDs: append([]string(nil), state.CommittedTransactionIDs...),
+		AppliedFundingIDs:       append([]string(nil), state.AppliedFundingIDs...),
+	}
+}
+
+func persistedFromSnapshot(snapshot Snapshot) persistedState {
+	return normalizeState(persistedState{
+		Accounts:                cloneAccounts(snapshot.Accounts),
+		Mempool:                 cloneMempool(snapshot.Mempool),
+		Blocks:                  cloneBlocks(snapshot.Blocks),
+		CommittedTransactionIDs: append([]string(nil), snapshot.CommittedTransactionIDs...),
+		AppliedFundingIDs:       append([]string(nil), snapshot.AppliedFundingIDs...),
+	})
 }
 
 func rebuildPendingState(accounts map[string]AccountState, mempool []MempoolEntry) map[string]pendingState {
@@ -427,8 +646,8 @@ func cloneMempool(mempool []MempoolEntry) []MempoolEntry {
 
 func cloneBlocks(blocks []Block) []Block {
 	cloned := make([]Block, len(blocks))
-	for i, block := range blocks {
-		cloned[i] = cloneBlock(block)
+	for index, block := range blocks {
+		cloned[index] = cloneBlock(block)
 	}
 	return cloned
 }
@@ -440,9 +659,50 @@ func cloneBlock(block Block) Block {
 	return cloned
 }
 
-func containsCommitted(ids []string, target string) bool {
-	for _, id := range ids {
-		if id == target {
+func filterMempool(mempool []MempoolEntry, remove map[string]struct{}) []MempoolEntry {
+	filtered := make([]MempoolEntry, 0, len(mempool))
+	for _, entry := range mempool {
+		if _, exists := remove[entry.ID]; exists {
+			continue
+		}
+		filtered = append(filtered, entry)
+	}
+	return filtered
+}
+
+func mapKeys(values map[string]struct{}) []string {
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+func uniqueSortedStrings(values []string) []string {
+	if len(values) == 0 {
+		return make([]string, 0)
+	}
+	set := toStringSet(values)
+	keys := make([]string, 0, len(set))
+	for key := range set {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+func toStringSet(values []string) map[string]struct{} {
+	set := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		set[value] = struct{}{}
+	}
+	return set
+}
+
+func containsString(values []string, target string) bool {
+	for _, value := range values {
+		if value == target {
 			return true
 		}
 	}

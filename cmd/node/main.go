@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/zephyr-chain/zephyr-chain/internal/api"
@@ -17,8 +18,14 @@ func main() {
 	}
 
 	config := api.DefaultConfig()
+	if nodeID := os.Getenv("ZEPHYR_NODE_ID"); nodeID != "" {
+		config.NodeID = nodeID
+	}
 	if dataDir := os.Getenv("ZEPHYR_DATA_DIR"); dataDir != "" {
 		config.DataDir = dataDir
+	}
+	if peers := os.Getenv("ZEPHYR_PEERS"); peers != "" {
+		config.PeerURLs = splitCSV(peers)
 	}
 	if interval := os.Getenv("ZEPHYR_BLOCK_INTERVAL"); interval != "" {
 		parsed, err := time.ParseDuration(interval)
@@ -27,12 +34,33 @@ func main() {
 		}
 		config.BlockInterval = parsed
 	}
+	if syncInterval := os.Getenv("ZEPHYR_SYNC_INTERVAL"); syncInterval != "" {
+		parsed, err := time.ParseDuration(syncInterval)
+		if err != nil {
+			log.Fatalf("invalid ZEPHYR_SYNC_INTERVAL %q: %v", syncInterval, err)
+		}
+		config.SyncInterval = parsed
+	}
 	if maxTxs := os.Getenv("ZEPHYR_MAX_TXS_PER_BLOCK"); maxTxs != "" {
 		parsed, err := strconv.Atoi(maxTxs)
 		if err != nil || parsed <= 0 {
 			log.Fatalf("invalid ZEPHYR_MAX_TXS_PER_BLOCK %q", maxTxs)
 		}
 		config.MaxTransactionsPerBlock = parsed
+	}
+	if enabled := os.Getenv("ZEPHYR_ENABLE_BLOCK_PRODUCTION"); enabled != "" {
+		parsed, err := strconv.ParseBool(enabled)
+		if err != nil {
+			log.Fatalf("invalid ZEPHYR_ENABLE_BLOCK_PRODUCTION %q", enabled)
+		}
+		config.EnableBlockProduction = parsed
+	}
+	if enabled := os.Getenv("ZEPHYR_ENABLE_PEER_SYNC"); enabled != "" {
+		parsed, err := strconv.ParseBool(enabled)
+		if err != nil {
+			log.Fatalf("invalid ZEPHYR_ENABLE_PEER_SYNC %q", enabled)
+		}
+		config.EnablePeerSync = parsed
 	}
 
 	server, err := api.NewServerWithConfig(config)
@@ -41,8 +69,29 @@ func main() {
 	}
 	defer server.Close()
 
-	log.Printf("zephyr node API listening on %s (data dir: %s, block interval: %s)", addr, config.DataDir, config.BlockInterval)
+	log.Printf(
+		"zephyr node %s listening on %s (data dir: %s, block interval: %s, peer sync: %t, peers: %d)",
+		config.NodeID,
+		addr,
+		config.DataDir,
+		config.BlockInterval,
+		config.EnablePeerSync,
+		len(config.PeerURLs),
+	)
 	if err := http.ListenAndServe(addr, server.Handler()); err != nil {
 		log.Fatalf("server stopped: %v", err)
 	}
+}
+
+func splitCSV(value string) []string {
+	parts := strings.Split(value, ",")
+	filtered := make([]string, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		filtered = append(filtered, part)
+	}
+	return filtered
 }
