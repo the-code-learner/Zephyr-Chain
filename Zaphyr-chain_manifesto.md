@@ -23,7 +23,10 @@ The environmental and economic cost of consensus cannot be an afterthought. We a
 Zephyr Chain is not our platform; it is a public good. We are committed to an open-source ethos. We invite developers, researchers, and visionaries from every corner of the globe to join us. Scrutinize our code, challenge our ideas, and help us build a more resilient and versatile network. The best innovations are born from collaboration.
 
 - Pragmatism Over Dogma.
-We are guided by a vision, but grounded in execution. We embrace proven technologies like the EVM where they make sense and innovate with novel architectures like Sharding and DAGs where they are needed. We are building a bridge from the Web2 of today to the Web3 of tomorrow, making it easy for developers and users to cross over.
+We are guided by a vision, but grounded in execution. We embrace technologies that maximize developer reach and user value, but we will not force every important workload into a single execution model. Zephyr will use deterministic on-chain WASM smart contracts where consensus and state integrity matter most, and separate confidential compute markets where privacy, hardware capability, or workload size demand a different approach. We are building a bridge from the Web2 of today to the decentralized systems of tomorrow without pretending one virtual machine solves every problem.
+
+- Execution Must Be Compatible And Fairly Priced.
+We will build deterministic WASM smart contracts with portable Rust-first tooling for the logic that must be publicly verifiable on-chain. Beyond that, we will open access to distributed confidential computing so users and applications can buy real encrypted execution power with Zephyr's native token. The price of computation should reflect the kind of work being requested, the resources it consumes, and the marketplace that is actually delivering it. In this way, execution remains practical for developers, private for users when needed, and honest about the real cost of compute across the network.
 
 # Our Call to Action
 The journey ahead is long and challenging. We are not just writing code; we are laying the foundation for a new digital civilization.
