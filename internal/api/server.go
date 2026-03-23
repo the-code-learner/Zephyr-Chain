@@ -18,29 +18,37 @@ import (
 
 const sourceNodeHeader = "X-Zephyr-Source-Node"
 
-var errBlockProductionDisabled = errors.New("block production is disabled on this node")
+var (
+	errBlockProductionDisabled  = errors.New("block production is disabled on this node")
+	errValidatorAddressRequired = errors.New("validator address is required when proposer schedule enforcement is enabled")
+	errNotScheduledProposer     = errors.New("local validator is not scheduled to propose the next block")
+)
 
 type Config struct {
 	DataDir                 string
 	NodeID                  string
+	ValidatorAddress        string
 	PeerURLs                []string
 	BlockInterval           time.Duration
 	SyncInterval            time.Duration
 	MaxTransactionsPerBlock int
 	EnableBlockProduction   bool
 	EnablePeerSync          bool
+	EnforceProposerSchedule bool
 }
 
 func DefaultConfig() Config {
 	return Config{
 		DataDir:                 filepath.Join("var", "node"),
 		NodeID:                  "node-local",
+		ValidatorAddress:        "",
 		PeerURLs:                []string{},
 		BlockInterval:           15 * time.Second,
 		SyncInterval:            5 * time.Second,
 		MaxTransactionsPerBlock: 100,
 		EnableBlockProduction:   true,
 		EnablePeerSync:          true,
+		EnforceProposerSchedule: false,
 	}
 }
 
@@ -51,7 +59,11 @@ type ElectionRequest struct {
 }
 
 type ElectionResponse struct {
-	Validators []dpos.Validator `json:"validators"`
+	Validators            []dpos.Validator     `json:"validators"`
+	ElectionConfig        dpos.ElectionConfig  `json:"electionConfig"`
+	ValidatorSetVersion   uint64               `json:"validatorSetVersion"`
+	ValidatorSetUpdatedAt *time.Time           `json:"validatorSetUpdatedAt,omitempty"`
+	Consensus             ledger.ConsensusView `json:"consensus"`
 }
 
 type BroadcastTransactionRequest = tx.Envelope
@@ -78,11 +90,22 @@ type AccountResponse struct {
 }
 
 type StatusResponse struct {
-	NodeID          string            `json:"nodeId"`
-	PeerCount       int               `json:"peerCount"`
-	BlockProduction bool              `json:"blockProduction"`
-	PeerSyncEnabled bool              `json:"peerSyncEnabled"`
-	Status          ledger.StatusView `json:"status"`
+	NodeID                   string               `json:"nodeId"`
+	ValidatorAddress         string               `json:"validatorAddress,omitempty"`
+	PeerCount                int                  `json:"peerCount"`
+	BlockProduction          bool                 `json:"blockProduction"`
+	PeerSyncEnabled          bool                 `json:"peerSyncEnabled"`
+	ProposerScheduleEnforced bool                 `json:"proposerScheduleEnforced"`
+	Status                   ledger.StatusView    `json:"status"`
+	Consensus                ledger.ConsensusView `json:"consensus"`
+}
+
+type ConsensusResponse struct {
+	NodeID                   string                   `json:"nodeId"`
+	ValidatorAddress         string                   `json:"validatorAddress,omitempty"`
+	ProposerScheduleEnforced bool                     `json:"proposerScheduleEnforced"`
+	ValidatorSet             ledger.ValidatorSnapshot `json:"validatorSet"`
+	Consensus                ledger.ConsensusView     `json:"consensus"`
 }
 
 type LatestBlockResponse struct {
@@ -103,8 +126,6 @@ type SnapshotResponse struct {
 
 type Server struct {
 	mux        *http.ServeMux
-	mu         sync.RWMutex
-	validators []dpos.Validator
 	ledger     *ledger.Store
 	config     Config
 	nodeID     string
@@ -157,10 +178,12 @@ func (s *Server) Close() {
 		s.wg.Wait()
 	})
 }
+
 func (s *Server) routes() {
 	s.mux.HandleFunc("/health", s.handleHealth)
 	s.mux.HandleFunc("/v1/status", s.handleStatus)
 	s.mux.HandleFunc("/v1/peers", s.handlePeers)
+	s.mux.HandleFunc("/v1/consensus", s.handleConsensus)
 	s.mux.HandleFunc("/v1/election", s.handleElection)
 	s.mux.HandleFunc("/v1/validators", s.handleValidators)
 	s.mux.HandleFunc("/v1/transactions", s.handleBroadcastTransaction)
@@ -187,11 +210,14 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, StatusResponse{
-		NodeID:          s.nodeID,
-		PeerCount:       len(s.config.PeerURLs),
-		BlockProduction: s.config.EnableBlockProduction,
-		PeerSyncEnabled: s.config.EnablePeerSync,
-		Status:          s.ledger.Status(),
+		NodeID:                   s.nodeID,
+		ValidatorAddress:         s.config.ValidatorAddress,
+		PeerCount:                len(s.config.PeerURLs),
+		BlockProduction:          s.config.EnableBlockProduction,
+		PeerSyncEnabled:          s.config.EnablePeerSync,
+		ProposerScheduleEnforced: s.config.EnforceProposerSchedule,
+		Status:                   s.ledger.Status(),
+		Consensus:                s.ledger.Consensus(),
 	})
 }
 
@@ -203,6 +229,22 @@ func (s *Server) handlePeers(w http.ResponseWriter, r *http.Request) {
 
 	writeJSON(w, http.StatusOK, PeersResponse{Peers: s.peerSnapshot()})
 }
+
+func (s *Server) handleConsensus(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, ConsensusResponse{
+		NodeID:                   s.nodeID,
+		ValidatorAddress:         s.config.ValidatorAddress,
+		ProposerScheduleEnforced: s.config.EnforceProposerSchedule,
+		ValidatorSet:             s.ledger.ValidatorSet(),
+		Consensus:                s.ledger.Consensus(),
+	})
+}
+
 func (s *Server) handleElection(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		w.WriteHeader(http.StatusMethodNotAllowed)
@@ -227,11 +269,13 @@ func (s *Server) handleElection(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.mu.Lock()
-	s.validators = validators
-	s.mu.Unlock()
+	snapshot, err := s.ledger.SetValidators(validators, request.Config)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
 
-	writeJSON(w, http.StatusOK, ElectionResponse{Validators: validators})
+	writeJSON(w, http.StatusOK, s.electionResponse(snapshot))
 }
 
 func (s *Server) handleValidators(w http.ResponseWriter, r *http.Request) {
@@ -240,11 +284,7 @@ func (s *Server) handleValidators(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.mu.RLock()
-	validators := append([]dpos.Validator(nil), s.validators...)
-	s.mu.RUnlock()
-
-	writeJSON(w, http.StatusOK, ElectionResponse{Validators: validators})
+	writeJSON(w, http.StatusOK, s.electionResponse(s.ledger.ValidatorSet()))
 }
 
 func (s *Server) handleBroadcastTransaction(w http.ResponseWriter, r *http.Request) {
@@ -317,6 +357,7 @@ func (s *Server) handleLatestBlock(w http.ResponseWriter, r *http.Request) {
 
 	writeJSON(w, http.StatusOK, LatestBlockResponse{Block: block})
 }
+
 func (s *Server) handleBlockAtHeight(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		w.WriteHeader(http.StatusMethodNotAllowed)
@@ -374,6 +415,7 @@ func (s *Server) handleFaucet(w http.ResponseWriter, r *http.Request) {
 		go s.broadcastFaucet(request)
 	}
 }
+
 func (s *Server) handleProduceBlock(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		w.WriteHeader(http.StatusMethodNotAllowed)
@@ -423,6 +465,16 @@ func (s *Server) produceLocalBlock() (ledger.Block, error) {
 		return ledger.Block{}, errBlockProductionDisabled
 	}
 
+	consensus := s.ledger.Consensus()
+	if s.config.EnforceProposerSchedule && consensus.ValidatorCount > 0 {
+		if s.config.ValidatorAddress == "" {
+			return ledger.Block{}, errValidatorAddressRequired
+		}
+		if consensus.NextProposer != "" && consensus.NextProposer != s.config.ValidatorAddress {
+			return ledger.Block{}, fmt.Errorf("%w: height %d is assigned to %s", errNotScheduledProposer, consensus.NextHeight, consensus.NextProposer)
+		}
+	}
+
 	block, err := s.ledger.ProduceBlock(s.config.MaxTransactionsPerBlock)
 	if err != nil {
 		return ledger.Block{}, err
@@ -440,6 +492,7 @@ func (s *Server) startBackgroundLoops() {
 		s.startPeerSync()
 	}
 }
+
 func (s *Server) startBlockProducer() {
 	s.wg.Add(1)
 	go func() {
@@ -450,7 +503,10 @@ func (s *Server) startBlockProducer() {
 		for {
 			select {
 			case <-ticker.C:
-				if _, err := s.produceLocalBlock(); err != nil && !errors.Is(err, ledger.ErrNoTransactionsToBlock) {
+				if _, err := s.produceLocalBlock(); err != nil &&
+					!errors.Is(err, ledger.ErrNoTransactionsToBlock) &&
+					!errors.Is(err, errNotScheduledProposer) &&
+					!errors.Is(err, errValidatorAddressRequired) {
 					recordPeerLog("local-block-producer", err)
 				}
 			case <-s.stopCh:
@@ -460,6 +516,16 @@ func (s *Server) startBlockProducer() {
 	}()
 }
 
+func (s *Server) electionResponse(snapshot ledger.ValidatorSnapshot) ElectionResponse {
+	return ElectionResponse{
+		Validators:            snapshot.Validators,
+		ElectionConfig:        snapshot.ElectionConfig,
+		ValidatorSetVersion:   snapshot.Version,
+		ValidatorSetUpdatedAt: snapshot.UpdatedAt,
+		Consensus:             s.ledger.Consensus(),
+	}
+}
+
 func normalizeConfig(config Config) Config {
 	if config.DataDir == "" {
 		config.DataDir = filepath.Join("var", "node")
@@ -467,6 +533,7 @@ func normalizeConfig(config Config) Config {
 	if config.NodeID == "" {
 		config.NodeID = "node-local"
 	}
+	config.ValidatorAddress = strings.TrimSpace(config.ValidatorAddress)
 	config.PeerURLs = normalizePeerURLs(config.PeerURLs)
 	if config.MaxTransactionsPerBlock <= 0 {
 		config.MaxTransactionsPerBlock = 100
@@ -503,7 +570,9 @@ func statusForError(err error) int {
 		errors.Is(err, ledger.ErrNoTransactionsToBlock),
 		errors.Is(err, ledger.ErrBlockOutOfSequence),
 		errors.Is(err, ledger.ErrBlockConflict),
-		errors.Is(err, errBlockProductionDisabled):
+		errors.Is(err, errBlockProductionDisabled),
+		errors.Is(err, errValidatorAddressRequired),
+		errors.Is(err, errNotScheduledProposer):
 		return http.StatusConflict
 	case errors.Is(err, ledger.ErrBlockInvariant),
 		errors.Is(err, ledger.ErrInvalidBlock):

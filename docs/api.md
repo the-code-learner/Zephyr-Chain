@@ -14,6 +14,7 @@ Change it with `ZEPHYR_HTTP_ADDR` when starting the node.
 
 - `ZEPHYR_HTTP_ADDR`: HTTP bind address, default `:8080`
 - `ZEPHYR_NODE_ID`: node identifier, default `node-local`
+- `ZEPHYR_VALIDATOR_ADDRESS`: local validator address for proposer-schedule enforcement, default empty
 - `ZEPHYR_DATA_DIR`: durable node state directory, default `var/node`
 - `ZEPHYR_PEERS`: comma-separated peer base URLs, default empty
 - `ZEPHYR_BLOCK_INTERVAL`: automatic block-production interval, default `15s`
@@ -21,6 +22,7 @@ Change it with `ZEPHYR_HTTP_ADDR` when starting the node.
 - `ZEPHYR_MAX_TXS_PER_BLOCK`: maximum committed transactions per block, default `100`
 - `ZEPHYR_ENABLE_BLOCK_PRODUCTION`: enable local block production, default `true`
 - `ZEPHYR_ENABLE_PEER_SYNC`: enable background peer sync, default `true`
+- `ZEPHYR_ENFORCE_PROPOSER_SCHEDULE`: when `true`, only the scheduled proposer may produce the next block once a validator set exists, default `false`
 
 ## Types
 
@@ -28,7 +30,7 @@ Change it with `ZEPHYR_HTTP_ADDR` when starting the node.
 
 ```json
 {
-  "address": "validator-a",
+  "address": "zph_validator_a",
   "selfStake": 20000,
   "commissionRate": 0.1,
   "missedBlocks": 2
@@ -40,7 +42,7 @@ Change it with `ZEPHYR_HTTP_ADDR` when starting the node.
 ```json
 {
   "delegator": "delegator-1",
-  "candidate": "validator-a",
+  "candidate": "zph_validator_a",
   "amount": 5000
 }
 ```
@@ -50,7 +52,7 @@ Change it with `ZEPHYR_HTTP_ADDR` when starting the node.
 ```json
 {
   "rank": 1,
-  "address": "validator-a",
+  "address": "zph_validator_a",
   "votingPower": 25000,
   "selfStake": 20000,
   "delegatedStake": 5000,
@@ -130,19 +132,142 @@ Current node behavior:
 }
 ```
 
+### ConsensusView
+
+```json
+{
+  "currentHeight": 1,
+  "nextHeight": 2,
+  "validatorSetVersion": 1,
+  "validatorSetUpdatedAt": "2026-03-23T15:32:00Z",
+  "validatorCount": 2,
+  "totalVotingPower": 43000,
+  "quorumVotingPower": 28667,
+  "nextProposer": "zph_validator_b"
+}
+```
+
+`quorumVotingPower` is currently derived as a `>2/3` threshold over total voting power.
+
+### ValidatorSnapshot
+
+```json
+{
+  "validators": [
+    {
+      "rank": 1,
+      "address": "zph_validator_a",
+      "votingPower": 25000,
+      "selfStake": 20000,
+      "delegatedStake": 5000,
+      "commissionRate": 0.1
+    }
+  ],
+  "electionConfig": {
+    "maxValidators": 21,
+    "minSelfStake": 10000,
+    "maxMissedBlocks": 50
+  },
+  "version": 1,
+  "updatedAt": "2026-03-23T15:32:00Z"
+}
+```
+
+### ElectionResponse
+
+```json
+{
+  "validators": [
+    {
+      "rank": 1,
+      "address": "zph_validator_a",
+      "votingPower": 25000,
+      "selfStake": 20000,
+      "delegatedStake": 5000,
+      "commissionRate": 0.1
+    }
+  ],
+  "electionConfig": {
+    "maxValidators": 21,
+    "minSelfStake": 10000,
+    "maxMissedBlocks": 50
+  },
+  "validatorSetVersion": 1,
+  "validatorSetUpdatedAt": "2026-03-23T15:32:00Z",
+  "consensus": {
+    "currentHeight": 0,
+    "nextHeight": 1,
+    "validatorSetVersion": 1,
+    "validatorCount": 1,
+    "totalVotingPower": 25000,
+    "quorumVotingPower": 16667,
+    "nextProposer": "zph_validator_a"
+  }
+}
+```
+
 ### StatusResponse
 
 ```json
 {
   "nodeId": "node-a",
+  "validatorAddress": "zph_validator_a",
   "peerCount": 1,
   "blockProduction": true,
   "peerSyncEnabled": true,
+  "proposerScheduleEnforced": true,
   "status": {
     "height": 1,
     "latestBlockHash": "<block-hash>",
     "latestBlockAt": "2026-03-23T15:31:00Z",
     "mempoolSize": 0
+  },
+  "consensus": {
+    "currentHeight": 1,
+    "nextHeight": 2,
+    "validatorSetVersion": 1,
+    "validatorCount": 2,
+    "totalVotingPower": 43000,
+    "quorumVotingPower": 28667,
+    "nextProposer": "zph_validator_b"
+  }
+}
+```
+
+### ConsensusResponse
+
+```json
+{
+  "nodeId": "node-a",
+  "validatorAddress": "zph_validator_a",
+  "proposerScheduleEnforced": true,
+  "validatorSet": {
+    "validators": [
+      {
+        "rank": 1,
+        "address": "zph_validator_a",
+        "votingPower": 25000,
+        "selfStake": 20000,
+        "delegatedStake": 5000,
+        "commissionRate": 0.1
+      }
+    ],
+    "electionConfig": {
+      "maxValidators": 21,
+      "minSelfStake": 10000,
+      "maxMissedBlocks": 50
+    },
+    "version": 1,
+    "updatedAt": "2026-03-23T15:32:00Z"
+  },
+  "consensus": {
+    "currentHeight": 0,
+    "nextHeight": 1,
+    "validatorSetVersion": 1,
+    "validatorCount": 1,
+    "totalVotingPower": 25000,
+    "quorumVotingPower": 16667,
+    "nextProposer": "zph_validator_a"
   }
 }
 ```
@@ -212,7 +337,7 @@ curl http://localhost:8080/health
 
 ### GET /v1/status
 
-Returns the local runtime status for the current node.
+Returns the local runtime status for the current node, including consensus summary.
 
 ```bash
 curl http://localhost:8080/v1/status
@@ -228,13 +353,21 @@ curl http://localhost:8080/v1/peers
 
 If no peer sync has happened yet, peers may appear with only their configured URL.
 
+### GET /v1/consensus
+
+Returns the durable validator snapshot plus the derived consensus summary for the next height.
+
+```bash
+curl http://localhost:8080/v1/consensus
+```
+
 ### POST /v1/election
 
-Calculates a validator set from the provided candidates, votes, and config, then stores the result as the current local validator snapshot.
+Calculates a validator set from the provided candidates, votes, and config, persists it durably in the ledger, increments the validator-set version, and returns the resulting consensus summary.
 
 ### GET /v1/validators
 
-Returns the latest validator snapshot produced by `POST /v1/election`.
+Returns the latest durable validator snapshot produced by `POST /v1/election`.
 
 ### GET /v1/accounts/{address}
 
@@ -312,6 +445,8 @@ curl -X POST http://localhost:8080/v1/dev/produce-block
 
 If block production is disabled on that node, the endpoint returns `409`.
 
+If proposer-schedule enforcement is enabled and a validator set exists, the endpoint also returns `409` when the local validator is not the scheduled proposer for the next height.
+
 ## Internal Node-To-Node Endpoints
 
 These endpoints are used by the current HTTP devnet sync layer. They exist for node replication, not wallet clients.
@@ -326,7 +461,7 @@ Returns the current durable node snapshot used for catch-up restore.
 
 ## PowerShell Example
 
-The following example funds an account, submits a transaction, forces a block on one node, and inspects peer state from PowerShell:
+The following example funds an account, submits a transaction, forces a block on one node, and inspects consensus state from PowerShell:
 
 ```powershell
 $faucet = @{ address = "zph_sender"; amount = 100 } | ConvertTo-Json
@@ -345,6 +480,6 @@ $tx = @{
 
 Invoke-RestMethod -Method Post -Uri "http://localhost:8080/v1/transactions" -ContentType "application/json" -Body $tx
 Invoke-RestMethod -Method Post -Uri "http://localhost:8080/v1/dev/produce-block"
-Invoke-RestMethod -Method Get -Uri "http://localhost:8080/v1/blocks/latest"
-Invoke-RestMethod -Method Get -Uri "http://localhost:8080/v1/peers"
+Invoke-RestMethod -Method Get -Uri "http://localhost:8080/v1/status"
+Invoke-RestMethod -Method Get -Uri "http://localhost:8080/v1/consensus"
 ```

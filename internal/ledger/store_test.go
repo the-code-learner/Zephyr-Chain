@@ -11,6 +11,7 @@ import (
 	"math/big"
 	"testing"
 
+	"github.com/zephyr-chain/zephyr-chain/internal/dpos"
 	"github.com/zephyr-chain/zephyr-chain/internal/tx"
 )
 
@@ -256,6 +257,80 @@ func TestStoreImportBlockCommitsValidRemoteBlock(t *testing.T) {
 	}
 }
 
+func TestStoreSetValidatorsPersistsAcrossRestartAndUpdatesConsensus(t *testing.T) {
+	dataDir := t.TempDir()
+	store, err := NewStore(dataDir)
+	if err != nil {
+		t.Fatalf("create store: %v", err)
+	}
+
+	snapshot, err := store.SetValidators([]dpos.Validator{
+		{Rank: 1, Address: "zph_validator_a", VotingPower: 40, SelfStake: 25, DelegatedStake: 15},
+		{Rank: 2, Address: "zph_validator_b", VotingPower: 30, SelfStake: 20, DelegatedStake: 10},
+	}, dpos.ElectionConfig{MaxValidators: 2, MinSelfStake: 10_000, MaxMissedBlocks: 50})
+	if err != nil {
+		t.Fatalf("set validators: %v", err)
+	}
+
+	if snapshot.Version != 1 {
+		t.Fatalf("expected validator snapshot version 1, got %d", snapshot.Version)
+	}
+	if len(snapshot.Validators) != 2 {
+		t.Fatalf("expected 2 validators, got %d", len(snapshot.Validators))
+	}
+
+	consensus := store.Consensus()
+	if consensus.CurrentHeight != 0 || consensus.NextHeight != 1 {
+		t.Fatalf("unexpected initial consensus heights: %+v", consensus)
+	}
+	if consensus.ValidatorCount != 2 {
+		t.Fatalf("expected validator count 2, got %d", consensus.ValidatorCount)
+	}
+	if consensus.TotalVotingPower != 70 {
+		t.Fatalf("expected total voting power 70, got %d", consensus.TotalVotingPower)
+	}
+	if consensus.QuorumVotingPower != 47 {
+		t.Fatalf("expected quorum voting power 47, got %d", consensus.QuorumVotingPower)
+	}
+	if consensus.NextProposer != "zph_validator_a" {
+		t.Fatalf("expected proposer zph_validator_a, got %s", consensus.NextProposer)
+	}
+
+	if _, err := store.Credit("zph_sender", 100); err != nil {
+		t.Fatalf("credit sender: %v", err)
+	}
+	if _, err := store.Accept(tx.Envelope{From: "zph_sender", To: "zph_receiver", Amount: 10, Nonce: 1}); err != nil {
+		t.Fatalf("accept tx: %v", err)
+	}
+	if _, err := store.ProduceBlock(10); err != nil {
+		t.Fatalf("produce block: %v", err)
+	}
+
+	consensus = store.Consensus()
+	if consensus.CurrentHeight != 1 || consensus.NextHeight != 2 {
+		t.Fatalf("unexpected post-block consensus heights: %+v", consensus)
+	}
+	if consensus.NextProposer != "zph_validator_b" {
+		t.Fatalf("expected proposer zph_validator_b after one block, got %s", consensus.NextProposer)
+	}
+
+	reopened, err := NewStore(dataDir)
+	if err != nil {
+		t.Fatalf("reopen store: %v", err)
+	}
+
+	reopenedSnapshot := reopened.ValidatorSet()
+	if reopenedSnapshot.Version != 1 {
+		t.Fatalf("expected reopened validator snapshot version 1, got %d", reopenedSnapshot.Version)
+	}
+	if len(reopenedSnapshot.Validators) != 2 {
+		t.Fatalf("expected reopened validator count 2, got %d", len(reopenedSnapshot.Validators))
+	}
+	if reopened.Consensus().NextProposer != "zph_validator_b" {
+		t.Fatalf("expected reopened proposer zph_validator_b, got %s", reopened.Consensus().NextProposer)
+	}
+}
+
 func TestStoreSnapshotRestoreRehydratesState(t *testing.T) {
 	producer := newTestStore(t)
 	envelope := signedEnvelope(t, 25, 1, "snapshot")
@@ -264,6 +339,12 @@ func TestStoreSnapshotRestoreRehydratesState(t *testing.T) {
 	}
 	if _, err := producer.Accept(envelope); err != nil {
 		t.Fatalf("accept producer tx: %v", err)
+	}
+	if _, err := producer.SetValidators([]dpos.Validator{
+		{Rank: 1, Address: "zph_validator_a", VotingPower: 60, SelfStake: 40, DelegatedStake: 20},
+		{Rank: 2, Address: "zph_validator_b", VotingPower: 30, SelfStake: 20, DelegatedStake: 10},
+	}, dpos.ElectionConfig{MaxValidators: 2}); err != nil {
+		t.Fatalf("set validators: %v", err)
 	}
 	block, err := producer.ProduceBlock(10)
 	if err != nil {
@@ -284,6 +365,17 @@ func TestStoreSnapshotRestoreRehydratesState(t *testing.T) {
 	}
 	if replica.View(envelope.From).Balance != 75 {
 		t.Fatalf("expected restored sender balance 75, got %d", replica.View(envelope.From).Balance)
+	}
+
+	validatorSnapshot := replica.ValidatorSet()
+	if validatorSnapshot.Version != 1 {
+		t.Fatalf("expected restored validator snapshot version 1, got %d", validatorSnapshot.Version)
+	}
+	if len(validatorSnapshot.Validators) != 2 {
+		t.Fatalf("expected restored validator count 2, got %d", len(validatorSnapshot.Validators))
+	}
+	if replica.Consensus().NextProposer != "zph_validator_b" {
+		t.Fatalf("expected restored proposer zph_validator_b, got %s", replica.Consensus().NextProposer)
 	}
 
 	if _, err := replica.CreditWithID("fund-restore", envelope.From, 25); err != nil {

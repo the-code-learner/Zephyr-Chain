@@ -24,9 +24,13 @@ type Validator struct {
 }
 
 type ElectionConfig struct {
-	MaxValidators  int    `json:"maxValidators"`
-	MinSelfStake   uint64 `json:"minSelfStake"`
+	MaxValidators   int    `json:"maxValidators"`
+	MinSelfStake    uint64 `json:"minSelfStake"`
 	MaxMissedBlocks uint64 `json:"maxMissedBlocks"`
+}
+
+func NormalizeElectionConfig(config ElectionConfig) ElectionConfig {
+	return config.withDefaults()
 }
 
 func (c ElectionConfig) withDefaults() ElectionConfig {
@@ -44,4 +48,3 @@ func (c ElectionConfig) withDefaults() ElectionConfig {
 
 	return c
 }
-
