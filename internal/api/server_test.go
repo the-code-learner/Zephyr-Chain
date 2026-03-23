@@ -18,7 +18,7 @@ import (
 )
 
 func TestHandleFaucetAndAccount(t *testing.T) {
-	server := NewServer()
+	server := newTestServer(t)
 
 	faucetBody := bytes.NewBufferString(`{"address":"zph_test","amount":125}`)
 	faucetRequest := httptest.NewRequest(http.MethodPost, "/v1/dev/faucet", faucetBody)
@@ -48,9 +48,11 @@ func TestHandleFaucetAndAccount(t *testing.T) {
 }
 
 func TestHandleBroadcastTransactionRejectsInvalidSignature(t *testing.T) {
-	server := NewServer()
+	server := newTestServer(t)
 	envelope := signedEnvelope(t, 25, 1, "hello")
-	server.ledger.Credit(envelope.From, 100)
+	if _, err := server.ledger.Credit(envelope.From, 100); err != nil {
+		t.Fatalf("credit sender: %v", err)
+	}
 	envelope.Signature = base64.StdEncoding.EncodeToString(make([]byte, 64))
 
 	body, err := json.Marshal(envelope)
@@ -68,9 +70,11 @@ func TestHandleBroadcastTransactionRejectsInvalidSignature(t *testing.T) {
 }
 
 func TestHandleBroadcastTransactionAcceptsFundedTransaction(t *testing.T) {
-	server := NewServer()
+	server := newTestServer(t)
 	envelope := signedEnvelope(t, 25, 1, "hello")
-	server.ledger.Credit(envelope.From, 100)
+	if _, err := server.ledger.Credit(envelope.From, 100); err != nil {
+		t.Fatalf("credit sender: %v", err)
+	}
 
 	body, err := json.Marshal(envelope)
 	if err != nil {
@@ -84,6 +88,102 @@ func TestHandleBroadcastTransactionAcceptsFundedTransaction(t *testing.T) {
 	if recorder.Code != http.StatusAccepted {
 		t.Fatalf("expected status 202, got %d", recorder.Code)
 	}
+}
+
+func TestHandleProduceBlockCommitsAndExposesLatestBlock(t *testing.T) {
+	server := newTestServer(t)
+	envelope := signedEnvelope(t, 25, 1, "hello")
+	if _, err := server.ledger.Credit(envelope.From, 100); err != nil {
+		t.Fatalf("credit sender: %v", err)
+	}
+
+	body, err := json.Marshal(envelope)
+	if err != nil {
+		t.Fatalf("marshal transaction: %v", err)
+	}
+
+	broadcastRequest := httptest.NewRequest(http.MethodPost, "/v1/transactions", bytes.NewReader(body))
+	broadcastRecorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(broadcastRecorder, broadcastRequest)
+	if broadcastRecorder.Code != http.StatusAccepted {
+		t.Fatalf("expected broadcast status 202, got %d", broadcastRecorder.Code)
+	}
+
+	produceRequest := httptest.NewRequest(http.MethodPost, "/v1/dev/produce-block", nil)
+	produceRecorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(produceRecorder, produceRequest)
+	if produceRecorder.Code != http.StatusOK {
+		t.Fatalf("expected produce block status 200, got %d", produceRecorder.Code)
+	}
+
+	var produceResponse ProduceBlockResponse
+	if err := json.NewDecoder(produceRecorder.Body).Decode(&produceResponse); err != nil {
+		t.Fatalf("decode produce block response: %v", err)
+	}
+	if produceResponse.Block.Height != 1 {
+		t.Fatalf("expected block height 1, got %d", produceResponse.Block.Height)
+	}
+
+	latestRequest := httptest.NewRequest(http.MethodGet, "/v1/blocks/latest", nil)
+	latestRecorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(latestRecorder, latestRequest)
+	if latestRecorder.Code != http.StatusOK {
+		t.Fatalf("expected latest block status 200, got %d", latestRecorder.Code)
+	}
+
+	var latestResponse LatestBlockResponse
+	if err := json.NewDecoder(latestRecorder.Body).Decode(&latestResponse); err != nil {
+		t.Fatalf("decode latest block response: %v", err)
+	}
+	if latestResponse.Block.Hash != produceResponse.Block.Hash {
+		t.Fatalf("expected latest block hash %s, got %s", produceResponse.Block.Hash, latestResponse.Block.Hash)
+	}
+
+	statusRequest := httptest.NewRequest(http.MethodGet, "/v1/status", nil)
+	statusRecorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(statusRecorder, statusRequest)
+	if statusRecorder.Code != http.StatusOK {
+		t.Fatalf("expected status endpoint 200, got %d", statusRecorder.Code)
+	}
+
+	var statusResponse StatusResponse
+	if err := json.NewDecoder(statusRecorder.Body).Decode(&statusResponse); err != nil {
+		t.Fatalf("decode status response: %v", err)
+	}
+	if statusResponse.Status.Height != 1 || statusResponse.Status.MempoolSize != 0 {
+		t.Fatalf("unexpected status response: %+v", statusResponse.Status)
+	}
+
+	senderRequest := httptest.NewRequest(http.MethodGet, "/v1/accounts/"+envelope.From, nil)
+	senderRecorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(senderRecorder, senderRequest)
+	if senderRecorder.Code != http.StatusOK {
+		t.Fatalf("expected sender account status 200, got %d", senderRecorder.Code)
+	}
+
+	var senderResponse AccountResponse
+	if err := json.NewDecoder(senderRecorder.Body).Decode(&senderResponse); err != nil {
+		t.Fatalf("decode sender account response: %v", err)
+	}
+	if senderResponse.Account.Balance != 75 || senderResponse.Account.Nonce != 1 {
+		t.Fatalf("unexpected sender account after block commit: %+v", senderResponse.Account)
+	}
+}
+
+func newTestServer(t *testing.T) *Server {
+	t.Helper()
+
+	server, err := NewServerWithConfig(Config{
+		DataDir:                 t.TempDir(),
+		BlockInterval:           0,
+		MaxTransactionsPerBlock: 10,
+	})
+	if err != nil {
+		t.Fatalf("create server: %v", err)
+	}
+
+	t.Cleanup(server.Close)
+	return server
 }
 
 func signedEnvelope(t *testing.T, amount uint64, nonce uint64, memo string) tx.Envelope {

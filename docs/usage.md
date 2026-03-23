@@ -4,7 +4,7 @@
 
 The current repository gives you two local development components:
 
-- a Go node API that can rank validators, fund local test accounts, inspect account state, and queue validated transactions in memory
+- a Go node API that can rank validators, persist local chain state, fund test accounts, inspect account state, queue validated transactions, and commit single-node blocks
 - a browser wallet that can create a local account, export and import it, inspect node-side account state, sign a transaction, and send it to the node
 
 Deterministic WASM smart contracts and a confidential compute marketplace are planned next phases, not part of the current local MVP workflow.
@@ -39,12 +39,17 @@ Expected behavior:
 
 - the process starts an HTTP server
 - default bind address is `:8080`
-- the node exposes `/health`, `/v1/election`, `/v1/validators`, `/v1/accounts/{address}`, `/v1/dev/faucet`, and `/v1/transactions`
+- default data directory is `var/node`
+- default automatic block interval is `15s`
+- the node exposes `/health`, `/v1/status`, `/v1/election`, `/v1/validators`, `/v1/accounts/{address}`, `/v1/blocks/latest`, `/v1/dev/faucet`, `/v1/dev/produce-block`, and `/v1/transactions`
 
-To change the bind address:
+To change the bind address, data directory, or block interval:
 
 ```powershell
 $env:ZEPHYR_HTTP_ADDR=":9090"
+$env:ZEPHYR_DATA_DIR="var/devnet-a"
+$env:ZEPHYR_BLOCK_INTERVAL="5s"
+$env:ZEPHYR_MAX_TXS_PER_BLOCK="25"
 go run ./cmd/node
 ```
 
@@ -52,6 +57,7 @@ You can sanity-check the node with:
 
 ```powershell
 Invoke-RestMethod http://localhost:8080/health
+Invoke-RestMethod http://localhost:8080/v1/status
 ```
 
 ## Run The Wallet
@@ -91,52 +97,45 @@ Then restart the Vite dev server.
 3. The app generates an ECDSA P-256 keypair in the browser.
 4. The account is saved locally and the `from` field is pre-filled.
 
-What is stored:
-
-- address
-- creation timestamp
-- exported public key JWK
-- exported private key JWK
-- base64-encoded SPKI public key
-
-Where it is stored:
-
-- browser `localStorage`
-- storage key: `zephyr.wallet.account`
-
-### Import A Wallet
-
-1. Paste a previously exported backup JSON into the `Wallet backup JSON` field.
-2. Click `Import backup`.
-3. The wallet is saved into local storage and becomes the active account.
-
-### Clear A Wallet
-
-1. Click `Clear local wallet`.
-2. The app removes the stored wallet from browser `localStorage`.
-
-## Sign And Broadcast A Transaction
+### Fund And Inspect The Wallet
 
 1. Make sure the node is running and the wallet shows node health as online.
-2. If this is a fresh account, use the wallet's `Fund account` control or call `POST /v1/dev/faucet` first.
-3. Fill in `To`, `Amount`, `Nonce`, and `Memo`.
-4. Confirm the `From` address matches your loaded wallet.
-5. Use `Use next nonce` if you want to copy the node's suggested nonce into the form.
-6. Click `Sign locally`.
-7. Review the generated signed envelope in the read-only payload area.
-8. Click `Broadcast`.
+2. Click `Fund account` to credit the local wallet through the node's dev faucet.
+3. Use `Refresh node state` to pull the latest account view from the node.
+4. Use `Use next nonce` if you want to align the form with the node's expected next nonce.
+
+### Sign And Broadcast A Transaction
+
+1. Fill in `To`, `Amount`, `Nonce`, and `Memo`.
+2. Confirm the `From` address matches your loaded wallet.
+3. Click `Sign locally`.
+4. Review the generated signed envelope in the read-only payload area.
+5. Click `Broadcast`.
 
 What happens under the hood:
 
 - the wallet creates a canonical payload by sorting transaction keys
 - the payload is signed locally with the stored private key
 - the signed envelope is sent to `POST /v1/transactions`
-- the node validates the canonical payload, verifies the P-256 signature, checks nonce and available balance, then appends the request to the in-memory mempool and returns an ID
+- the node validates the canonical payload, verifies the P-256 signature, checks nonce and available balance, and persists the transaction in the local mempool
+- the node later commits the transaction into a block automatically on the configured interval, or immediately if you force block production through the dev endpoint
 
 Important:
 
-- broadcast success only means the node queued the transaction in memory
-- it does not mean the transaction executed or finalized
+- broadcast success means the transaction entered the local node mempool
+- block commitment is a separate step from broadcast acceptance
+- this is still single-node local execution, not network finality
+
+## Force A Local Block
+
+For deterministic local testing, you can force immediate block production:
+
+```powershell
+Invoke-RestMethod -Method Post -Uri "http://localhost:8080/v1/dev/produce-block"
+Invoke-RestMethod -Method Get -Uri "http://localhost:8080/v1/blocks/latest"
+```
+
+This is useful when you want to confirm account balances and nonces after commit without waiting for the automatic interval.
 
 ## Wallet Backup JSON
 
@@ -162,16 +161,11 @@ Use it only for local development. In the current MVP:
 - confirm the bind address matches the wallet's API base URL
 - open `http://localhost:8080/health` directly or use `Invoke-RestMethod`
 
-### Wallet Cannot Reach The Node
+### Runtime State Is Not Where You Expect
 
-- confirm `VITE_ZEPHYR_API_BASE` points to the right host and port
-- restart the Vite dev server after changing `.env.local`
-- make sure browser and node are using the same local network target
-
-### PowerShell Blocks `npm`
-
-- use `npm.cmd install` instead of `npm install`
-- use `npm.cmd run dev` instead of `npm run dev`
+- confirm `ZEPHYR_DATA_DIR` points to the intended local directory
+- remember the default durable state location is `var/node`
+- remove the data directory only if you intentionally want to discard local chain state
 
 ### Transaction Broadcast Returns An Error
 
@@ -190,4 +184,5 @@ Use it only for local development. In the current MVP:
 5. Refresh account state and confirm the suggested nonce.
 6. Sign a sample transaction.
 7. Broadcast it to the local node.
-8. Optionally call `POST /v1/election` and inspect `GET /v1/validators`.
+8. Wait for automatic block production or call `POST /v1/dev/produce-block`.
+9. Inspect `GET /v1/status`, `GET /v1/blocks/latest`, and `GET /v1/accounts/{address}`.

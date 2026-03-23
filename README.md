@@ -1,9 +1,6 @@
 # Zephyr Chain
 
-Zephyr Chain is an early-stage blockchain MVP focused on two Phase 1 capabilities:
-
-- a Go node API with in-memory Delegated Proof-of-Stake (DPoS) election logic
-- a Vue 3 wallet that creates browser-side accounts, signs transactions locally, and broadcasts them to the node API
+Zephyr Chain is an early-stage blockchain MVP focused on a Go node API, a browser wallet, and a progressively more realistic single-node execution path.
 
 The long-term vision for Zephyr Chain lives in [Zaphyr-chain_manifesto.md](./Zaphyr-chain_manifesto.md). This `README` documents what is implemented now, how to run it, and where to extend it next.
 
@@ -12,18 +9,19 @@ The long-term vision for Zephyr Chain lives in [Zaphyr-chain_manifesto.md](./Zap
 Implemented today:
 
 - Go HTTP node entrypoint in `cmd/node`
-- in-memory API server in `internal/api`
 - DPoS election primitives and tests in `internal/dpos`
+- transaction envelope validation in `internal/tx`
+- durable local ledger, mempool, and block state in `internal/ledger`
+- persisted JSON state under a configurable node data directory
+- single-node block production with committed balances and nonces
+- HTTP endpoints for health, status, accounts, faucet funding, transaction submission, latest block, and manual local block production
 - Vue wallet in `apps/wallet`
 - wallet account generation, import/export, local signing, account inspection, and transaction broadcast
-- server-side canonical payload verification, signature validation, nonce checks, balance checks, and duplicate detection
-- dev/test account funding and account inspection endpoints
 - wallet-side account refresh, suggested nonce helpers, and local faucet integration for easier testing
 
 Planned but not implemented yet:
 
-- persistent chain state and block production
-- peer-to-peer networking
+- peer-to-peer networking and validator coordination
 - sharding and DAG research
 - deterministic WASM smart-contract runtime
 - confidential compute marketplace for encrypted off-chain jobs paid in native tokens
@@ -37,16 +35,14 @@ Planned but not implemented yet:
 
 ## Repository Layout
 
-- `cmd/node`: node process entrypoint
-- `internal/api`: HTTP handlers for health, election, validator snapshot, account inspection, faucet funding, and transaction submission
+- `cmd/node`: node process entrypoint and environment-based runtime configuration
+- `internal/api`: HTTP handlers, status surface, and single-node block-production loop
 - `internal/dpos`: candidate, vote, validator, and election service logic
-- `internal/ledger`: in-memory account, pending balance, and mempool reservation logic
+- `internal/ledger`: persisted accounts, mempool entries, blocks, and commit logic
 - `internal/tx`: transaction envelope validation, address derivation, and signature verification
 - `apps/wallet`: reference light wallet built with Vue 3, Vite, and Tailwind CSS
-- `Zaphyr-chain_manifesto.md`: project vision and long-term direction
-- `docs/architecture.md`: MVP architecture and data flow
-- `docs/api.md`: current HTTP API and JSON shapes
-- `docs/usage.md`: local setup and operator walkthrough
+- `docs/`: architecture, API, and local usage guides
+- `var/`: default local runtime state directory for the node, ignored by git
 
 ## Prerequisites
 
@@ -66,7 +62,7 @@ From the repository root:
 go run ./cmd/node
 ```
 
-The node listens on `:8080` by default.
+The node listens on `:8080` by default, stores local runtime state in `var/node`, and produces blocks every `15s` when there are pending transactions.
 
 ### 2. Run the wallet
 
@@ -93,12 +89,24 @@ Vite serves the wallet on `http://localhost:5173` by default.
 ### Node
 
 - `ZEPHYR_HTTP_ADDR`: HTTP bind address for the Go node
-- default: `:8080`
+- `ZEPHYR_DATA_DIR`: local directory used for durable node state
+- `ZEPHYR_BLOCK_INTERVAL`: automatic block-production interval such as `15s`
+- `ZEPHYR_MAX_TXS_PER_BLOCK`: maximum committed transactions per produced block
+
+Default values:
+
+- `ZEPHYR_HTTP_ADDR`: `:8080`
+- `ZEPHYR_DATA_DIR`: `var/node`
+- `ZEPHYR_BLOCK_INTERVAL`: `15s`
+- `ZEPHYR_MAX_TXS_PER_BLOCK`: `100`
 
 Example:
 
 ```powershell
 $env:ZEPHYR_HTTP_ADDR=":9090"
+$env:ZEPHYR_DATA_DIR="var/devnet-a"
+$env:ZEPHYR_BLOCK_INTERVAL="5s"
+$env:ZEPHYR_MAX_TXS_PER_BLOCK="25"
 go run ./cmd/node
 ```
 
@@ -120,20 +128,21 @@ VITE_ZEPHYR_API_BASE=http://localhost:8080
 3. The private key, public key, and address are stored in browser `localStorage`.
 4. The wallet can inspect the current node-side account state and use a dev faucet for local funding.
 5. The wallet signs a canonical transaction payload locally and sends the signed envelope to the node.
-6. The node validates the payload, address, signature, balance, and nonce rules before accepting the transaction into an in-memory mempool and returning a generated transaction ID.
-7. Validator elections are calculated on demand through the DPoS service and stored as the latest in-memory validator snapshot.
+6. The node validates the payload, address, signature, balance, and nonce rules before accepting the transaction into the persisted local mempool.
+7. The node produces blocks on a timer, commits pending transactions into durable local chain state, updates balances and nonces, and exposes the latest block through the API.
+8. Validator elections are still calculated on demand through the DPoS service and stored as the latest local validator snapshot.
 
 ## Current Limitations
 
-- all state is in memory and is lost on restart
-- account state, mempool reservations, and dev funding are still single-node and in-memory only
-- there is no block production or finality mechanism yet
+- block production is still single-node and not coordinated by a peer network
+- DPoS elections are still API-level calculations, not a live validator consensus round
+- the runtime state is durable on one node only; there is no replication or sync yet
 - there is no peer networking or consensus communication layer yet
 - WASM smart-contract execution is planned, but not implemented yet
 - confidential compute jobs, worker attestation, escrow, and settlement are planned, but not implemented yet
 - wallet private keys are stored unencrypted in browser `localStorage`
 
-Because of these limitations, the current MVP should be treated as a local development prototype, not a production blockchain network.
+Because of these limitations, the current MVP should still be treated as a local development prototype, not a production blockchain network.
 
 ## Documentation
 
@@ -144,13 +153,12 @@ Because of these limitations, the current MVP should be treated as a local devel
 
 ## Next Development Steps
 
-1. Persist account, mempool, and chain state instead of keeping them only in memory.
-2. Add peer-to-peer networking, block propagation, and validator coordination.
-3. Introduce deterministic WASM smart-contract execution.
-4. Add contract metering and native-fee accounting for WASM execution.
-5. Introduce worker registry, attestation verification, and bid marketplace flows.
-6. Add async confidential compute jobs with escrow, settlement, and slashing.
-7. Improve wallet UX for network selection, job creation, budget setting, result retrieval, and fee/payment history.
+1. Add peer-to-peer networking, block propagation, and validator coordination.
+2. Introduce deterministic WASM smart-contract execution.
+3. Add contract metering and native-fee accounting for WASM execution.
+4. Introduce worker registry, attestation verification, and bid marketplace flows.
+5. Add async confidential compute jobs with escrow, settlement, and slashing.
+6. Improve wallet UX for network selection, block visibility, job creation, budget setting, result retrieval, and fee/payment history.
 
 ## License
 

@@ -10,6 +10,13 @@ http://localhost:8080
 
 You can change it with `ZEPHYR_HTTP_ADDR` when starting the node.
 
+## Node Runtime Configuration
+
+- `ZEPHYR_HTTP_ADDR`: HTTP bind address, default `:8080`
+- `ZEPHYR_DATA_DIR`: durable node state directory, default `var/node`
+- `ZEPHYR_BLOCK_INTERVAL`: automatic block-production interval, default `15s`
+- `ZEPHYR_MAX_TXS_PER_BLOCK`: maximum committed transactions per block, default `100`
+
 ## Types
 
 ### Candidate
@@ -80,7 +87,7 @@ Current node behavior:
 - `from` must match the address derived from `publicKey`
 - the node verifies the P-256 signature over `payload`
 - the node enforces duplicate detection, next-nonce rules, and available-balance checks before mempool admission
-- accepted transactions are still queued only in memory
+- accepted transactions are persisted in the local node state until they are committed into a block
 
 ### BroadcastTransactionResponse
 
@@ -106,11 +113,47 @@ Current node behavior:
 }
 ```
 
-- `balance`: currently funded account balance
+- `balance`: current committed account balance
 - `availableBalance`: balance left after reserving amounts for pending mempool transactions
 - `nonce`: latest committed nonce in account state
 - `nextNonce`: next nonce expected for the sender
 - `pendingTransactions`: number of accepted mempool transactions reserved for this account
+
+### StatusView
+
+```json
+{
+  "height": 1,
+  "latestBlockHash": "<block-hash>",
+  "latestBlockAt": "2026-03-23T15:31:00Z",
+  "mempoolSize": 0
+}
+```
+
+### Block
+
+```json
+{
+  "height": 1,
+  "hash": "<block-hash>",
+  "previousHash": "",
+  "producedAt": "2026-03-23T15:31:00Z",
+  "transactionCount": 1,
+  "transactionIds": ["<transaction-hash>"],
+  "transactions": [
+    {
+      "from": "zph_sender",
+      "to": "zph_receiver",
+      "amount": 25,
+      "nonce": 1,
+      "memo": "Genesis wallet test transfer",
+      "payload": "...",
+      "publicKey": "<base64-spki-public-key>",
+      "signature": "<base64-signature>"
+    }
+  ]
+}
+```
 
 ### FaucetRequest
 
@@ -133,73 +176,52 @@ Returns a simple liveness response.
 curl http://localhost:8080/health
 ```
 
+### GET /v1/status
+
+Returns the local chain status for the current node.
+
+```bash
+curl http://localhost:8080/v1/status
+```
+
 Response:
 
 ```json
 {
-  "status": "ok",
-  "service": "zephyr-node-api"
+  "status": {
+    "height": 1,
+    "latestBlockHash": "<block-hash>",
+    "latestBlockAt": "2026-03-23T15:31:00Z",
+    "mempoolSize": 0
+  }
 }
 ```
 
 ### POST /v1/election
 
-Calculates a validator set from the provided candidates, votes, and config, then stores the result as the current in-memory snapshot.
-
-```bash
-curl -X POST http://localhost:8080/v1/election \
-  -H "Content-Type: application/json" \
-  -d '{
-    "candidates": [
-      { "address": "alice", "selfStake": 20000, "commissionRate": 0.10, "missedBlocks": 1 },
-      { "address": "bob", "selfStake": 15000, "commissionRate": 0.08, "missedBlocks": 2 }
-    ],
-    "votes": [
-      { "delegator": "d1", "candidate": "alice", "amount": 5000 },
-      { "delegator": "d2", "candidate": "bob", "amount": 9000 }
-    ],
-    "config": {
-      "maxValidators": 21,
-      "minSelfStake": 10000,
-      "maxMissedBlocks": 50
-    }
-  }'
-```
-
-Each new election replaces the previous in-memory validator snapshot.
+Calculates a validator set from the provided candidates, votes, and config, then stores the result as the current local validator snapshot.
 
 ### GET /v1/validators
 
 Returns the latest validator snapshot produced by `POST /v1/election`.
 
-```bash
-curl http://localhost:8080/v1/validators
-```
-
-If no election has been submitted since process start, the array is empty.
-
 ### GET /v1/accounts/{address}
 
-Returns the current in-memory account view for the requested address.
+Returns the current persisted account view for the requested address.
 
 ```bash
 curl http://localhost:8080/v1/accounts/zph_sender
 ```
 
-Response:
+### GET /v1/blocks/latest
 
-```json
-{
-  "account": {
-    "address": "zph_sender",
-    "balance": 100,
-    "availableBalance": 75,
-    "nonce": 0,
-    "nextNonce": 2,
-    "pendingTransactions": 1
-  }
-}
+Returns the latest committed local block.
+
+```bash
+curl http://localhost:8080/v1/blocks/latest
 ```
+
+If no block has been committed yet, the endpoint returns `404`.
 
 ### POST /v1/dev/faucet
 
@@ -214,24 +236,9 @@ curl -X POST http://localhost:8080/v1/dev/faucet \
   }'
 ```
 
-Response:
-
-```json
-{
-  "account": {
-    "address": "zph_sender",
-    "balance": 100,
-    "availableBalance": 100,
-    "nonce": 0,
-    "nextNonce": 1,
-    "pendingTransactions": 0
-  }
-}
-```
-
 ### POST /v1/transactions
 
-Accepts a signed transaction envelope and queues it in the node's in-memory mempool after validation.
+Accepts a signed transaction envelope and queues it in the node's persisted local mempool after validation.
 
 ```bash
 curl -X POST http://localhost:8080/v1/transactions \
@@ -248,25 +255,24 @@ curl -X POST http://localhost:8080/v1/transactions \
   }'
 ```
 
-Response:
-
-```json
-{
-  "id": "7f0e5d5d3f7cf8f2f6b7c7c2fcb00f2a0f4dce8f0e615d4db5b8d80c2c0c1111",
-  "accepted": true,
-  "queuedAt": "2026-03-23T15:30:00Z",
-  "mempoolSize": 1
-}
-```
-
 Meaning:
 
-- `accepted` means the transaction passed current validation and was queued in the node's in-memory mempool
-- it still does not imply execution, inclusion in a block, or finality
+- `accepted` means the transaction passed validation and was queued in the node's persisted local mempool
+- it does not imply peer replication or network finality yet
+
+### POST /v1/dev/produce-block
+
+Forces immediate block production from the current local mempool.
+
+```bash
+curl -X POST http://localhost:8080/v1/dev/produce-block
+```
+
+This endpoint is intended for local development and tests. In normal operation, the node also produces blocks automatically on `ZEPHYR_BLOCK_INTERVAL` when the mempool is non-empty.
 
 ## PowerShell Example
 
-The following example funds an account and then submits a transaction from PowerShell:
+The following example funds an account, submits a transaction, and forces a block locally from PowerShell:
 
 ```powershell
 $faucet = @{ address = "zph_sender"; amount = 100 } | ConvertTo-Json
@@ -284,4 +290,6 @@ $tx = @{
 } | ConvertTo-Json
 
 Invoke-RestMethod -Method Post -Uri "http://localhost:8080/v1/transactions" -ContentType "application/json" -Body $tx
+Invoke-RestMethod -Method Post -Uri "http://localhost:8080/v1/dev/produce-block"
+Invoke-RestMethod -Method Get -Uri "http://localhost:8080/v1/blocks/latest"
 ```
