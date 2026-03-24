@@ -1,0 +1,351 @@
+package api
+
+import (
+	"net/http"
+	"sort"
+	"strings"
+	"time"
+)
+
+const prometheusRecordingRuleContentType = "application/yaml; charset=utf-8"
+
+type RecordingRule struct {
+	Name              string   `json:"name"`
+	Record            string   `json:"record"`
+	Component         string   `json:"component"`
+	Summary           string   `json:"summary"`
+	Description       string   `json:"description"`
+	Expression        string   `json:"expression"`
+	Enabled           bool     `json:"enabled"`
+	DisabledReason    string   `json:"disabledReason,omitempty"`
+	SourceMetrics     []string `json:"sourceMetrics,omitempty"`
+	RelatedAlertCodes []string `json:"relatedAlertCodes,omitempty"`
+	RelatedObjectives []string `json:"relatedObjectives,omitempty"`
+}
+
+type RecordingRuleGroup struct {
+	Name  string          `json:"name"`
+	Title string          `json:"title"`
+	Rules []RecordingRule `json:"rules"`
+}
+
+type RecordingRuleBundleResponse struct {
+	GeneratedAt           time.Time            `json:"generatedAt"`
+	NodeID                string               `json:"nodeId"`
+	ValidatorAddress      string               `json:"validatorAddress,omitempty"`
+	PeerCount             int                  `json:"peerCount"`
+	PeerSyncEnabled       bool                 `json:"peerSyncEnabled"`
+	HealthStatus          string               `json:"healthStatus"`
+	CurrentAlertCount     int                  `json:"currentAlertCount"`
+	CurrentObjectiveCount int                  `json:"currentObjectiveCount"`
+	RuleCount             int                  `json:"ruleCount"`
+	EnabledRuleCount      int                  `json:"enabledRuleCount"`
+	DisabledRuleCount     int                  `json:"disabledRuleCount"`
+	Groups                []RecordingRuleGroup `json:"groups"`
+}
+
+func (s *Server) handleRecordingRules(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, s.buildRecordingRuleBundle(time.Now().UTC()))
+}
+
+func (s *Server) handlePrometheusRecordingRules(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+
+	w.Header().Set("Content-Type", prometheusRecordingRuleContentType)
+	_, _ = w.Write([]byte(s.buildPrometheusRecordingRules(time.Now().UTC())))
+}
+
+func (s *Server) buildRecordingRuleBundle(now time.Time) RecordingRuleBundleResponse {
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	now = now.UTC()
+
+	alerts := s.buildAlertsResponse(now)
+	slo := s.buildSLOSummary(now)
+	groups := s.buildRecordingRuleGroups()
+
+	response := RecordingRuleBundleResponse{
+		GeneratedAt:           now,
+		NodeID:                s.nodeID,
+		ValidatorAddress:      s.config.ValidatorAddress,
+		PeerCount:             len(s.config.PeerURLs),
+		PeerSyncEnabled:       s.config.EnablePeerSync,
+		HealthStatus:          slo.HealthStatus,
+		CurrentAlertCount:     alerts.AlertCount,
+		CurrentObjectiveCount: slo.ObjectiveCount,
+		Groups:                groups,
+	}
+
+	for _, group := range groups {
+		response.RuleCount += len(group.Rules)
+		for _, rule := range group.Rules {
+			if rule.Enabled {
+				response.EnabledRuleCount++
+			} else {
+				response.DisabledRuleCount++
+			}
+		}
+	}
+
+	return response
+}
+
+func (s *Server) buildPrometheusRecordingRules(now time.Time) string {
+	bundle := s.buildRecordingRuleBundle(now)
+
+	var builder strings.Builder
+	builder.WriteString("# Zephyr recommended Prometheus recording rules\n")
+	builder.WriteString("# generatedAt: ")
+	builder.WriteString(bundle.GeneratedAt.Format(time.RFC3339Nano))
+	builder.WriteString("\n# nodeId: ")
+	builder.WriteString(bundle.NodeID)
+	builder.WriteString("\ngroups:\n")
+
+	for _, group := range bundle.Groups {
+		enabledRules := make([]RecordingRule, 0, len(group.Rules))
+		for _, rule := range group.Rules {
+			if rule.Enabled {
+				enabledRules = append(enabledRules, rule)
+			}
+		}
+		if len(enabledRules) == 0 {
+			continue
+		}
+
+		builder.WriteString("  - name: ")
+		builder.WriteString(group.Name)
+		builder.WriteString("\n    rules:\n")
+		for _, rule := range enabledRules {
+			builder.WriteString("      - record: ")
+			builder.WriteString(rule.Record)
+			builder.WriteString("\n        expr: ")
+			builder.WriteString(yamlSingleQuoted(rule.Expression))
+			builder.WriteByte('\n')
+			builder.WriteString("        labels:\n")
+			builder.WriteString("          component: ")
+			builder.WriteString(rule.Component)
+			builder.WriteString("\n          group: ")
+			builder.WriteString(group.Name)
+			builder.WriteByte('\n')
+			if len(rule.RelatedObjectives) == 1 {
+				builder.WriteString("          objective: ")
+				builder.WriteString(rule.RelatedObjectives[0])
+				builder.WriteByte('\n')
+			}
+			if len(rule.RelatedAlertCodes) == 1 {
+				builder.WriteString("          alert_code: ")
+				builder.WriteString(rule.RelatedAlertCodes[0])
+				builder.WriteByte('\n')
+			}
+		}
+	}
+
+	return builder.String()
+}
+
+func (s *Server) buildRecordingRuleGroups() []RecordingRuleGroup {
+	peerSyncDisabledReason := ""
+	switch {
+	case !s.config.EnablePeerSync:
+		peerSyncDisabledReason = "peer sync is disabled by configuration"
+	case len(s.config.PeerURLs) == 0:
+		peerSyncDisabledReason = "no peers are configured for peer sync"
+	}
+
+	groups := []RecordingRuleGroup{
+		{
+			Name:  "zephyr.readiness",
+			Title: "Derived readiness rollups",
+			Rules: []RecordingRule{
+				newRecordingRule(
+					"node readiness ready",
+					"zephyr:node_readiness:ready",
+					"readiness",
+					"Canonical ready or not-ready signal for Zephyr node dashboards.",
+					"Projects the base readiness gauge into a stable series for dashboards, recording-rule composition, and top-level service views.",
+					"zephyr_node_ready",
+					[]string{"zephyr_node_ready"},
+					nil,
+					[]string{"node_readiness"},
+				),
+				newRecordingRule(
+					"node readiness at risk",
+					"zephyr:node_readiness:at_risk",
+					"readiness",
+					"Reusable series for nodes serving traffic with reduced readiness margin.",
+					"Projects the node_readiness SLO into an at-risk series that can feed dashboards, burn-rate style summaries, or fleet rollups.",
+					"zephyr_slo_objective_status{objective=\"node_readiness\",status=\"at_risk\"}",
+					[]string{"zephyr_slo_objective_status"},
+					nil,
+					[]string{"node_readiness"},
+				),
+				newRecordingRule(
+					"node readiness breached",
+					"zephyr:node_readiness:breached",
+					"readiness",
+					"Reusable series for nodes currently failing readiness.",
+					"Projects the node_readiness SLO into a breached series so dashboards and fleet summaries can separate hard outages from early warnings.",
+					"zephyr_slo_objective_status{objective=\"node_readiness\",status=\"breached\"}",
+					[]string{"zephyr_slo_objective_status"},
+					nil,
+					[]string{"node_readiness"},
+				),
+			},
+		},
+		{
+			Name:  "zephyr.consensus",
+			Title: "Consensus continuity and recovery rollups",
+			Rules: []RecordingRule{
+				newRecordingRule(
+					"consensus recovery backlog",
+					"zephyr:consensus:recovery_backlog",
+					"consensus",
+					"Current retained recovery backlog for local consensus follow-up.",
+					"Carries the retained pending-action count into a stable dashboard series that operators can pair with diagnostics, alerts, and replay history.",
+					"zephyr_recovery_pending_action_count",
+					[]string{"zephyr_recovery_pending_action_count"},
+					[]string{"consensus_recovery_backlog"},
+					[]string{"consensus_continuity"},
+				),
+				newRecordingRule(
+					"consensus continuity at risk",
+					"zephyr:consensus_continuity:at_risk",
+					"consensus",
+					"Reusable series for degraded but not yet blocked next-height agreement.",
+					"Projects the consensus_continuity SLO into an at-risk series so dashboards can show unstable rounds separately from fully blocked ones.",
+					"zephyr_slo_objective_status{objective=\"consensus_continuity\",status=\"at_risk\"}",
+					[]string{"zephyr_slo_objective_status"},
+					nil,
+					[]string{"consensus_continuity"},
+				),
+				newRecordingRule(
+					"consensus continuity breached",
+					"zephyr:consensus_continuity:breached",
+					"consensus",
+					"Reusable series for blocked next-height consensus.",
+					"Projects the consensus_continuity SLO into a breached series so operators can build fleet-level outage views without re-encoding the objective logic.",
+					"zephyr_slo_objective_status{objective=\"consensus_continuity\",status=\"breached\"}",
+					[]string{"zephyr_slo_objective_status"},
+					nil,
+					[]string{"consensus_continuity"},
+				),
+			},
+		},
+		{
+			Name:  "zephyr.peer_sync",
+			Title: "Peer sync continuity and repair rollups",
+			Rules: []RecordingRule{
+				disableRecordingRule(
+					newRecordingRule(
+						"peer sync admitted ratio",
+						"zephyr:peer_sync:admitted_ratio",
+						"peer_sync",
+						"Share of configured peers currently admitted by policy.",
+						"Normalizes admitted peers by configured peers to make peer policy regressions easier to compare across nodes with different topology sizes.",
+						"zephyr_peer_runtime_admitted_count / clamp_min(zephyr_peer_runtime_configured_count, 1)",
+						[]string{"zephyr_peer_runtime_admitted_count", "zephyr_peer_runtime_configured_count"},
+						nil,
+						[]string{"peer_sync_continuity"},
+					),
+					peerSyncDisabledReason,
+				),
+				disableRecordingRule(
+					newRecordingRule(
+						"peer sync continuity at risk",
+						"zephyr:peer_sync_continuity:at_risk",
+						"peer_sync",
+						"Reusable series for degraded or warming peer-sync continuity.",
+						"Projects the peer_sync_continuity SLO into an at-risk series so dashboards can separate startup or partial repair conditions from outright peer loss.",
+						"zephyr_slo_objective_status{objective=\"peer_sync_continuity\",status=\"at_risk\"}",
+						[]string{"zephyr_slo_objective_status"},
+						nil,
+						[]string{"peer_sync_continuity"},
+					),
+					peerSyncDisabledReason,
+				),
+				disableRecordingRule(
+					newRecordingRule(
+						"peer sync continuity breached",
+						"zephyr:peer_sync_continuity:breached",
+						"peer_sync",
+						"Reusable series for peer-sync outage conditions.",
+						"Projects the peer_sync_continuity SLO into a breached series so multi-node dashboards can roll up peer outages without repeating the objective logic.",
+						"zephyr_slo_objective_status{objective=\"peer_sync_continuity\",status=\"breached\"}",
+						[]string{"zephyr_slo_objective_status"},
+						nil,
+						[]string{"peer_sync_continuity"},
+					),
+					peerSyncDisabledReason,
+				),
+			},
+		},
+		{
+			Name:  "zephyr.operator",
+			Title: "Operator-facing alert and objective rollups",
+			Rules: []RecordingRule{
+				newRecordingRule(
+					"critical alert count",
+					"zephyr:alerts:critical_count",
+					"observability",
+					"Current number of active critical alerts.",
+					"Carries the critical alert count into a stable series for dashboard summaries, NOC-style tables, and higher-level alertmanager routing views.",
+					"zephyr_alert_count_by_severity{severity=\"critical\"}",
+					[]string{"zephyr_alert_count_by_severity"},
+					nil,
+					nil,
+				),
+				newRecordingRule(
+					"breached objective count",
+					"zephyr:slo:breached_count",
+					"observability",
+					"Current number of breached Zephyr objectives.",
+					"Carries the breached-objective count into a single series that can feed fleet dashboards and reporting without re-aggregating the status labels.",
+					"zephyr_slo_status_count{status=\"breached\"}",
+					[]string{"zephyr_slo_status_count"},
+					nil,
+					nil,
+				),
+			},
+		},
+	}
+
+	for idx := range groups {
+		sort.Slice(groups[idx].Rules, func(i, j int) bool {
+			return groups[idx].Rules[i].Record < groups[idx].Rules[j].Record
+		})
+	}
+	return groups
+}
+
+func newRecordingRule(name string, record string, component string, summary string, description string, expression string, sourceMetrics []string, relatedAlerts []string, relatedObjectives []string) RecordingRule {
+	return RecordingRule{
+		Name:              name,
+		Record:            record,
+		Component:         component,
+		Summary:           summary,
+		Description:       description,
+		Expression:        expression,
+		Enabled:           true,
+		SourceMetrics:     cloneStrings(sourceMetrics),
+		RelatedAlertCodes: cloneStrings(relatedAlerts),
+		RelatedObjectives: cloneStrings(relatedObjectives),
+	}
+}
+
+func disableRecordingRule(rule RecordingRule, reason string) RecordingRule {
+	if strings.TrimSpace(reason) == "" {
+		return rule
+	}
+	rule.Enabled = false
+	rule.DisabledReason = reason
+	return rule
+}

@@ -12,7 +12,7 @@ Today the codebase is best suited for:
 
 - wallet, transaction, and settlement demos on a single node or a small admitted-peer devnet
 - validator scheduling, certificate-gated commit, and round-timeout recovery experiments
-- operator drills around peer identity, peer admission, delayed peer recovery, durable per-peer incident history, cross-peer incident summaries, machine-readable `/v1/metrics`, Prometheus `/metrics`, derived `/v1/health`, derived `/v1/alerts`, derived `/v1/slo`, recommended `/v1/alert-rules`, exported `/v1/alert-rules/prometheus`, structured event logs, partial quorum, reproposal, per-height round history, block readiness, pending import backlog, snapshot-restore history, rejection diagnostics, and state catch-up
+- operator drills around peer identity, peer admission, delayed peer recovery, durable per-peer incident history, cross-peer incident summaries, machine-readable `/v1/metrics`, Prometheus `/metrics`, derived `/v1/health`, derived `/v1/alerts`, derived `/v1/slo`, recommended `/v1/alert-rules`, exported `/v1/alert-rules/prometheus`, recommended `/v1/recording-rules`, exported `/v1/recording-rules/prometheus`, structured event logs, partial quorum, reproposal, per-height round history, block readiness, pending import backlog, snapshot-restore history, rejection diagnostics, and state catch-up
 - product prototyping for applications that need auditable transfers plus predictable validator coordination
 - architecture work for teams that want to design on top of a Rust-first WASM and confidential-compute roadmap before those phases land
 
@@ -72,7 +72,7 @@ Why it fits:
 Production prerequisites:
 
 - stronger sync trust models
-- richer exported metrics and alerting on top of the current structured logs, operator evidence, durable incident history, cross-peer summaries, and production incident tooling
+- richer dashboard bundles and alerting on top of the current structured logs, operator evidence, durable incident history, cross-peer summaries, recording-rule exports, and production incident tooling
 - governance around validator membership changes
 
 ### Managed Validator And Partner-Network Operations
@@ -81,12 +81,12 @@ Zephyr can also fit managed validator services and consortium-operated partner n
 
 Why it fits:
 
-- `/v1/health`, `/v1/alerts`, `/v1/slo`, `/v1/alert-rules`, `/v1/alert-rules/prometheus`, `/v1/metrics`, Prometheus `/metrics`, structured logs, and durable peer incident history give operators a concrete base for automated health checks, derived alert polling, objective tracking, rule export, scraping, and incident response
+- `/v1/health`, `/v1/alerts`, `/v1/slo`, `/v1/alert-rules`, `/v1/alert-rules/prometheus`, `/v1/recording-rules`, `/v1/recording-rules/prometheus`, `/v1/metrics`, Prometheus `/metrics`, structured logs, and durable peer incident history give operators a concrete base for automated health checks, derived alert polling, objective tracking, rule export, scraping, dashboard rollups, and incident response
 - peer admission and validator binding map well to known-participant topologies
 
 Production prerequisites:
 
-- richer dashboards, recording rules, and objective tuning beyond the current `/v1/slo`, `/v1/alert-rules`, and `/v1/alert-rules/prometheus` surfaces
+- richer dashboards, objective tuning, and longer-horizon export adapters beyond the current `/v1/slo`, `/v1/alert-rules`, `/v1/alert-rules/prometheus`, `/v1/recording-rules`, and `/v1/recording-rules/prometheus` surfaces
 - broader restart-safe recovery across more consensus actions
 
 ### Supply Chain, Provenance, And Shared Audit Trails
@@ -153,6 +153,7 @@ Zephyr is not yet a good production choice for:
 - environments that require mature slashing, governance, or crash-recovery guarantees right now
 
 Those are roadmap targets, not present-day claims.
+
 
 
 

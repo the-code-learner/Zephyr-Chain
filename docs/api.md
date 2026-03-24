@@ -348,6 +348,7 @@ Current behavior:
 - `/metrics` mirrors this alert state through `zephyr_alert_count`, `zephyr_alert_count_by_severity`, `zephyr_alert_active`, and `zephyr_alert_observed_at_seconds`
 - `GET /v1/slo` builds on the same evidence when operators want objective-style summaries instead of raw alert cards
 - `GET /v1/alert-rules` and `GET /v1/alert-rules/prometheus` build on the same evidence when operators want recommended monitoring bundles rather than only the current runtime state
+- `GET /v1/recording-rules` and `GET /v1/recording-rules/prometheus` build on the same evidence when operators want reusable dashboard and aggregation rollups rather than only current alert or SLO state
 
 ### GET /v1/slo
 
@@ -385,6 +386,29 @@ Current behavior:
 - rules are grouped into readiness, consensus, and peer-sync groups and include severity, component, summary, description, and source-metric annotations
 - this endpoint is designed as an export adapter for monitoring systems that already scrape `GET /metrics`
 
+### GET /v1/recording-rules
+
+Returns a machine-readable recommended recording-rule bundle derived from the current Zephyr metrics, alerts, and SLO objectives.
+
+Current behavior:
+
+- the top-level response includes `generatedAt`, node identity, optional validator address, peer count, `peerSyncEnabled`, current health or alert summary counts, total rule counts, and grouped rule bundles
+- rules are currently grouped into readiness, consensus, peer-sync, and operator-summary bundles
+- each rule includes a stable `record` name, `summary`, `description`, `expression`, component, source metrics, related alert codes or SLO objectives, and whether the rule is currently enabled for the node's runtime configuration
+- peer-sync rules stay visible in the JSON surface even when peer sync is disabled or no peers are configured; in those cases they include `enabled=false` plus a `disabledReason` so operators can see what would become active in a synced deployment
+- the current bundle is intentionally opinionated: it is a recommended starting point for dashboards, fleet rollups, and downstream Prometheus recording-rule files built on `zephyr_node_ready`, `zephyr_alert_count_by_severity`, `zephyr_slo_objective_status`, and recovery or peer-runtime gauges
+
+### GET /v1/recording-rules/prometheus
+
+Returns the enabled portion of the same bundle as Prometheus recording-rule YAML.
+
+Current behavior:
+
+- the response uses `application/yaml; charset=utf-8`
+- only enabled rules are exported, so peer-sync recording rules are omitted when peer sync is disabled or no peers are configured
+- rules are grouped into readiness, consensus, peer-sync, and operator-summary groups and include stable `record` names plus component, group, related objective, or related alert labels when applicable
+- this endpoint is designed as an export adapter for monitoring systems that already scrape `GET /metrics` and want reusable dashboard or aggregation series without hand-writing PromQL
+
 ### GET /v1/status
 
 Returns the local runtime status for the current node, including consensus summary and whether proposer or certificate enforcement is enabled.
@@ -406,6 +430,7 @@ Current behavior:
 - `GET /v1/alerts` offers the current derived warning and critical alert set for operator polling and dashboard integration
 - `GET /v1/slo` offers the current SLO-oriented objective summary derived from those same readiness, recovery, consensus, diagnostics, and peer signals
 - `GET /v1/alert-rules` and `GET /v1/alert-rules/prometheus` offer recommended monitoring bundles derived from those same metrics, alert codes, and objective states
+- `GET /v1/recording-rules` and `GET /v1/recording-rules/prometheus` offer recommended dashboard and aggregation rollups derived from those same metrics, alert codes, and objective states
 - when `ZEPHYR_VALIDATOR_PRIVATE_KEY` is configured, the response includes an `identity` object with a signed transport proof for the local validator
 - `peerIdentityRequired` is `true` when strict peer admission or explicit peer-validator binding is enabled
 
@@ -543,6 +568,8 @@ If proposals exist for that height but the imported block does not match any sto
 Returns the current durable node snapshot used for catch-up restore.
 
 When another node applies this snapshot through peer sync, it preserves its own local recovery, diagnostic, peer-sync incident history, and derived peer-sync summary context instead of replacing that operator context with the peer's local WAL or diagnostics.
+
+
 
 
 
