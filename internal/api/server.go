@@ -289,6 +289,8 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/v1/alerts", s.handleAlerts)
 	s.mux.HandleFunc("/v1/alert-rules", s.handleAlertRules)
 	s.mux.HandleFunc("/v1/alert-rules/prometheus", s.handlePrometheusAlertRules)
+	s.mux.HandleFunc("/v1/recording-rules", s.handleRecordingRules)
+	s.mux.HandleFunc("/v1/recording-rules/prometheus", s.handlePrometheusRecordingRules)
 	s.mux.HandleFunc("/v1/slo", s.handleSLO)
 	s.mux.HandleFunc("/v1/status", s.handleStatus)
 	s.mux.HandleFunc("/v1/metrics", s.handleMetrics)

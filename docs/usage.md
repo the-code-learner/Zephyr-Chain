@@ -30,10 +30,12 @@ curl.exe -i http://localhost:8080/v1/health
 Invoke-RestMethod http://localhost:8080/v1/alerts
 Invoke-RestMethod http://localhost:8080/v1/slo
 Invoke-RestMethod http://localhost:8080/v1/alert-rules
+Invoke-RestMethod http://localhost:8080/v1/recording-rules
 Invoke-RestMethod http://localhost:8080/v1/status
 Invoke-RestMethod http://localhost:8080/v1/consensus
 curl.exe http://localhost:8080/metrics
 curl.exe http://localhost:8080/v1/alert-rules/prometheus
+curl.exe http://localhost:8080/v1/recording-rules/prometheus
 ```
 
 ## Inspect Node Readiness
@@ -57,7 +59,8 @@ What to expect:
 - `/v1/alerts` turns those same operator signals into a derived critical or warning alert set for polling dashboards and automation
 - `/v1/slo` groups them into objective states so operators can see whether readiness, consensus continuity, or peer sync continuity is meeting, at risk, breached, or not applicable
 - `/metrics` exports the alert, health, and SLO state as Prometheus-style gauges such as `zephyr_node_ready`, `zephyr_health_check_status`, `zephyr_alert_active`, and `zephyr_slo_objective_status`, while `/v1/metrics` keeps the structured JSON view
-- `/v1/alert-rules` keeps the structured recommended rule bundle, while `/v1/alert-rules/prometheus` exports the enabled subset as Prometheus-rule YAML for scrape-based alerting stacks
+- `/v1/alert-rules` keeps the structured recommended alert bundle, while `/v1/alert-rules/prometheus` exports the enabled subset as Prometheus-rule YAML for scrape-based alerting stacks
+- `/v1/recording-rules` keeps the structured recommended recording bundle, while `/v1/recording-rules/prometheus` exports the enabled subset as Prometheus recording-rule YAML for dashboard and aggregation stacks
 - use `/v1/health` together with `/v1/alerts`, `/v1/slo`, `/metrics`, `/v1/metrics`, `GET /v1/status`, and structured logs when you need both a quick readiness gate and deeper incident context
 
 ## Export Recommended Alert Rules
@@ -74,6 +77,21 @@ What to expect:
 - `/v1/alert-rules` returns readiness, consensus, and peer-sync rule groups with expressions, severities, source metrics, and disabled reasons when a rule is not applicable to the current node configuration
 - `/v1/alert-rules/prometheus` exports only the enabled subset as Prometheus-rule YAML so you can drop it into a standard scrape-plus-alert workflow without hand-translating expressions
 - treat the bundle as a production-oriented starting point rather than a final policy set; tune durations, severities, and escalation paths for your deployment
+
+## Export Recommended Recording Rules
+
+Once you have a node running, you can export the recommended aggregation rollups directly from the API:
+
+```powershell
+Invoke-RestMethod http://localhost:8080/v1/recording-rules
+curl.exe http://localhost:8080/v1/recording-rules/prometheus
+```
+
+What to expect:
+
+- `/v1/recording-rules` returns readiness, consensus, peer-sync, and operator-summary recording-rule groups with stable `record` names, expressions, source metrics, and disabled reasons when a rule is not applicable to the current node configuration
+- `/v1/recording-rules/prometheus` exports only the enabled subset as Prometheus recording-rule YAML so you can drop it into a standard scrape-plus-dashboard workflow without hand-translating expressions
+- use these rollups as the default dashboard layer on top of `/metrics`, then tune retention, labels, and higher-level panels for your deployment
 
 ## Run A Two-Node Devnet
 
@@ -318,10 +336,10 @@ Expected behavior:
 - inspect `GET /metrics` when you want those same health, recovery, peer, and alert signals in Prometheus-compatible text for scrape-based dashboards or alerts
 - inspect `GET /v1/alerts` when you want the current derived critical and warning alerts without reconstructing them from raw health or metric data
 - inspect `GET /v1/slo` when you want the same incident evidence projected into compact objective states for readiness, consensus continuity, and peer sync continuity
-- inspect `GET /v1/alert-rules` or `GET /v1/alert-rules/prometheus` when you are wiring dashboards, alert managers, or rule files and want the bundle Zephyr currently recommends
+- inspect `GET /v1/alert-rules` or `GET /v1/alert-rules/prometheus` when you are wiring alert managers or alert rule files and want the bundle Zephyr currently recommends
 - enable `ZEPHYR_ENABLE_STRUCTURED_LOGS=true` when you want those same incident transitions as newline-delimited JSON in the node logs
 - inspect `curl.exe -i http://localhost:8080/v1/health` to separate a live node from a ready one; `503` usually means recovery backlog or peer-sync availability has escalated into a hard failure, while `warn` highlights degraded but still serving conditions
-- remember the current engine now supports timeout-driven proposer rotation, latest-artifact rebroadcast after peer recovery, restart-safe local proposal or vote replay, pending import recovery, snapshot-restore history, durable peer-incident history, cross-peer `peerSyncSummary`, machine-readable `/v1/metrics`, Prometheus-style `/metrics`, derived `/v1/health`, derived `/v1/alerts`, derived `/v1/slo`, structured event logs, per-height round history, block readiness inspection, and bounded rejection diagnostics, but broader recovery coverage plus richer export adapters are still limited
+- remember the current engine now supports timeout-driven proposer rotation, latest-artifact rebroadcast after peer recovery, restart-safe local proposal or vote replay, pending import recovery, snapshot-restore history, durable peer-incident history, cross-peer `peerSyncSummary`, machine-readable `/v1/metrics`, Prometheus-style `/metrics`, derived `/v1/health`, derived `/v1/alerts`, derived `/v1/slo`, recommended alert and recording-rule bundles, structured event logs, per-height round history, block readiness inspection, and bounded rejection diagnostics, but broader recovery coverage plus richer dashboard and export adapters are still limited
 
 ### Peer Sync Falls Back To Snapshot Restore
 
@@ -372,6 +390,8 @@ Expected behavior:
 13. Inspect the resulting block, vote tallies, and certificate on both nodes.
 14. Optionally restart a node and confirm the validator snapshot, round state, consensus artifacts, and `recovery` state survived.
 15. If the restarted node had a pending local proposal or vote, confirm the action is replayed and later marked completed once the block finalizes.
+
+
 
 
 

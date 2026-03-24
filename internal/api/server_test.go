@@ -3168,6 +3168,83 @@ func TestHandlePrometheusAlertRulesExportsEnabledRulesOnly(t *testing.T) {
 		t.Fatalf("expected consensus recovery alert in prometheus alert rules, got:\n%s", body)
 	}
 }
+func TestHandleRecordingRulesExposeRecommendedBundles(t *testing.T) {
+	server := newTestServer(t, Config{
+		DataDir:                 t.TempDir(),
+		NodeID:                  "recording-rules-node",
+		PeerURLs:                []string{"http://peer-a.example"},
+		BlockInterval:           0,
+		SyncInterval:            0,
+		MaxTransactionsPerBlock: 10,
+		EnableBlockProduction:   false,
+		EnablePeerSync:          false,
+	})
+
+	request := httptest.NewRequest(http.MethodGet, "/v1/recording-rules", nil)
+	recorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected recording-rules status 200, got %d", recorder.Code)
+	}
+
+	var response RecordingRuleBundleResponse
+	if err := json.NewDecoder(recorder.Body).Decode(&response); err != nil {
+		t.Fatalf("decode recording-rules response: %v", err)
+	}
+	if response.NodeID != "recording-rules-node" || response.PeerSyncEnabled {
+		t.Fatalf("unexpected recording-rules identity/config %+v", response)
+	}
+	if response.RuleCount != 11 || response.EnabledRuleCount != 8 || response.DisabledRuleCount != 3 {
+		t.Fatalf("unexpected recording-rule counts %+v", response)
+	}
+	if rule, ok := recordingRuleByRecord(response.Groups, "zephyr:node_readiness:ready"); !ok || !rule.Enabled || rule.Expression != "zephyr_node_ready" {
+		t.Fatalf("expected enabled zephyr:node_readiness:ready recording rule, got %+v", response.Groups)
+	}
+	if rule, ok := recordingRuleByRecord(response.Groups, "zephyr:peer_sync_continuity:breached"); !ok || rule.Enabled || !strings.Contains(rule.DisabledReason, "disabled") {
+		t.Fatalf("expected disabled peer-sync breached recording rule, got %+v", response.Groups)
+	}
+}
+
+func TestHandlePrometheusRecordingRulesExportsEnabledRulesOnly(t *testing.T) {
+	server := newTestServer(t, Config{
+		DataDir:                 t.TempDir(),
+		NodeID:                  "recording-rules-export-node",
+		PeerURLs:                []string{"http://peer-a.example"},
+		BlockInterval:           0,
+		SyncInterval:            0,
+		MaxTransactionsPerBlock: 10,
+		EnableBlockProduction:   false,
+		EnablePeerSync:          true,
+	})
+
+	request := httptest.NewRequest(http.MethodGet, "/v1/recording-rules/prometheus", nil)
+	recorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected prometheus recording-rules status 200, got %d", recorder.Code)
+	}
+	if recorder.Header().Get("Content-Type") != prometheusRecordingRuleContentType {
+		t.Fatalf("expected recording-rule content type %q, got %q", prometheusRecordingRuleContentType, recorder.Header().Get("Content-Type"))
+	}
+
+	body := recorder.Body.String()
+	if !strings.Contains(body, "groups:\n") {
+		t.Fatalf("expected groups header in prometheus recording rules, got:\n%s", body)
+	}
+	if !strings.Contains(body, "  - name: zephyr.peer_sync\n") {
+		t.Fatalf("expected peer_sync rule group in prometheus recording rules, got:\n%s", body)
+	}
+	if !strings.Contains(body, "      - record: zephyr:peer_sync_continuity:breached\n") {
+		t.Fatalf("expected peer sync breached recording rule in prometheus recording rules, got:\n%s", body)
+	}
+	if !strings.Contains(body, "        expr: 'zephyr_slo_objective_status{objective=\"peer_sync_continuity\",status=\"breached\"}'\n") {
+		t.Fatalf("expected peer sync breached expression in prometheus recording rules, got:\n%s", body)
+	}
+	if !strings.Contains(body, "      - record: zephyr:consensus:recovery_backlog\n") {
+		t.Fatalf("expected consensus recovery backlog recording rule in prometheus recording rules, got:\n%s", body)
+	}
+}
+
 func TestMetricsExposeConsensusAndPeerObservabilityAggregates(t *testing.T) {
 	server := newTestServer(t, Config{
 		DataDir:                      t.TempDir(),
@@ -3861,6 +3938,17 @@ func alertRuleByName(groups []AlertRuleGroup, name string) (AlertRule, bool) {
 		}
 	}
 	return AlertRule{}, false
+}
+
+func recordingRuleByRecord(groups []RecordingRuleGroup, record string) (RecordingRule, bool) {
+	for _, group := range groups {
+		for _, rule := range group.Rules {
+			if rule.Record == record {
+				return rule, true
+			}
+		}
+	}
+	return RecordingRule{}, false
 }
 
 func sloObjectiveByName(objectives []SLOObjective, name string) (SLOObjective, bool) {
