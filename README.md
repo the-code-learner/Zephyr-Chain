@@ -2,7 +2,7 @@
 
 Zephyr Chain is an early-stage blockchain node and wallet stack focused on a production path toward validator-driven consensus, deterministic WASM execution, and a confidential compute marketplace.
 
-The long-term product vision lives in [Zaphyr-chain_manifesto.md](./Zaphyr-chain_manifesto.md). Application and use-case framing lives in [docs/applications.md](./docs/applications.md). This `README` stays practical: what works now, what changed in the latest iteration, and what comes next.
+The long-term product vision lives in [Zaphyr-chain_manifesto.md](./Zaphyr-chain_manifesto.md). Application and use-case framing lives in [docs/applications.md](./docs/applications.md). Academic paper materials live in [paper/README.md](./paper/README.md). This `README` stays practical: what works now, what changed in the latest iteration, and what comes next.
 
 ## Current Status
 
@@ -31,15 +31,15 @@ Implemented today:
 
 Implemented in this iteration:
 
-- `GET /metrics` now exposes a Prometheus-style text export derived from the same readiness, recovery, diagnostics, consensus, and peer telemetry already surfaced through `GET /v1/health` and `GET /v1/metrics`
-- the exporter includes stable metric names for node flags, chain height, consensus round state, recovery backlog, retained diagnostic buckets, live peer runtime counts, and durable peer-sync incident summaries
-- `GET /v1/status`, `GET /v1/consensus`, `GET /v1/metrics`, `GET /metrics`, and `GET /v1/health` now form the current operator surface for runtime status, readiness, observability, and scrape-friendly monitoring
-- focused tests now cover Prometheus export for both warn and fail readiness scrapes in addition to the existing JSON metrics, health, structured-log, and peer telemetry coverage
+- `GET /v1/alerts` now exposes derived warning and critical alerts built from validator-set expectations, recovery backlog, consensus warnings, peer-sync state, and recent diagnostics
+- `/metrics` now exports active alert metrics through `zephyr_alert_count`, `zephyr_alert_count_by_severity`, `zephyr_alert_active`, and `zephyr_alert_observed_at_seconds`
+- `/paper/` now contains an academic paper workspace with a working abstract, outline, implementation-status map, and evaluation plan aligned to the current codebase
+- focused tests now cover derived alert responses plus alert metrics in both warn and fail scrape scenarios
 
 Planned but not implemented yet:
 
 - authenticated peer discovery and replay-safe transport over libp2p on top of the new HTTP admission and binding policy
-- broader consensus recovery coverage plus richer time-series export and longer-horizon incident correlation beyond the current local proposal, vote, peer-import, snapshot-recovery, JSON metrics, Prometheus text export, structured event logs, durable peer-sync history, and derived peer-sync summary surfaces
+- broader consensus recovery coverage plus richer time-series export and alert tooling beyond the current local proposal, vote, peer-import, snapshot-recovery, JSON metrics, Prometheus text export, derived alerts, structured event logs, durable peer-sync history, and derived peer-sync summary surfaces
 - on-chain staking and governance-driven validator updates instead of ad hoc election API writes
 - deterministic WASM smart-contract runtime with native fee metering
 - confidential compute marketplace for encrypted off-chain jobs paid in native tokens
@@ -55,6 +55,7 @@ Planned but not implemented yet:
 - `internal/tx`: transaction envelope validation, address derivation, and signature verification
 - `apps/wallet`: reference light wallet built with Vue 3, Vite, and Tailwind CSS
 - `docs/`: architecture, API, usage, roadmap, and applications guides
+- `paper/`: academic paper workspace, draft manuscript materials, and evaluation planning notes
 - `var/`: default local runtime state directory for the node, ignored by git
 
 ## Prerequisites
@@ -90,6 +91,7 @@ Useful probes:
 ```powershell
 Invoke-RestMethod http://localhost:8080/health
 curl.exe -i http://localhost:8080/v1/health
+Invoke-RestMethod http://localhost:8080/v1/alerts
 Invoke-RestMethod http://localhost:8080/v1/status
 curl.exe http://localhost:8080/metrics
 ```
@@ -292,7 +294,7 @@ VITE_ZEPHYR_API_BASE=http://localhost:8080
 
 - the current multi-node layer is still HTTP-based under the new transport abstraction, not libp2p networking
 - peer admission and validator pinning can now be enforced over the current HTTP transport, but peer discovery is still static configuration rather than libp2p
-- the round engine now supports timeout-driven proposer rotation, latest-artifact rebroadcast after link recovery, richer `roundEvidence`, per-height `roundHistory`, `blockReadiness`, import-aware `recovery`, durable peer-sync incident history, bounded rejection diagnostics, machine-readable `GET /v1/metrics`, Prometheus-style `GET /metrics`, derived `GET /v1/health`, and local consensus-action WAL replay across restart, but broader recovery tooling is still missing
+- the round engine now supports timeout-driven proposer rotation, latest-artifact rebroadcast after link recovery, richer `roundEvidence`, per-height `roundHistory`, `blockReadiness`, import-aware `recovery`, durable peer-sync incident history, bounded rejection diagnostics, machine-readable `GET /v1/metrics`, Prometheus-style `GET /metrics`, derived `GET /v1/health`, derived `GET /v1/alerts`, and local consensus-action WAL replay across restart, but broader recovery tooling is still missing
 - crash recovery now persists active round metadata plus a bounded local consensus-action WAL, and peer snapshot restore preserves local recovery, diagnostics, and peer-sync incident history, but replay coverage is still centered on local proposal, vote, and import-repair paths rather than the full consensus lifecycle
 - DPoS elections still happen through an API call, not an on-chain staking/governance flow
 - snapshot restore is a state catch-up mechanism, not a trust-minimized proof-based sync protocol
@@ -309,7 +311,7 @@ The production roadmap now lives in [docs/roadmap.md](./docs/roadmap.md).
 Short version:
 
 1. Move the new enforced HTTP peer-admission and validator-binding policy toward authenticated libp2p discovery plus replay-safe transport behavior.
-2. Extend the new `blockReadiness`, `roundHistory`, `roundEvidence`, `recovery`, `diagnostics`, `peerSyncHistory`, `peerSyncSummary`, per-peer `recentIncidents`, `GET /v1/metrics`, `GET /metrics`, `GET /v1/health`, and structured event logs into deeper recovery, longer-horizon incident retention, richer exported metrics, and production incident tooling.
+2. Extend the new `blockReadiness`, `roundHistory`, `roundEvidence`, `recovery`, `diagnostics`, `peerSyncHistory`, `peerSyncSummary`, per-peer `recentIncidents`, `GET /v1/metrics`, `GET /metrics`, `GET /v1/health`, `GET /v1/alerts`, and structured event logs into deeper recovery, longer-horizon incident retention, richer exported metrics, and production incident tooling.
 3. Move validator lifecycle changes behind staking, delegation, slashing, and governance state transitions.
 4. Add deterministic WASM execution, native fee metering, and the confidential compute lane.
 5. Add production observability, recovery tooling, and public testnet operations.
@@ -321,6 +323,7 @@ Short version:
 - [docs/usage.md](./docs/usage.md)
 - [docs/roadmap.md](./docs/roadmap.md)
 - [docs/applications.md](./docs/applications.md)
+- [paper/README.md](./paper/README.md)
 - [Zaphyr-chain_manifesto.md](./Zaphyr-chain_manifesto.md)
 
 ## License

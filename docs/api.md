@@ -318,7 +318,7 @@ Current behavior:
 
 - the response uses `text/plain; version=0.0.4; charset=utf-8`
 - the endpoint keeps returning `200` while the HTTP API is alive; readiness is exported through `zephyr_node_ready`, `zephyr_health_status`, and `zephyr_health_check_status` instead of surfacing failure as HTTP `503`
-- the current metric families cover node flags, chain height and mempool size, consensus height and round state, recovery backlog, retained consensus action history, retained consensus diagnostic buckets, live peer runtime counts, and durable peer-sync incident summaries
+- the current metric families cover node flags, chain height and mempool size, consensus height and round state, recovery backlog, retained consensus action history, retained consensus diagnostic buckets, live peer runtime counts, durable peer-sync incident summaries, and active derived alert gauges
 - `GET /v1/metrics` remains the structured JSON surface for automation that wants typed objects, while `GET /metrics` is the scrape-friendly adapter for Prometheus-style monitoring stacks
 
 ### GET /v1/health
@@ -334,6 +334,18 @@ Current behavior:
 - `warn` checks keep the node live and ready but surface degraded conditions such as recent diagnostics, early peer observation, or consensus warnings
 - `fail` checks set `ready=false` and return HTTP `503`; the current hard-fail cases are recovery backlog and peer-sync availability failures when peer sync is enabled
 - `warnings` is a flattened operator-facing list built from the active warn or fail checks so dashboards do not need to re-derive short incident summaries
+
+### GET /v1/alerts
+
+Returns a derived alert surface built from the same readiness, recovery, consensus, diagnostics, and peer-sync signals used elsewhere in the node API.
+
+Current behavior:
+
+- the top-level response includes node identity, readiness or status, runtime flags, counts by severity, and the current active alerts
+- alert severities are currently `critical` and `warning`
+- current alert codes include `validator_set_missing`, `consensus_recovery_backlog`, `consensus_state_warning`, `peer_sync_unavailable` or `peer_sync_degraded`, and `recent_consensus_diagnostics`
+- the endpoint always returns `200`; unlike `/v1/health`, it is intended for dashboards and polling systems that want the active alert set instead of an HTTP readiness gate
+- `/metrics` mirrors this alert state through `zephyr_alert_count`, `zephyr_alert_count_by_severity`, `zephyr_alert_active`, and `zephyr_alert_observed_at_seconds`
 
 ### GET /v1/status
 
@@ -353,6 +365,7 @@ Current behavior:
 - `GET /v1/metrics` offers a machine-readable roll-up of that durable summary plus live peer runtime counts
 - `GET /metrics` offers a Prometheus-style text projection of the same operator signals for scrape-based monitoring and alerting
 - `GET /v1/health` offers a pass, warn, or fail readiness summary derived from the same durable and live operator signals; unlike `/health`, it can return HTTP `503` when fail checks are active
+- `GET /v1/alerts` offers the current derived warning and critical alert set for operator polling and dashboard integration
 - when `ZEPHYR_VALIDATOR_PRIVATE_KEY` is configured, the response includes an `identity` object with a signed transport proof for the local validator
 - `peerIdentityRequired` is `true` when strict peer admission or explicit peer-validator binding is enabled
 
@@ -368,7 +381,7 @@ Current behavior:
 - `peerSyncSummary` reuses the durable cross-peer incident summary also exposed by status, consensus, and block-template responses
 - `peerRuntime` reflects the current configured peer set and live `syncState` distribution, including reachable or admitted counts versus unreachable or unadmitted counts
 - unlike `peerSyncSummary`, `peerRuntime` is derived from the latest in-memory peer view and may reset on process restart until peers are seen again
-- `GET /metrics` reuses these same rollups in Prometheus-compatible text form, including readiness gauges such as `zephyr_node_ready` and `zephyr_health_check_status`
+- `GET /metrics` reuses these same rollups in Prometheus-compatible text form, including readiness gauges such as `zephyr_node_ready` and `zephyr_health_check_status` plus alert gauges such as `zephyr_alert_count` and `zephyr_alert_active`
 
 ### Structured Event Logs
 
@@ -380,7 +393,7 @@ Current behavior:
 - consensus diagnostic entries use `component=consensus` and `event=diagnostic`, then add `kind`, `code`, `message`, `height`, `round`, `blockHash`, `validator`, `source`, and `observedAt`
 - peer incident entries use `component=peer_sync` and `event=incident`, then add `peerUrl`, `state`, `reason`, `localHeight`, `peerHeight`, `heightDelta`, `blockHash`, `errorCode`, `errorMessage`, `firstObservedAt`, `lastObservedAt`, and `occurrences`
 - snapshot restore entries use `component=recovery` and `event=snapshot_restore`, then add `peer`, `height`, `blockHash`, and `restoredAt`
-- the current structured-log surface is intentionally narrow: it focuses on consensus rejection, peer incident, and snapshot-repair paths so operators can correlate the same events exposed by `diagnostics`, `peerSyncHistory`, `GET /v1/metrics`, `GET /metrics`, and the higher-level readiness summaries from `GET /v1/health`
+- the current structured-log surface is intentionally narrow: it focuses on consensus rejection, peer incident, and snapshot-repair paths so operators can correlate the same events exposed by `diagnostics`, `peerSyncHistory`, `GET /v1/metrics`, `GET /metrics`, `GET /v1/alerts`, and the higher-level readiness summaries from `GET /v1/health`
 
 ### GET /v1/peers
 

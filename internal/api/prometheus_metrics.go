@@ -43,6 +43,7 @@ func (s *Server) buildPrometheusMetrics(now time.Time) string {
 	peerSummary := s.ledger.PeerSyncSummary()
 	peerRuntime := buildPeerRuntimeMetrics(s.peerSnapshot())
 	health := s.buildHealthResponse(now)
+	alerts := s.buildAlertsResponse(now)
 
 	writer := newPrometheusMetricWriter()
 
@@ -80,6 +81,21 @@ func (s *Server) buildPrometheusMetrics(now time.Time) string {
 				prometheusLabel{Name: "check", Value: check.Name},
 				prometheusLabel{Name: "status", Value: statusLabel},
 			)
+		}
+	}
+
+	writer.gauge("zephyr_alert_count", "Number of currently active derived alerts.", float64(alerts.AlertCount))
+	writer.gauge("zephyr_alert_count_by_severity", "Number of currently active derived alerts grouped by severity.", float64(alerts.CriticalCount), prometheusLabel{Name: "severity", Value: alertSeverityCritical})
+	writer.gauge("zephyr_alert_count_by_severity", "Number of currently active derived alerts grouped by severity.", float64(alerts.WarningCount), prometheusLabel{Name: "severity", Value: alertSeverityWarning})
+	for _, alert := range alerts.Alerts {
+		labels := []prometheusLabel{
+			{Name: "code", Value: alert.Code},
+			{Name: "severity", Value: alert.Severity},
+			{Name: "component", Value: alert.Component},
+		}
+		writer.gauge("zephyr_alert_active", "Currently active derived alerts grouped by code, severity, and component.", 1, labels...)
+		if alert.ObservedAt != nil {
+			writer.gauge("zephyr_alert_observed_at_seconds", "Unix timestamp of the latest observation behind each active derived alert.", unixSeconds(*alert.ObservedAt), labels...)
 		}
 	}
 

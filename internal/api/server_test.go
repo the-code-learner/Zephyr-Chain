@@ -2922,7 +2922,92 @@ func TestHandleNodeHealthFailsWhenRecoveryAndPeersAreBlocked(t *testing.T) {
 	requirePrometheusLine(t, metricsRecorder.Body.String(), "zephyr_node_ready 0")
 	requirePrometheusLine(t, metricsRecorder.Body.String(), "zephyr_health_check_status{check=\"recovery\",status=\"fail\"} 1")
 	requirePrometheusLine(t, metricsRecorder.Body.String(), "zephyr_health_check_status{check=\"peer_sync\",status=\"fail\"} 1")
+	requirePrometheusLine(t, metricsRecorder.Body.String(), "zephyr_alert_count 3")
+	requirePrometheusLine(t, metricsRecorder.Body.String(), "zephyr_alert_active{code=\"consensus_recovery_backlog\",severity=\"critical\",component=\"recovery\"} 1")
+	requirePrometheusLine(t, metricsRecorder.Body.String(), "zephyr_alert_active{code=\"peer_sync_unavailable\",severity=\"critical\",component=\"peer_sync\"} 1")
+	requirePrometheusLine(t, metricsRecorder.Body.String(), "zephyr_alert_active{code=\"validator_set_missing\",severity=\"warning\",component=\"consensus\"} 1")
 }
+
+func TestHandleAlertsExposeDerivedOperatorAlerts(t *testing.T) {
+	server := newTestServer(t, Config{
+		DataDir:                      t.TempDir(),
+		NodeID:                       "alerts-node",
+		PeerURLs:                     []string{"http://peer-a.example"},
+		BlockInterval:                0,
+		SyncInterval:                 0,
+		MaxTransactionsPerBlock:      10,
+		EnableBlockProduction:        false,
+		EnablePeerSync:               true,
+		RequireConsensusCertificates: true,
+	})
+
+	now := time.Now().UTC()
+	if err := server.ledger.RecordConsensusAction(ledger.ConsensusAction{
+		Type:       ledger.ConsensusActionBlockImport,
+		Height:     4,
+		Round:      0,
+		BlockHash:  consensusTestHash("alerts-import"),
+		Validator:  "zph_validator_alerts",
+		RecordedAt: now,
+		Status:     ledger.ConsensusActionPending,
+		Note:       "waiting for proposal before import",
+	}); err != nil {
+		t.Fatalf("record alert recovery action: %v", err)
+	}
+	if err := server.ledger.RecordConsensusDiagnostic(ledger.ConsensusDiagnostic{
+		Kind:       "proposal_rejected",
+		Code:       "template_mismatch",
+		Message:    "proposal does not match local block template",
+		Height:     4,
+		Round:      0,
+		BlockHash:  consensusTestHash("alerts-import"),
+		Validator:  "zph_validator_alerts",
+		Source:     "api",
+		ObservedAt: now.Add(1 * time.Minute),
+	}); err != nil {
+		t.Fatalf("record alert diagnostic: %v", err)
+	}
+	server.recordPeerView(PeerView{
+		URL:        "http://peer-a.example",
+		Height:     3,
+		Reachable:  false,
+		Admitted:   false,
+		SyncState:  "unreachable",
+		LastSeenAt: &now,
+		Error:      "dial tcp timeout",
+	})
+
+	request := httptest.NewRequest(http.MethodGet, "/v1/alerts", nil)
+	recorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected alerts status 200, got %d", recorder.Code)
+	}
+
+	var response AlertsResponse
+	if err := json.NewDecoder(recorder.Body).Decode(&response); err != nil {
+		t.Fatalf("decode alerts response: %v", err)
+	}
+	if response.Ready || response.Status != healthStatusFail {
+		t.Fatalf("expected failing alert response, got %+v", response)
+	}
+	if response.AlertCount != 4 || response.CriticalCount != 2 || response.WarningCount != 2 {
+		t.Fatalf("unexpected alert counts %+v", response)
+	}
+	if alert, ok := alertByCode(response.Alerts, "validator_set_missing"); !ok || alert.Severity != alertSeverityWarning {
+		t.Fatalf("expected validator_set_missing warning, got %+v", response.Alerts)
+	}
+	if alert, ok := alertByCode(response.Alerts, "consensus_recovery_backlog"); !ok || alert.Severity != alertSeverityCritical || alert.ObservedAt == nil {
+		t.Fatalf("expected recovery critical alert with observedAt, got %+v", response.Alerts)
+	}
+	if alert, ok := alertByCode(response.Alerts, "peer_sync_unavailable"); !ok || alert.Severity != alertSeverityCritical {
+		t.Fatalf("expected peer sync critical alert, got %+v", response.Alerts)
+	}
+	if alert, ok := alertByCode(response.Alerts, "recent_consensus_diagnostics"); !ok || alert.Severity != alertSeverityWarning || alert.ObservedAt == nil {
+		t.Fatalf("expected diagnostics warning alert with observedAt, got %+v", response.Alerts)
+	}
+}
+
 func TestMetricsExposeConsensusAndPeerObservabilityAggregates(t *testing.T) {
 	server := newTestServer(t, Config{
 		DataDir:                      t.TempDir(),
@@ -3195,6 +3280,10 @@ func TestPrometheusMetricsExportOperatorSignals(t *testing.T) {
 	requirePrometheusLine(t, body, "zephyr_node_ready 1")
 	requirePrometheusLine(t, body, "zephyr_health_status{status=\"warn\"} 1")
 	requirePrometheusLine(t, body, "zephyr_health_check_status{check=\"diagnostics\",status=\"warn\"} 1")
+	requirePrometheusLine(t, body, "zephyr_alert_count 2")
+	requirePrometheusLine(t, body, "zephyr_alert_count_by_severity{severity=\"warning\"} 2")
+	requirePrometheusLine(t, body, "zephyr_alert_active{code=\"peer_sync_degraded\",severity=\"warning\",component=\"peer_sync\"} 1")
+	requirePrometheusLine(t, body, "zephyr_alert_active{code=\"recent_consensus_diagnostics\",severity=\"warning\",component=\"consensus\"} 1")
 	requirePrometheusLine(t, body, "zephyr_consensus_action_by_type_count{type=\"proposal\"} 1")
 	requirePrometheusLine(t, body, "zephyr_consensus_diagnostic_by_code_count{code=\"template_mismatch\"} 1")
 	requirePrometheusLine(t, body, "zephyr_peer_runtime_by_sync_state_count{state=\"unreachable\"} 1")
@@ -3587,6 +3676,15 @@ func healthCheckByName(checks []HealthCheck, name string) (HealthCheck, bool) {
 		}
 	}
 	return HealthCheck{}, false
+}
+
+func alertByCode(alerts []Alert, code string) (Alert, bool) {
+	for _, alert := range alerts {
+		if alert.Code == code {
+			return alert, true
+		}
+	}
+	return Alert{}, false
 }
 
 func requirePrometheusLine(t *testing.T, body string, line string) {
