@@ -2926,6 +2926,11 @@ func TestHandleNodeHealthFailsWhenRecoveryAndPeersAreBlocked(t *testing.T) {
 	requirePrometheusLine(t, metricsRecorder.Body.String(), "zephyr_alert_active{code=\"consensus_recovery_backlog\",severity=\"critical\",component=\"recovery\"} 1")
 	requirePrometheusLine(t, metricsRecorder.Body.String(), "zephyr_alert_active{code=\"peer_sync_unavailable\",severity=\"critical\",component=\"peer_sync\"} 1")
 	requirePrometheusLine(t, metricsRecorder.Body.String(), "zephyr_alert_active{code=\"validator_set_missing\",severity=\"warning\",component=\"consensus\"} 1")
+	requirePrometheusLine(t, metricsRecorder.Body.String(), "zephyr_slo_objective_count 3")
+	requirePrometheusLine(t, metricsRecorder.Body.String(), "zephyr_slo_status_count{status=\"breached\"} 3")
+	requirePrometheusLine(t, metricsRecorder.Body.String(), "zephyr_slo_objective_status{objective=\"node_readiness\",status=\"breached\"} 1")
+	requirePrometheusLine(t, metricsRecorder.Body.String(), "zephyr_slo_objective_status{objective=\"consensus_continuity\",status=\"breached\"} 1")
+	requirePrometheusLine(t, metricsRecorder.Body.String(), "zephyr_slo_objective_status{objective=\"peer_sync_continuity\",status=\"breached\"} 1")
 }
 
 func TestHandleAlertsExposeDerivedOperatorAlerts(t *testing.T) {
@@ -3005,6 +3010,85 @@ func TestHandleAlertsExposeDerivedOperatorAlerts(t *testing.T) {
 	}
 	if alert, ok := alertByCode(response.Alerts, "recent_consensus_diagnostics"); !ok || alert.Severity != alertSeverityWarning || alert.ObservedAt == nil {
 		t.Fatalf("expected diagnostics warning alert with observedAt, got %+v", response.Alerts)
+	}
+}
+func TestHandleSLOSummarizesDerivedObjectives(t *testing.T) {
+	server := newTestServer(t, Config{
+		DataDir:                      t.TempDir(),
+		NodeID:                       "slo-node",
+		PeerURLs:                     []string{"http://peer-a.example"},
+		BlockInterval:                0,
+		SyncInterval:                 0,
+		MaxTransactionsPerBlock:      10,
+		EnableBlockProduction:        false,
+		EnablePeerSync:               true,
+		RequireConsensusCertificates: true,
+	})
+
+	now := time.Now().UTC()
+	if err := server.ledger.RecordConsensusAction(ledger.ConsensusAction{
+		Type:       ledger.ConsensusActionBlockImport,
+		Height:     4,
+		Round:      0,
+		BlockHash:  consensusTestHash("slo-import"),
+		Validator:  "zph_validator_slo",
+		RecordedAt: now,
+		Status:     ledger.ConsensusActionPending,
+		Note:       "waiting for proposal before import",
+	}); err != nil {
+		t.Fatalf("record slo recovery action: %v", err)
+	}
+	if err := server.ledger.RecordConsensusDiagnostic(ledger.ConsensusDiagnostic{
+		Kind:       "proposal_rejected",
+		Code:       "template_mismatch",
+		Message:    "proposal does not match local block template",
+		Height:     4,
+		Round:      0,
+		BlockHash:  consensusTestHash("slo-import"),
+		Validator:  "zph_validator_slo",
+		Source:     "api",
+		ObservedAt: now.Add(1 * time.Minute),
+	}); err != nil {
+		t.Fatalf("record slo diagnostic: %v", err)
+	}
+	server.recordPeerView(PeerView{
+		URL:        "http://peer-a.example",
+		Height:     3,
+		Reachable:  false,
+		Admitted:   false,
+		SyncState:  "unreachable",
+		LastSeenAt: &now,
+		Error:      "dial tcp timeout",
+	})
+
+	request := httptest.NewRequest(http.MethodGet, "/v1/slo", nil)
+	recorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected slo status 200, got %d", recorder.Code)
+	}
+
+	var response SLOSummaryResponse
+	if err := json.NewDecoder(recorder.Body).Decode(&response); err != nil {
+		t.Fatalf("decode slo response: %v", err)
+	}
+	if response.Ready || response.HealthStatus != healthStatusFail {
+		t.Fatalf("expected failing slo response, got %+v", response)
+	}
+	if response.AlertCount != 4 || response.CriticalCount != 2 || response.WarningCount != 2 {
+		t.Fatalf("unexpected slo alert counts %+v", response)
+	}
+	if response.ObjectiveCount != 3 || response.MeetingCount != 0 || response.AtRiskCount != 0 || response.BreachedCount != 3 || response.NotApplicableCount != 0 {
+		t.Fatalf("unexpected slo objective counts %+v", response)
+	}
+	if objective, ok := sloObjectiveByName(response.Objectives, "node_readiness"); !ok || objective.Status != sloStatusBreached {
+		t.Fatalf("expected breached node_readiness objective, got %+v", response.Objectives)
+	}
+	if objective, ok := sloObjectiveByName(response.Objectives, "consensus_continuity"); !ok || objective.Status != sloStatusBreached {
+		t.Fatalf("expected breached consensus_continuity objective, got %+v", response.Objectives)
+	}
+	if objective, ok := sloObjectiveByName(response.Objectives, "peer_sync_continuity"); !ok || objective.Status != sloStatusBreached {
+		t.Fatalf("expected breached peer_sync_continuity objective, got %+v", response.Objectives)
 	}
 }
 
@@ -3284,6 +3368,11 @@ func TestPrometheusMetricsExportOperatorSignals(t *testing.T) {
 	requirePrometheusLine(t, body, "zephyr_alert_count_by_severity{severity=\"warning\"} 2")
 	requirePrometheusLine(t, body, "zephyr_alert_active{code=\"peer_sync_degraded\",severity=\"warning\",component=\"peer_sync\"} 1")
 	requirePrometheusLine(t, body, "zephyr_alert_active{code=\"recent_consensus_diagnostics\",severity=\"warning\",component=\"consensus\"} 1")
+	requirePrometheusLine(t, body, "zephyr_slo_objective_count 3")
+	requirePrometheusLine(t, body, "zephyr_slo_status_count{status=\"at_risk\"} 3")
+	requirePrometheusLine(t, body, "zephyr_slo_objective_status{objective=\"node_readiness\",status=\"at_risk\"} 1")
+	requirePrometheusLine(t, body, "zephyr_slo_objective_status{objective=\"consensus_continuity\",status=\"at_risk\"} 1")
+	requirePrometheusLine(t, body, "zephyr_slo_objective_status{objective=\"peer_sync_continuity\",status=\"at_risk\"} 1")
 	requirePrometheusLine(t, body, "zephyr_consensus_action_by_type_count{type=\"proposal\"} 1")
 	requirePrometheusLine(t, body, "zephyr_consensus_diagnostic_by_code_count{code=\"template_mismatch\"} 1")
 	requirePrometheusLine(t, body, "zephyr_peer_runtime_by_sync_state_count{state=\"unreachable\"} 1")
@@ -3685,6 +3774,15 @@ func alertByCode(alerts []Alert, code string) (Alert, bool) {
 		}
 	}
 	return Alert{}, false
+}
+
+func sloObjectiveByName(objectives []SLOObjective, name string) (SLOObjective, bool) {
+	for _, objective := range objectives {
+		if objective.Name == name {
+			return objective, true
+		}
+	}
+	return SLOObjective{}, false
 }
 
 func requirePrometheusLine(t *testing.T, body string, line string) {

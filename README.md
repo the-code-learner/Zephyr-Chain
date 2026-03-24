@@ -31,15 +31,15 @@ Implemented today:
 
 Implemented in this iteration:
 
-- `GET /v1/alerts` now exposes derived warning and critical alerts built from validator-set expectations, recovery backlog, consensus warnings, peer-sync state, and recent diagnostics
-- `/metrics` now exports active alert metrics through `zephyr_alert_count`, `zephyr_alert_count_by_severity`, `zephyr_alert_active`, and `zephyr_alert_observed_at_seconds`
-- `/paper/` now contains an academic paper workspace with a working abstract, outline, implementation-status map, and evaluation plan aligned to the current codebase
-- focused tests now cover derived alert responses plus alert metrics in both warn and fail scrape scenarios
+- `GET /v1/slo` now exposes SLO-oriented objective summaries for node readiness, consensus continuity, and peer-sync continuity using the same health and alert evidence already exposed elsewhere
+- `/metrics` now exports those objective summaries through `zephyr_slo_objective_count`, `zephyr_slo_status_count`, and `zephyr_slo_objective_status`
+- `/paper/` now includes a manuscript observability note so the paper framing for health, alerts, SLOs, metrics, and structured logs stays aligned with the codebase
+- focused tests now cover derived SLO responses plus SLO metrics in both degraded and failing scrape scenarios
 
 Planned but not implemented yet:
 
 - authenticated peer discovery and replay-safe transport over libp2p on top of the new HTTP admission and binding policy
-- broader consensus recovery coverage plus richer time-series export and alert tooling beyond the current local proposal, vote, peer-import, snapshot-recovery, JSON metrics, Prometheus text export, derived alerts, structured event logs, durable peer-sync history, and derived peer-sync summary surfaces
+- broader consensus recovery coverage plus richer export adapters and alert tooling beyond the current local proposal, vote, peer-import, snapshot-recovery, JSON metrics, Prometheus text export, derived readiness, alerts, SLO summaries, structured event logs, durable peer-sync history, and derived peer-sync summary surfaces
 - on-chain staking and governance-driven validator updates instead of ad hoc election API writes
 - deterministic WASM smart-contract runtime with native fee metering
 - confidential compute marketplace for encrypted off-chain jobs paid in native tokens
@@ -92,6 +92,7 @@ Useful probes:
 Invoke-RestMethod http://localhost:8080/health
 curl.exe -i http://localhost:8080/v1/health
 Invoke-RestMethod http://localhost:8080/v1/alerts
+Invoke-RestMethod http://localhost:8080/v1/slo
 Invoke-RestMethod http://localhost:8080/v1/status
 curl.exe http://localhost:8080/metrics
 ```
@@ -294,7 +295,7 @@ VITE_ZEPHYR_API_BASE=http://localhost:8080
 
 - the current multi-node layer is still HTTP-based under the new transport abstraction, not libp2p networking
 - peer admission and validator pinning can now be enforced over the current HTTP transport, but peer discovery is still static configuration rather than libp2p
-- the round engine now supports timeout-driven proposer rotation, latest-artifact rebroadcast after link recovery, richer `roundEvidence`, per-height `roundHistory`, `blockReadiness`, import-aware `recovery`, durable peer-sync incident history, bounded rejection diagnostics, machine-readable `GET /v1/metrics`, Prometheus-style `GET /metrics`, derived `GET /v1/health`, derived `GET /v1/alerts`, and local consensus-action WAL replay across restart, but broader recovery tooling is still missing
+- the round engine now supports timeout-driven proposer rotation, latest-artifact rebroadcast after link recovery, richer `roundEvidence`, per-height `roundHistory`, `blockReadiness`, import-aware `recovery`, durable peer-sync incident history, bounded rejection diagnostics, machine-readable `GET /v1/metrics`, Prometheus-style `GET /metrics`, derived `GET /v1/health`, derived `GET /v1/alerts`, derived `GET /v1/slo`, and local consensus-action WAL replay across restart, but broader recovery tooling is still missing
 - crash recovery now persists active round metadata plus a bounded local consensus-action WAL, and peer snapshot restore preserves local recovery, diagnostics, and peer-sync incident history, but replay coverage is still centered on local proposal, vote, and import-repair paths rather than the full consensus lifecycle
 - DPoS elections still happen through an API call, not an on-chain staking/governance flow
 - snapshot restore is a state catch-up mechanism, not a trust-minimized proof-based sync protocol
@@ -311,7 +312,7 @@ The production roadmap now lives in [docs/roadmap.md](./docs/roadmap.md).
 Short version:
 
 1. Move the new enforced HTTP peer-admission and validator-binding policy toward authenticated libp2p discovery plus replay-safe transport behavior.
-2. Extend the new `blockReadiness`, `roundHistory`, `roundEvidence`, `recovery`, `diagnostics`, `peerSyncHistory`, `peerSyncSummary`, per-peer `recentIncidents`, `GET /v1/metrics`, `GET /metrics`, `GET /v1/health`, `GET /v1/alerts`, and structured event logs into deeper recovery, longer-horizon incident retention, richer exported metrics, and production incident tooling.
+2. Extend the new `blockReadiness`, `roundHistory`, `roundEvidence`, `recovery`, `diagnostics`, `peerSyncHistory`, `peerSyncSummary`, per-peer `recentIncidents`, `GET /v1/metrics`, `GET /metrics`, `GET /v1/health`, `GET /v1/alerts`, `GET /v1/slo`, and structured event logs into deeper recovery, longer-horizon incident retention, richer exported metrics, alert-rule bundles, and production incident tooling.
 3. Move validator lifecycle changes behind staking, delegation, slashing, and governance state transitions.
 4. Add deterministic WASM execution, native fee metering, and the confidential compute lane.
 5. Add production observability, recovery tooling, and public testnet operations.
@@ -329,6 +330,14 @@ Short version:
 ## License
 
 Zephyr Chain is licensed under the MIT License. See [LICENSE](./LICENSE).
+
+
+
+
+
+
+
+
 
 
 
