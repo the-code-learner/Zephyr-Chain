@@ -214,6 +214,21 @@ Current behavior:
 - background peer-sync import failures append the same `block_import_rejected` diagnostic with `source` set to `peer_sync` before snapshot fallback
 - `code` is a stable operator-facing category such as `unexpected_proposer`, `stale_round`, `conflicting_proposal`, `conflicting_vote`, `proposal_required`, `template_mismatch`, `certificate_required`, or `not_scheduled_proposer`
 
+### PeerSyncHistoryView
+
+`peerSyncHistory` is a bounded durable peer-sync incident view exposed by `GET /v1/status`, `GET /v1/consensus`, and `GET /v1/dev/block-template`.
+
+Current fields include:
+
+- `recent`, newest first
+- each incident exposes `peerUrl`, `state`, `reason`, `localHeight`, `peerHeight`, `heightDelta`, `blockHash`, `errorCode`, `errorMessage`, `firstObservedAt`, `lastObservedAt`, and `occurrences`
+
+Current behavior:
+
+- repeated incidents for the same peer and same incident shape are merged into one record with a higher `occurrences` count instead of growing the history indefinitely
+- the history survives restart because it is stored in the durable ledger state
+- peer snapshot restore preserves the local node's own peer-sync incident history instead of replacing it with the repairing peer's local context
+
 ## Consensus Endpoints
 
 ### GET /v1/consensus
@@ -232,6 +247,7 @@ Current behavior:
 - `blockReadiness` exposes whether the current local template matches stored proposals and certificates for the pending height
 - `recovery` exposes the local consensus-action WAL, including pending replayable actions, pending import backlog, and recent replay, completion, plus snapshot-restore metadata
 - `diagnostics` exposes recent rejected proposal, vote, commit, and import events
+- `peerSyncHistory` exposes recent durable cross-peer sync incidents
 
 ### POST /v1/consensus/proposals
 
@@ -288,7 +304,8 @@ Current behavior:
 - `roundHistory` exposes the pending height across rounds so operators can inspect round-0, round-1, and later attempts together
 - `blockReadiness` exposes whether the local template is ready to commit and whether a certified stored proposal is already ready for commit or import
 - `recovery` exposes pending replayable local actions, pending import backlog, and recent replay/completion plus snapshot-restore metadata from the local consensus-action WAL
-- `diagnostics` exposes recent rejected proposal, vote, commit, and import events with stable error codes
+- `diagnostics` exposes recent rejected proposal, vote, commit, and import events
+- `peerSyncHistory` exposes a durable recent history of cross-peer sync incidents, including repeated failures merged by occurrence count
 - when `ZEPHYR_VALIDATOR_PRIVATE_KEY` is configured, the response includes an `identity` object with a signed transport proof for the local validator
 - `peerIdentityRequired` is `true` when strict peer admission or explicit peer-validator binding is enabled
 
@@ -305,6 +322,7 @@ Current behavior:
 - `lastSyncAttemptAt` and `lastSyncSuccessAt` show the last peer-sync attempt and completion times for that peer
 - `lastImportErrorCode`, `lastImportErrorMessage`, `lastImportFailureAt`, `lastImportFailureHeight`, and `lastImportFailureBlockHash` show the most recent import-side failure observed while syncing from that peer
 - `lastSnapshotRestoreAt`, `lastSnapshotRestoreHeight`, `lastSnapshotRestoreBlockHash`, and `lastSnapshotRestoreReason` show the latest snapshot-based repair event for that peer, with reasons currently drawn from `fetch_fallback`, `import_repair`, and `peer_diverged`
+- `recentIncidents` exposes the durable per-peer incident history the node kept on disk, including state, reason, local and peer heights, block hash, error details, first and last observation time, and merged occurrence count
 - when strict peer admission or peer binding is enabled, background sync and outgoing replication use only admitted peers
 
 ### POST /v1/election
@@ -343,7 +361,7 @@ Current behavior:
 
 - the response includes the exact `blockHash`, `previousHash`, `producedAt`, full `transactions`, and ordered `transactionIds` validators should certify
 - operators can use that data directly when constructing a signed self-contained proposal
-- the response also includes the current consensus summary, `roundEvidence`, `roundHistory`, `blockReadiness`, `recovery`, `diagnostics`, and latest durable artifacts for operator context
+- the response also includes the current consensus summary, `roundEvidence`, `roundHistory`, `blockReadiness`, `recovery`, `diagnostics`, `peerSyncHistory`, and latest durable artifacts for operator context
 
 ### POST /v1/dev/produce-block
 
@@ -381,7 +399,7 @@ Current behavior:
 - proposal, vote, and block dissemination for the current automation flow use these same admitted peer paths
 - the automation path now sends proposals before votes to avoid vote-before-proposal races on the happy path
 - the automation loop also rebroadcasts the latest stored proposal and latest stored local vote for the pending height until a matching certificate exists, which helps delayed peers recover on the current HTTP devnet
-- `GET /v1/peers` now shows whether a given peer most recently aligned normally, fell back to snapshot restore, or triggered an import-side repair path during sync
+- `GET /v1/peers` now shows whether a given peer most recently aligned normally, fell back to snapshot restore, or triggered an import-side repair path during sync, and `recentIncidents` keeps that peer history visible after restart
 
 ### POST /v1/internal/blocks
 
@@ -397,7 +415,17 @@ If proposals exist for that height but the imported block does not match any sto
 
 Returns the current durable node snapshot used for catch-up restore.
 
-When another node applies this snapshot through peer sync, it preserves its own local recovery and diagnostic history instead of replacing that operator context with the peer's local WAL or diagnostics.
+When another node applies this snapshot through peer sync, it preserves its own local recovery, diagnostic, and peer-sync incident history instead of replacing that operator context with the peer's local WAL or diagnostics.
+
+
+
+
+
+
+
+
+
+
 
 
 

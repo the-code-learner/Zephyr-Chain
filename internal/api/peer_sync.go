@@ -12,35 +12,36 @@ import (
 )
 
 type PeerView struct {
-	URL                          string     `json:"url"`
-	NodeID                       string     `json:"nodeId,omitempty"`
-	ValidatorAddress             string     `json:"validatorAddress,omitempty"`
-	ExpectedValidator            string     `json:"expectedValidator,omitempty"`
-	Height                       uint64     `json:"height"`
-	LatestBlockHash              string     `json:"latestBlockHash,omitempty"`
-	MempoolSize                  int        `json:"mempoolSize"`
-	BlockProduction              bool       `json:"blockProduction"`
-	IdentityPresent              bool       `json:"identityPresent"`
-	IdentityVerified             bool       `json:"identityVerified"`
-	IdentityError                string     `json:"identityError,omitempty"`
-	Admitted                     bool       `json:"admitted"`
-	AdmissionError               string     `json:"admissionError,omitempty"`
-	HeightDelta                  int64      `json:"heightDelta"`
-	SyncState                    string     `json:"syncState,omitempty"`
-	LastSyncAttemptAt            *time.Time `json:"lastSyncAttemptAt,omitempty"`
-	LastSyncSuccessAt            *time.Time `json:"lastSyncSuccessAt,omitempty"`
-	LastImportErrorCode          string     `json:"lastImportErrorCode,omitempty"`
-	LastImportErrorMessage       string     `json:"lastImportErrorMessage,omitempty"`
-	LastImportFailureAt          *time.Time `json:"lastImportFailureAt,omitempty"`
-	LastImportFailureHeight      uint64     `json:"lastImportFailureHeight,omitempty"`
-	LastImportFailureBlockHash   string     `json:"lastImportFailureBlockHash,omitempty"`
-	LastSnapshotRestoreAt        *time.Time `json:"lastSnapshotRestoreAt,omitempty"`
-	LastSnapshotRestoreHeight    uint64     `json:"lastSnapshotRestoreHeight,omitempty"`
-	LastSnapshotRestoreBlockHash string     `json:"lastSnapshotRestoreBlockHash,omitempty"`
-	LastSnapshotRestoreReason    string     `json:"lastSnapshotRestoreReason,omitempty"`
-	LastSeenAt                   *time.Time `json:"lastSeenAt,omitempty"`
-	Reachable                    bool       `json:"reachable"`
-	Error                        string     `json:"error,omitempty"`
+	URL                          string                    `json:"url"`
+	NodeID                       string                    `json:"nodeId,omitempty"`
+	ValidatorAddress             string                    `json:"validatorAddress,omitempty"`
+	ExpectedValidator            string                    `json:"expectedValidator,omitempty"`
+	Height                       uint64                    `json:"height"`
+	LatestBlockHash              string                    `json:"latestBlockHash,omitempty"`
+	MempoolSize                  int                       `json:"mempoolSize"`
+	BlockProduction              bool                      `json:"blockProduction"`
+	IdentityPresent              bool                      `json:"identityPresent"`
+	IdentityVerified             bool                      `json:"identityVerified"`
+	IdentityError                string                    `json:"identityError,omitempty"`
+	Admitted                     bool                      `json:"admitted"`
+	AdmissionError               string                    `json:"admissionError,omitempty"`
+	HeightDelta                  int64                     `json:"heightDelta"`
+	SyncState                    string                    `json:"syncState,omitempty"`
+	LastSyncAttemptAt            *time.Time                `json:"lastSyncAttemptAt,omitempty"`
+	LastSyncSuccessAt            *time.Time                `json:"lastSyncSuccessAt,omitempty"`
+	LastImportErrorCode          string                    `json:"lastImportErrorCode,omitempty"`
+	LastImportErrorMessage       string                    `json:"lastImportErrorMessage,omitempty"`
+	LastImportFailureAt          *time.Time                `json:"lastImportFailureAt,omitempty"`
+	LastImportFailureHeight      uint64                    `json:"lastImportFailureHeight,omitempty"`
+	LastImportFailureBlockHash   string                    `json:"lastImportFailureBlockHash,omitempty"`
+	LastSnapshotRestoreAt        *time.Time                `json:"lastSnapshotRestoreAt,omitempty"`
+	LastSnapshotRestoreHeight    uint64                    `json:"lastSnapshotRestoreHeight,omitempty"`
+	LastSnapshotRestoreBlockHash string                    `json:"lastSnapshotRestoreBlockHash,omitempty"`
+	LastSnapshotRestoreReason    string                    `json:"lastSnapshotRestoreReason,omitempty"`
+	RecentIncidents              []ledger.PeerSyncIncident `json:"recentIncidents,omitempty"`
+	LastSeenAt                   *time.Time                `json:"lastSeenAt,omitempty"`
+	Reachable                    bool                      `json:"reachable"`
+	Error                        string                    `json:"error,omitempty"`
 }
 
 type PeersResponse struct {
@@ -277,8 +278,10 @@ func (s *Server) fetchPeerSnapshot(peerURL string) (ledger.Snapshot, error) {
 
 func (s *Server) recordPeerView(view PeerView) {
 	s.peerMu.Lock()
-	defer s.peerMu.Unlock()
 	s.peerViews[view.URL] = view
+	s.peerMu.Unlock()
+
+	s.recordPeerIncident(view)
 }
 
 func (s *Server) peerSnapshot() []PeerView {
@@ -288,10 +291,10 @@ func (s *Server) peerSnapshot() []PeerView {
 	peers := make([]PeerView, 0, len(s.config.PeerURLs))
 	for _, peerURL := range s.config.PeerURLs {
 		if view, ok := s.peerViews[peerURL]; ok {
-			peers = append(peers, view)
+			peers = append(peers, s.enrichPeerView(view))
 			continue
 		}
-		peers = append(peers, PeerView{URL: peerURL, ExpectedValidator: s.expectedPeerValidator(peerURL)})
+		peers = append(peers, s.enrichPeerView(PeerView{URL: peerURL, ExpectedValidator: s.expectedPeerValidator(peerURL)}))
 	}
 	return peers
 }

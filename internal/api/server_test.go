@@ -2552,6 +2552,130 @@ func TestPeerSyncRestoresSnapshotWhenSameHeightDiverges(t *testing.T) {
 	}
 }
 
+func TestPeerSyncHistoryPersistsAcrossServerRestart(t *testing.T) {
+	producer := newTestServer(t, Config{
+		DataDir:                 t.TempDir(),
+		NodeID:                  "producer",
+		BlockInterval:           0,
+		SyncInterval:            0,
+		MaxTransactionsPerBlock: 10,
+		EnableBlockProduction:   true,
+		EnablePeerSync:          false,
+	})
+	producerHTTP := httptest.NewServer(producer.Handler())
+	defer producerHTTP.Close()
+
+	producerEnvelope := signedEnvelope(t, 25, 1, "history-canonical")
+	if _, err := producer.ledger.Credit(producerEnvelope.From, 100); err != nil {
+		t.Fatalf("credit producer sender: %v", err)
+	}
+	if _, err := producer.ledger.Accept(producerEnvelope); err != nil {
+		t.Fatalf("accept producer transaction: %v", err)
+	}
+	producerBlock, err := producer.produceLocalBlock(time.Time{})
+	if err != nil {
+		t.Fatalf("produce producer block: %v", err)
+	}
+
+	replicaDataDir := t.TempDir()
+	replicaSeed := newTestServer(t, Config{
+		DataDir:                 replicaDataDir,
+		NodeID:                  "replica-seed",
+		BlockInterval:           0,
+		SyncInterval:            0,
+		MaxTransactionsPerBlock: 10,
+		EnableBlockProduction:   true,
+		EnablePeerSync:          false,
+	})
+
+	replicaEnvelope := signedEnvelope(t, 10, 1, "history-divergent")
+	if _, err := replicaSeed.ledger.Credit(replicaEnvelope.From, 100); err != nil {
+		t.Fatalf("credit replica sender: %v", err)
+	}
+	if _, err := replicaSeed.ledger.Accept(replicaEnvelope); err != nil {
+		t.Fatalf("accept replica transaction: %v", err)
+	}
+	if _, err := replicaSeed.produceLocalBlock(time.Time{}); err != nil {
+		t.Fatalf("produce replica block: %v", err)
+	}
+	replicaSeed.Close()
+
+	replica := newTestServer(t, Config{
+		DataDir:                 replicaDataDir,
+		NodeID:                  "replica",
+		PeerURLs:                []string{producerHTTP.URL},
+		BlockInterval:           0,
+		SyncInterval:            50 * time.Millisecond,
+		MaxTransactionsPerBlock: 10,
+		EnableBlockProduction:   false,
+		EnablePeerSync:          true,
+	})
+
+	waitFor(t, func() bool {
+		peers := replica.peerSnapshot()
+		return len(peers) == 1 && len(peers[0].RecentIncidents) > 0
+	})
+
+	replica.Close()
+	reopened, err := NewServerWithConfig(Config{
+		DataDir:                 replicaDataDir,
+		NodeID:                  "replica",
+		PeerURLs:                []string{producerHTTP.URL},
+		BlockInterval:           0,
+		SyncInterval:            0,
+		MaxTransactionsPerBlock: 10,
+		EnableBlockProduction:   false,
+		EnablePeerSync:          false,
+	})
+	if err != nil {
+		t.Fatalf("reopen replica: %v", err)
+	}
+	defer reopened.Close()
+
+	statusRequest := httptest.NewRequest(http.MethodGet, "/v1/status", nil)
+	statusRecorder := httptest.NewRecorder()
+	reopened.Handler().ServeHTTP(statusRecorder, statusRequest)
+	if statusRecorder.Code != http.StatusOK {
+		t.Fatalf("expected status 200 after restart, got %d", statusRecorder.Code)
+	}
+
+	var statusResponse StatusResponse
+	if err := json.NewDecoder(statusRecorder.Body).Decode(&statusResponse); err != nil {
+		t.Fatalf("decode restarted status response: %v", err)
+	}
+	if len(statusResponse.PeerSyncHistory.Recent) == 0 {
+		t.Fatal("expected persisted peer sync history after restart")
+	}
+	incident := statusResponse.PeerSyncHistory.Recent[0]
+	if incident.PeerURL != producerHTTP.URL || incident.State != "snapshot_restored" || incident.Reason != "peer_diverged" {
+		t.Fatalf("unexpected restarted peer sync history %+v", incident)
+	}
+	if incident.BlockHash != producerBlock.Hash {
+		t.Fatalf("expected restarted incident block hash %s, got %+v", producerBlock.Hash, incident)
+	}
+
+	peersRequest := httptest.NewRequest(http.MethodGet, "/v1/peers", nil)
+	peersRecorder := httptest.NewRecorder()
+	reopened.Handler().ServeHTTP(peersRecorder, peersRequest)
+	if peersRecorder.Code != http.StatusOK {
+		t.Fatalf("expected peers 200 after restart, got %d", peersRecorder.Code)
+	}
+
+	var peersResponse PeersResponse
+	if err := json.NewDecoder(peersRecorder.Body).Decode(&peersResponse); err != nil {
+		t.Fatalf("decode restarted peers response: %v", err)
+	}
+	if len(peersResponse.Peers) != 1 {
+		t.Fatalf("expected 1 configured peer after restart, got %+v", peersResponse.Peers)
+	}
+	if len(peersResponse.Peers[0].RecentIncidents) == 0 {
+		t.Fatal("expected persisted per-peer incident history after restart")
+	}
+	if peersResponse.Peers[0].RecentIncidents[0].State != "snapshot_restored" || peersResponse.Peers[0].RecentIncidents[0].Reason != "peer_diverged" {
+		t.Fatalf("unexpected per-peer incident history after restart %+v", peersResponse.Peers[0].RecentIncidents)
+	}
+}
+
 func TestHandleImportBlockRejectsAndExposesPendingImportRecovery(t *testing.T) {
 	proposer := newConsensusSigner(t)
 	voter := newConsensusSigner(t)

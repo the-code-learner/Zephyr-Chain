@@ -130,6 +130,7 @@ type StatusResponse struct {
 	BlockReadiness                BlockReadiness                   `json:"blockReadiness"`
 	Recovery                      ledger.ConsensusRecoveryView     `json:"recovery"`
 	Diagnostics                   ledger.ConsensusDiagnosticsView  `json:"diagnostics"`
+	PeerSyncHistory               ledger.PeerSyncHistoryView       `json:"peerSyncHistory"`
 }
 
 type ConsensusResponse struct {
@@ -146,6 +147,7 @@ type ConsensusResponse struct {
 	BlockReadiness                BlockReadiness                   `json:"blockReadiness"`
 	Recovery                      ledger.ConsensusRecoveryView     `json:"recovery"`
 	Diagnostics                   ledger.ConsensusDiagnosticsView  `json:"diagnostics"`
+	PeerSyncHistory               ledger.PeerSyncHistoryView       `json:"peerSyncHistory"`
 }
 
 type LatestBlockResponse struct {
@@ -153,14 +155,15 @@ type LatestBlockResponse struct {
 }
 
 type BlockTemplateResponse struct {
-	Block          ledger.Block                     `json:"block"`
-	Artifacts      ledger.ConsensusArtifactsView    `json:"artifacts"`
-	Consensus      ledger.ConsensusView             `json:"consensus"`
-	RoundEvidence  RoundEvidence                    `json:"roundEvidence"`
-	RoundHistory   ledger.ConsensusRoundHistoryView `json:"roundHistory"`
-	BlockReadiness BlockReadiness                   `json:"blockReadiness"`
-	Recovery       ledger.ConsensusRecoveryView     `json:"recovery"`
-	Diagnostics    ledger.ConsensusDiagnosticsView  `json:"diagnostics"`
+	Block           ledger.Block                     `json:"block"`
+	Artifacts       ledger.ConsensusArtifactsView    `json:"artifacts"`
+	Consensus       ledger.ConsensusView             `json:"consensus"`
+	RoundEvidence   RoundEvidence                    `json:"roundEvidence"`
+	RoundHistory    ledger.ConsensusRoundHistoryView `json:"roundHistory"`
+	BlockReadiness  BlockReadiness                   `json:"blockReadiness"`
+	Recovery        ledger.ConsensusRecoveryView     `json:"recovery"`
+	Diagnostics     ledger.ConsensusDiagnosticsView  `json:"diagnostics"`
+	PeerSyncHistory ledger.PeerSyncHistoryView       `json:"peerSyncHistory"`
 }
 
 type ProduceBlockRequest struct {
@@ -299,6 +302,7 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		BlockReadiness:                s.buildBlockReadiness(now),
 		Recovery:                      s.ledger.ConsensusRecovery(),
 		Diagnostics:                   s.ledger.ConsensusDiagnostics(),
+		PeerSyncHistory:               s.ledger.PeerSyncHistory(),
 	}
 	if s.identitySigner != nil {
 		identity, err := s.identitySigner.Build(now)
@@ -341,6 +345,7 @@ func (s *Server) handleConsensus(w http.ResponseWriter, r *http.Request) {
 		BlockReadiness:                s.buildBlockReadiness(now),
 		Recovery:                      s.ledger.ConsensusRecovery(),
 		Diagnostics:                   s.ledger.ConsensusDiagnostics(),
+		PeerSyncHistory:               s.ledger.PeerSyncHistory(),
 	})
 }
 
@@ -538,14 +543,15 @@ func (s *Server) handleBlockTemplate(w http.ResponseWriter, r *http.Request) {
 
 	consensusView := s.ledger.Consensus()
 	writeJSON(w, http.StatusOK, BlockTemplateResponse{
-		Block:          block,
-		Artifacts:      s.ledger.ConsensusArtifacts(),
-		Consensus:      consensusView,
-		RoundEvidence:  s.buildRoundEvidence(now),
-		RoundHistory:   s.ledger.RoundHistory(consensusView.NextHeight),
-		BlockReadiness: s.buildBlockReadiness(now),
-		Recovery:       s.ledger.ConsensusRecovery(),
-		Diagnostics:    s.ledger.ConsensusDiagnostics(),
+		Block:           block,
+		Artifacts:       s.ledger.ConsensusArtifacts(),
+		Consensus:       consensusView,
+		RoundEvidence:   s.buildRoundEvidence(now),
+		RoundHistory:    s.ledger.RoundHistory(consensusView.NextHeight),
+		BlockReadiness:  s.buildBlockReadiness(now),
+		Recovery:        s.ledger.ConsensusRecovery(),
+		Diagnostics:     s.ledger.ConsensusDiagnostics(),
+		PeerSyncHistory: s.ledger.PeerSyncHistory(),
 	})
 }
 
