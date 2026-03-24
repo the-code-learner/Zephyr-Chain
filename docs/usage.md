@@ -31,11 +31,13 @@ Invoke-RestMethod http://localhost:8080/v1/alerts
 Invoke-RestMethod http://localhost:8080/v1/slo
 Invoke-RestMethod http://localhost:8080/v1/alert-rules
 Invoke-RestMethod http://localhost:8080/v1/recording-rules
+Invoke-RestMethod http://localhost:8080/v1/dashboards
 Invoke-RestMethod http://localhost:8080/v1/status
 Invoke-RestMethod http://localhost:8080/v1/consensus
 curl.exe http://localhost:8080/metrics
 curl.exe http://localhost:8080/v1/alert-rules/prometheus
 curl.exe http://localhost:8080/v1/recording-rules/prometheus
+curl.exe http://localhost:8080/v1/dashboards/grafana
 ```
 
 ## Inspect Node Readiness
@@ -61,7 +63,8 @@ What to expect:
 - `/metrics` exports the alert, health, and SLO state as Prometheus-style gauges such as `zephyr_node_ready`, `zephyr_health_check_status`, `zephyr_alert_active`, and `zephyr_slo_objective_status`, while `/v1/metrics` keeps the structured JSON view
 - `/v1/alert-rules` keeps the structured recommended alert bundle, while `/v1/alert-rules/prometheus` exports the enabled subset as Prometheus-rule YAML for scrape-based alerting stacks
 - `/v1/recording-rules` keeps the structured recommended recording bundle, while `/v1/recording-rules/prometheus` exports the enabled subset as Prometheus recording-rule YAML for dashboard and aggregation stacks
-- use `/v1/health` together with `/v1/alerts`, `/v1/slo`, `/metrics`, `/v1/metrics`, `GET /v1/status`, and structured logs when you need both a quick readiness gate and deeper incident context
+- `/v1/dashboards` keeps the structured recommended dashboard bundle, while `/v1/dashboards/grafana` exports the enabled subset as Grafana-oriented JSON built on the current recording rules and metrics
+- use `/v1/health` together with `/v1/alerts`, `/v1/slo`, `/metrics`, `/v1/metrics`, `GET /v1/status`, `/v1/dashboards`, and structured logs when you need both a quick readiness gate and deeper incident context
 
 ## Export Recommended Alert Rules
 
@@ -91,7 +94,22 @@ What to expect:
 
 - `/v1/recording-rules` returns readiness, consensus, peer-sync, and operator-summary recording-rule groups with stable `record` names, expressions, source metrics, and disabled reasons when a rule is not applicable to the current node configuration
 - `/v1/recording-rules/prometheus` exports only the enabled subset as Prometheus recording-rule YAML so you can drop it into a standard scrape-plus-dashboard workflow without hand-translating expressions
-- use these rollups as the default dashboard layer on top of `/metrics`, then tune retention, labels, and higher-level panels for your deployment
+- use these rollups as the default dashboard query layer on top of `/metrics`, then import or adapt the higher-level dashboard bundles for your deployment
+
+## Export Recommended Dashboards
+
+Once you have a node running, you can export the recommended dashboard bundles directly from the API:
+
+```powershell
+Invoke-RestMethod http://localhost:8080/v1/dashboards
+curl.exe http://localhost:8080/v1/dashboards/grafana
+```
+
+What to expect:
+
+- `/v1/dashboards` returns overview, consensus-and-recovery, and peer-sync dashboard bundles with stable panel IDs, PromQL queries, source endpoints, related recording rules, and disabled reasons when a dashboard or panel is not applicable to the current node configuration
+- `/v1/dashboards/grafana` exports only the enabled dashboards and panels as Grafana-oriented JSON so you can import a starting Zephyr dashboard set after wiring a Prometheus data source to `/metrics`
+- treat the bundle as a production-oriented starting point rather than a final layout; tune datasource selection, labels, thresholds, and panel arrangement for your deployment
 
 ## Run A Two-Node Devnet
 
@@ -339,7 +357,7 @@ Expected behavior:
 - inspect `GET /v1/alert-rules` or `GET /v1/alert-rules/prometheus` when you are wiring alert managers or alert rule files and want the bundle Zephyr currently recommends
 - enable `ZEPHYR_ENABLE_STRUCTURED_LOGS=true` when you want those same incident transitions as newline-delimited JSON in the node logs
 - inspect `curl.exe -i http://localhost:8080/v1/health` to separate a live node from a ready one; `503` usually means recovery backlog or peer-sync availability has escalated into a hard failure, while `warn` highlights degraded but still serving conditions
-- remember the current engine now supports timeout-driven proposer rotation, latest-artifact rebroadcast after peer recovery, restart-safe local proposal or vote replay, pending import recovery, snapshot-restore history, durable peer-incident history, cross-peer `peerSyncSummary`, machine-readable `/v1/metrics`, Prometheus-style `/metrics`, derived `/v1/health`, derived `/v1/alerts`, derived `/v1/slo`, recommended alert and recording-rule bundles, structured event logs, per-height round history, block readiness inspection, and bounded rejection diagnostics, but broader recovery coverage plus richer dashboard and export adapters are still limited
+- remember the current engine now supports timeout-driven proposer rotation, latest-artifact rebroadcast after peer recovery, restart-safe local proposal or vote replay, pending import recovery, snapshot-restore history, durable peer-incident history, cross-peer `peerSyncSummary`, machine-readable `/v1/metrics`, Prometheus-style `/metrics`, derived `/v1/health`, derived `/v1/alerts`, derived `/v1/slo`, recommended alert-rule bundles, recommended recording-rule bundles, recommended `/v1/dashboards`, exported `/v1/dashboards/grafana`, structured event logs, per-height round history, block readiness inspection, and bounded rejection diagnostics, but broader recovery coverage plus broader dashboard coverage and export adapters are still limited
 
 ### Peer Sync Falls Back To Snapshot Restore
 

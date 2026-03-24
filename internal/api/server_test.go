@@ -3245,6 +3245,111 @@ func TestHandlePrometheusRecordingRulesExportsEnabledRulesOnly(t *testing.T) {
 	}
 }
 
+func TestHandleDashboardsExposeRecommendedBundles(t *testing.T) {
+	server := newTestServer(t, Config{
+		DataDir:                 t.TempDir(),
+		NodeID:                  "dashboard-node",
+		PeerURLs:                []string{"http://peer-a.example"},
+		BlockInterval:           0,
+		SyncInterval:            0,
+		MaxTransactionsPerBlock: 10,
+		EnableBlockProduction:   false,
+		EnablePeerSync:          false,
+	})
+
+	request := httptest.NewRequest(http.MethodGet, "/v1/dashboards", nil)
+	recorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected dashboards status 200, got %d", recorder.Code)
+	}
+
+	var response DashboardBundleResponse
+	if err := json.NewDecoder(recorder.Body).Decode(&response); err != nil {
+		t.Fatalf("decode dashboards response: %v", err)
+	}
+	if response.NodeID != "dashboard-node" || response.PeerSyncEnabled {
+		t.Fatalf("unexpected dashboards identity/config %+v", response)
+	}
+	if response.DashboardCount != 3 || response.EnabledDashboardCount != 2 || response.DisabledDashboardCount != 1 {
+		t.Fatalf("unexpected dashboard counts %+v", response)
+	}
+	if response.PanelCount != 15 || response.EnabledPanelCount != 10 || response.DisabledPanelCount != 5 {
+		t.Fatalf("unexpected dashboard panel counts %+v", response)
+	}
+	if dashboard, ok := dashboardByName(response.Dashboards, "zephyr.overview"); !ok || !dashboard.Enabled {
+		t.Fatalf("expected enabled overview dashboard, got %+v", response.Dashboards)
+	} else if panel, ok := dashboardPanelByID(dashboard.Panels, "node_readiness"); !ok || !panel.Enabled || len(panel.RecordingRules) != 1 || panel.RecordingRules[0] != "zephyr:node_readiness:ready" {
+		t.Fatalf("expected node_readiness panel to reference readiness recording rule, got %+v", dashboard.Panels)
+	}
+	if dashboard, ok := dashboardByName(response.Dashboards, "zephyr.peer_sync"); !ok || dashboard.Enabled || !strings.Contains(dashboard.DisabledReason, "disabled") {
+		t.Fatalf("expected disabled peer-sync dashboard, got %+v", response.Dashboards)
+	} else if panel, ok := dashboardPanelByID(dashboard.Panels, "peer_admitted_ratio"); !ok || panel.Enabled || !strings.Contains(panel.DisabledReason, "disabled") {
+		t.Fatalf("expected disabled peer_admitted_ratio panel, got %+v", dashboard.Panels)
+	}
+}
+
+func TestHandleGrafanaDashboardsExportsEnabledDashboardsOnly(t *testing.T) {
+	server := newTestServer(t, Config{
+		DataDir:                 t.TempDir(),
+		NodeID:                  "dashboard-export-node",
+		PeerURLs:                []string{"http://peer-a.example"},
+		BlockInterval:           0,
+		SyncInterval:            0,
+		MaxTransactionsPerBlock: 10,
+		EnableBlockProduction:   false,
+		EnablePeerSync:          true,
+	})
+
+	request := httptest.NewRequest(http.MethodGet, "/v1/dashboards/grafana", nil)
+	recorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected grafana dashboards status 200, got %d", recorder.Code)
+	}
+	if recorder.Header().Get("Content-Type") != grafanaDashboardContentType {
+		t.Fatalf("expected grafana dashboard content type %q, got %q", grafanaDashboardContentType, recorder.Header().Get("Content-Type"))
+	}
+
+	var response GrafanaDashboardBundleResponse
+	if err := json.NewDecoder(recorder.Body).Decode(&response); err != nil {
+		t.Fatalf("decode grafana dashboards response: %v", err)
+	}
+	if response.NodeID != "dashboard-export-node" {
+		t.Fatalf("unexpected grafana dashboard node %+v", response)
+	}
+	if response.DashboardCount != 3 || response.PanelCount != 15 {
+		t.Fatalf("unexpected grafana dashboard counts %+v", response)
+	}
+	if dashboard, ok := grafanaDashboardByName(response.Dashboards, "zephyr.peer_sync"); !ok {
+		t.Fatalf("expected peer-sync grafana dashboard, got %+v", response.Dashboards)
+	} else {
+		if dashboard.Filename != "zephyr-peer-sync.grafana-dashboard.json" {
+			t.Fatalf("unexpected grafana dashboard filename %+v", dashboard)
+		}
+		if dashboard.Dashboard.UID != "zephyr-peer-sync" {
+			t.Fatalf("unexpected grafana dashboard uid %+v", dashboard.Dashboard)
+		}
+		panel, ok := grafanaPanelByTitle(dashboard.Dashboard.Panels, "Peer sync continuity state")
+		if !ok || panel.Type != "bargauge" {
+			t.Fatalf("expected peer sync continuity bargauge panel, got %+v", dashboard.Dashboard.Panels)
+		}
+		if _, ok := grafanaTargetByExpression(panel.Targets, "zephyr:peer_sync_continuity:breached"); !ok {
+			t.Fatalf("expected peer sync breach query in grafana panel, got %+v", panel.Targets)
+		}
+	}
+	if dashboard, ok := grafanaDashboardByName(response.Dashboards, "zephyr.overview"); !ok {
+		t.Fatalf("expected overview grafana dashboard, got %+v", response.Dashboards)
+	} else {
+		panel, ok := grafanaPanelByTitle(dashboard.Dashboard.Panels, "Node readiness")
+		if !ok || panel.Type != "stat" {
+			t.Fatalf("expected node readiness stat panel, got %+v", dashboard.Dashboard.Panels)
+		}
+		if _, ok := grafanaTargetByExpression(panel.Targets, "zephyr:node_readiness:ready"); !ok {
+			t.Fatalf("expected node readiness query in grafana panel, got %+v", panel.Targets)
+		}
+	}
+}
 func TestMetricsExposeConsensusAndPeerObservabilityAggregates(t *testing.T) {
 	server := newTestServer(t, Config{
 		DataDir:                      t.TempDir(),
@@ -3951,6 +4056,50 @@ func recordingRuleByRecord(groups []RecordingRuleGroup, record string) (Recordin
 	return RecordingRule{}, false
 }
 
+func dashboardByName(dashboards []Dashboard, name string) (Dashboard, bool) {
+	for _, dashboard := range dashboards {
+		if dashboard.Name == name {
+			return dashboard, true
+		}
+	}
+	return Dashboard{}, false
+}
+
+func dashboardPanelByID(panels []DashboardPanel, id string) (DashboardPanel, bool) {
+	for _, panel := range panels {
+		if panel.ID == id {
+			return panel, true
+		}
+	}
+	return DashboardPanel{}, false
+}
+
+func grafanaDashboardByName(dashboards []GrafanaDashboardExport, name string) (GrafanaDashboardExport, bool) {
+	for _, dashboard := range dashboards {
+		if dashboard.Name == name {
+			return dashboard, true
+		}
+	}
+	return GrafanaDashboardExport{}, false
+}
+
+func grafanaPanelByTitle(panels []GrafanaPanel, title string) (GrafanaPanel, bool) {
+	for _, panel := range panels {
+		if panel.Title == title {
+			return panel, true
+		}
+	}
+	return GrafanaPanel{}, false
+}
+
+func grafanaTargetByExpression(targets []GrafanaTarget, expression string) (GrafanaTarget, bool) {
+	for _, target := range targets {
+		if target.Expr == expression {
+			return target, true
+		}
+	}
+	return GrafanaTarget{}, false
+}
 func sloObjectiveByName(objectives []SLOObjective, name string) (SLOObjective, bool) {
 	for _, objective := range objectives {
 		if objective.Name == name {

@@ -349,6 +349,7 @@ Current behavior:
 - `GET /v1/slo` builds on the same evidence when operators want objective-style summaries instead of raw alert cards
 - `GET /v1/alert-rules` and `GET /v1/alert-rules/prometheus` build on the same evidence when operators want recommended monitoring bundles rather than only the current runtime state
 - `GET /v1/recording-rules` and `GET /v1/recording-rules/prometheus` build on the same evidence when operators want reusable dashboard and aggregation rollups rather than only current alert or SLO state
+- `GET /v1/dashboards` and `GET /v1/dashboards/grafana` build one layer higher on the same evidence when operators want recommended dashboard structure and Grafana import material instead of only current cards or rollups
 
 ### GET /v1/slo
 
@@ -409,6 +410,29 @@ Current behavior:
 - rules are grouped into readiness, consensus, peer-sync, and operator-summary groups and include stable `record` names plus component, group, related objective, or related alert labels when applicable
 - this endpoint is designed as an export adapter for monitoring systems that already scrape `GET /metrics` and want reusable dashboard or aggregation series without hand-writing PromQL
 
+### GET /v1/dashboards
+
+Returns a machine-readable recommended dashboard bundle derived from the current Zephyr metrics, SLO objectives, alert state, and recording rules.
+
+Current behavior:
+
+- the top-level response includes `generatedAt`, node identity, optional validator address, peer count, `peerSyncEnabled`, `structuredLogsEnabled`, current health or objective summary counts, total dashboard counts, total panel counts, and the current dashboard list
+- dashboards are currently grouped into operator overview, consensus-and-recovery, and peer-sync bundles
+- each panel includes a stable panel `id`, `kind`, `summary`, `description`, PromQL queries, source metrics, source endpoints, related recording rules, related alert codes or objectives, and whether the panel is currently enabled for the node's runtime configuration
+- the peer-sync dashboard stays visible in the JSON surface even when peer sync is disabled or no peers are configured; in those cases it includes `enabled=false` plus a `disabledReason` and the same disabled reason is reflected on its panels
+- the current bundle is intentionally opinionated: it is a recommended starting point for Grafana or other dashboard tooling built on `GET /metrics`, the recording-rule bundle, and the higher-level health, alert, or SLO projections
+
+### GET /v1/dashboards/grafana
+
+Returns the enabled portion of the same bundle as Grafana-oriented JSON.
+
+Current behavior:
+
+- the response uses `application/json; charset=utf-8`
+- only enabled dashboards and panels are exported, so peer-sync dashboards are omitted when peer sync is disabled or no peers are configured
+- each exported entry includes a stable filename, dashboard UID, title, tags, and prewired PromQL targets for its panels
+- this endpoint is designed as an export adapter for operators who already scrape `GET /metrics` and want a dashboard starting point without recreating the panel queries by hand
+
 ### GET /v1/status
 
 Returns the local runtime status for the current node, including consensus summary and whether proposer or certificate enforcement is enabled.
@@ -431,6 +455,7 @@ Current behavior:
 - `GET /v1/slo` offers the current SLO-oriented objective summary derived from those same readiness, recovery, consensus, diagnostics, and peer signals
 - `GET /v1/alert-rules` and `GET /v1/alert-rules/prometheus` offer recommended monitoring bundles derived from those same metrics, alert codes, and objective states
 - `GET /v1/recording-rules` and `GET /v1/recording-rules/prometheus` offer recommended dashboard and aggregation rollups derived from those same metrics, alert codes, and objective states
+- `GET /v1/dashboards` and `GET /v1/dashboards/grafana` offer recommended dashboard bundles and Grafana export derived from those same metrics, recording rules, alert codes, and objective states
 - when `ZEPHYR_VALIDATOR_PRIVATE_KEY` is configured, the response includes an `identity` object with a signed transport proof for the local validator
 - `peerIdentityRequired` is `true` when strict peer admission or explicit peer-validator binding is enabled
 
@@ -447,6 +472,7 @@ Current behavior:
 - `peerRuntime` reflects the current configured peer set and live `syncState` distribution, including reachable or admitted counts versus unreachable or unadmitted counts
 - unlike `peerSyncSummary`, `peerRuntime` is derived from the latest in-memory peer view and may reset on process restart until peers are seen again
 - `GET /metrics` reuses these same rollups in Prometheus-compatible text form, including readiness gauges such as `zephyr_node_ready` and `zephyr_health_check_status`, alert gauges such as `zephyr_alert_count` and `zephyr_alert_active`, and SLO gauges such as `zephyr_slo_status_count` and `zephyr_slo_objective_status`
+- `GET /v1/dashboards` and `GET /v1/dashboards/grafana` build directly on these same Prometheus-facing rollups plus the recording-rule bundle when operators want prewired dashboard panels instead of only raw metrics
 
 ### Structured Event Logs
 
