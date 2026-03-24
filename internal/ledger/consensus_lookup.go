@@ -24,6 +24,28 @@ func latestProposalForHeight(proposals []consensus.Proposal, height uint64) *con
 	return nil
 }
 
+func findVoteByValidator(votes []VoteRecord, height uint64, round uint64, voter string) *consensus.Vote {
+	for _, vote := range votes {
+		if vote.Vote.Height == height && vote.Vote.Round == round && vote.Vote.Voter == voter {
+			cloned := vote.Vote
+			return &cloned
+		}
+	}
+	return nil
+}
+
+func latestVoteByValidatorForHeight(votes []VoteRecord, height uint64, voter string) *consensus.Vote {
+	for index := len(votes) - 1; index >= 0; index-- {
+		vote := votes[index]
+		if vote.Vote.Height != height || vote.Vote.Voter != voter {
+			continue
+		}
+		cloned := vote.Vote
+		return &cloned
+	}
+	return nil
+}
+
 func hasVoteFromValidator(votes []VoteRecord, height uint64, round uint64, voter string) bool {
 	for _, vote := range votes {
 		if vote.Vote.Height == height && vote.Vote.Round == round && vote.Vote.Voter == voter {

@@ -28,12 +28,14 @@ As of this iteration, the repository has:
 - a first timeout-driven automation slice behind `ZEPHYR_ENABLE_CONSENSUS_AUTOMATION`, `ZEPHYR_CONSENSUS_INTERVAL`, and `ZEPHYR_CONSENSUS_ROUND_TIMEOUT`
 - scheduled proposer self-proposal, active-validator auto-vote, timeout-driven round advance, proposer rotation, stored-candidate reproposal, and proposer-side certified auto-commit on the current devnet path
 - in-order automated proposal and vote dissemination on the validator path to avoid the vote-before-proposal race
+- operator-facing `roundEvidence` on status, consensus, and block-template endpoints
+- latest local proposal and latest local vote rebroadcast for the pending height during delayed peer recovery
 - a browser wallet that can create accounts, sign locally, and submit transactions
 
 What it still does not have:
 
 - authenticated peer discovery and replay-safe transport over libp2p
-- vote rebroadcast and stronger round-change evidence on top of the first timeout-driven round engine
+- richer operator evidence for conflicting rounds, partial quorum, and timeout diagnosis
 - restart-safe write-ahead recovery and replay of in-flight consensus actions
 - on-chain staking/governance-driven validator updates
 - WASM contracts, fee metering, or compute markets
@@ -79,15 +81,15 @@ Status:
 - valid higher-round proposals and votes can move a node onto the newer round instead of being rejected just because the local timer had not fired yet
 - a first timeout-driven engine now exists: the scheduled proposer can self-propose, active validators can auto-vote, timeout can rotate the proposer, the next proposer can reuse the latest stored candidate body, and the proposer can auto-commit after quorum when certificate enforcement is enabled
 - proposal and vote broadcasts on the automation path are now sent in-order to avoid vote-before-proposal races on the happy path
-- the current automation path still lacks vote rebroadcast, stronger round-change evidence, and WAL-style replay of in-flight actions
+- the current automation path now has delayed-link proposal and vote recovery plus operator-visible round evidence, but it still lacks WAL-style replay of in-flight actions and deeper conflicting-round diagnostics
 
 Next steps:
 
-1. Add vote rebroadcast so validators can recover more cleanly from dropped proposal or vote messages.
-2. Add stronger round-change evidence and operator surfaces for timeout, stale round, conflicting proposer, and partial quorum scenarios.
-3. Persist write-ahead recovery data for in-flight consensus actions so restart can resume without silent message loss.
-4. Make commit and import surfaces expose clearer operator evidence for template mismatch, partial quorum, stale round, timeout, and re-proposal scenarios.
-5. Add deterministic multi-node integration tests for certified happy path, conflicting proposals, timeout and re-proposal, restart during a round, and recovery from partial quorum.
+1. Persist write-ahead recovery data for in-flight consensus actions so restart can resume without silent message loss.
+2. Add richer round-change and operator evidence for timeout, stale round, conflicting proposer, partial quorum, and multi-round recovery scenarios.
+3. Make commit and import surfaces expose clearer operator evidence for template mismatch, partial quorum, stale round, timeout, and re-proposal scenarios.
+4. Add deterministic multi-node integration tests for certified happy path, conflicting proposals, timeout and re-proposal, restart during a round, and recovery from partial quorum.
+5. Keep tightening the transport-backed consensus loop so proposal and vote recovery remain correct when peers reconnect after advancing rounds.
 
 Exit criteria:
 
@@ -186,3 +188,6 @@ Broad direction:
 - upgrade strategy and rollback planning
 - monitoring, alerts, and SLOs for operators
 - staged path from devnet to public testnet to mainnet
+
+
+

@@ -28,11 +28,40 @@ func (s *Store) LatestProposalForHeight(height uint64) (*consensus.Proposal, boo
 	return proposal, true
 }
 
+func (s *Store) VoteAt(height uint64, round uint64, voter string) (*consensus.Vote, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	vote := findVoteByValidator(s.votes, height, round, voter)
+	if vote == nil {
+		return nil, false
+	}
+	return vote, true
+}
+
+func (s *Store) LatestVoteByValidatorForHeight(height uint64, voter string) (*consensus.Vote, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	vote := latestVoteByValidatorForHeight(s.votes, height, voter)
+	if vote == nil {
+		return nil, false
+	}
+	return vote, true
+}
+
 func (s *Store) HasVote(height uint64, round uint64, voter string) bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
 	return hasVoteFromValidator(s.votes, height, round, voter)
+}
+
+func (s *Store) VoteTalliesAt(height uint64, round uint64) []VoteTally {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	return voteTalliesForHeightRound(s.votes, height, round, quorumVotingPower(totalVotingPower(s.validatorSnapshot)))
 }
 
 func (s *Store) Certificate(height uint64, round uint64, blockHash string) (*CommitCertificate, bool) {

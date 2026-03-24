@@ -562,6 +562,246 @@ func TestHandleConsensusProposalAndVotesExposeArtifacts(t *testing.T) {
 	}
 }
 
+func TestHandleConsensusExposesRoundEvidence(t *testing.T) {
+	proposer := newConsensusSigner(t)
+	voter := newConsensusSigner(t)
+	server := newTestServer(t, Config{
+		DataDir:                   t.TempDir(),
+		NodeID:                    "node-a",
+		ValidatorPrivateKey:       encodedPrivateKey(t, proposer.privateKey),
+		ConsensusRoundTimeout:     30 * time.Second,
+		BlockInterval:             0,
+		SyncInterval:              0,
+		MaxTransactionsPerBlock:   10,
+		EnableBlockProduction:     false,
+		EnableConsensusAutomation: false,
+		EnablePeerSync:            false,
+	})
+
+	if _, err := server.ledger.SetValidators([]dpos.Validator{
+		{Rank: 1, Address: proposer.address, VotingPower: 60, SelfStake: 40, DelegatedStake: 20},
+		{Rank: 2, Address: voter.address, VotingPower: 40, SelfStake: 25, DelegatedStake: 15},
+	}, dpos.ElectionConfig{MaxValidators: 2}); err != nil {
+		t.Fatalf("set validators: %v", err)
+	}
+	startedAt := time.Date(2026, time.March, 24, 14, 0, 0, 0, time.UTC)
+	if _, err := server.ledger.EnsureRoundStarted(startedAt); err != nil {
+		t.Fatalf("ensure round started: %v", err)
+	}
+
+	proposal := signedConsensusProposal(t, proposer, 1, 0, "", time.Date(2026, time.March, 24, 14, 1, 0, 0, time.UTC), []tx.Envelope{signedEnvelope(t, 5, 1, "round-evidence")})
+	if err := server.ledger.RecordProposal(proposal); err != nil {
+		t.Fatalf("record proposal: %v", err)
+	}
+	if _, _, err := server.ledger.RecordVote(signedConsensusVote(t, proposer, 1, 0, proposal.BlockHash)); err != nil {
+		t.Fatalf("record local vote: %v", err)
+	}
+
+	consensusRequest := httptest.NewRequest(http.MethodGet, "/v1/consensus", nil)
+	consensusRecorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(consensusRecorder, consensusRequest)
+	if consensusRecorder.Code != http.StatusOK {
+		t.Fatalf("expected consensus status 200, got %d", consensusRecorder.Code)
+	}
+
+	var response ConsensusResponse
+	if err := json.NewDecoder(consensusRecorder.Body).Decode(&response); err != nil {
+		t.Fatalf("decode consensus response: %v", err)
+	}
+	if response.RoundEvidence.State != "collecting_votes" {
+		t.Fatalf("expected collecting_votes state, got %+v", response.RoundEvidence)
+	}
+	if !response.RoundEvidence.ProposalPresent || response.RoundEvidence.ProposalBlockHash != proposal.BlockHash {
+		t.Fatalf("expected round evidence proposal for %s, got %+v", proposal.BlockHash, response.RoundEvidence)
+	}
+	if !response.RoundEvidence.LocalVotePresent || response.RoundEvidence.LocalVoteBlockHash != proposal.BlockHash {
+		t.Fatalf("expected local vote evidence for %s, got %+v", proposal.BlockHash, response.RoundEvidence)
+	}
+	if response.RoundEvidence.CertificatePresent {
+		t.Fatalf("expected no certificate yet, got %+v", response.RoundEvidence)
+	}
+	if response.RoundEvidence.DeadlineAt == nil || !response.RoundEvidence.DeadlineAt.After(startedAt) {
+		t.Fatalf("expected round deadline after %s, got %+v", startedAt, response.RoundEvidence)
+	}
+}
+
+func TestConsensusAutomationRebroadcastsProposalAfterPeerLinkRestored(t *testing.T) {
+	proposer := newConsensusSigner(t)
+	voter := newConsensusSigner(t)
+
+	proposerServer := newTestServer(t, Config{
+		DataDir:                      t.TempDir(),
+		NodeID:                       "node-a",
+		ValidatorPrivateKey:          encodedPrivateKey(t, proposer.privateKey),
+		BlockInterval:                0,
+		ConsensusInterval:            20 * time.Millisecond,
+		ConsensusRoundTimeout:        2 * time.Second,
+		SyncInterval:                 0,
+		MaxTransactionsPerBlock:      10,
+		EnableBlockProduction:        true,
+		EnableConsensusAutomation:    true,
+		EnablePeerSync:               false,
+		EnforceProposerSchedule:      true,
+		RequireConsensusCertificates: true,
+	})
+	proposerHTTP := httptest.NewServer(proposerServer.Handler())
+	defer proposerHTTP.Close()
+
+	voterServer := newTestServer(t, Config{
+		DataDir:                      t.TempDir(),
+		NodeID:                       "node-b",
+		ValidatorPrivateKey:          encodedPrivateKey(t, voter.privateKey),
+		PeerURLs:                     []string{proposerHTTP.URL},
+		BlockInterval:                0,
+		ConsensusInterval:            20 * time.Millisecond,
+		ConsensusRoundTimeout:        2 * time.Second,
+		SyncInterval:                 0,
+		MaxTransactionsPerBlock:      10,
+		EnableBlockProduction:        false,
+		EnableConsensusAutomation:    true,
+		EnablePeerSync:               false,
+		RequireConsensusCertificates: true,
+	})
+	voterHTTP := httptest.NewServer(voterServer.Handler())
+	defer voterHTTP.Close()
+
+	validators := []dpos.Validator{
+		{Rank: 1, Address: proposer.address, VotingPower: 60, SelfStake: 40, DelegatedStake: 20},
+		{Rank: 2, Address: voter.address, VotingPower: 40, SelfStake: 25, DelegatedStake: 15},
+	}
+	if _, err := proposerServer.ledger.SetValidators(validators, dpos.ElectionConfig{MaxValidators: 2}); err != nil {
+		t.Fatalf("set proposer validators: %v", err)
+	}
+	if _, err := voterServer.ledger.SetValidators(validators, dpos.ElectionConfig{MaxValidators: 2}); err != nil {
+		t.Fatalf("set voter validators: %v", err)
+	}
+
+	envelope := signedEnvelope(t, 25, 1, "proposal-rebroadcast")
+	if _, err := proposerServer.ledger.Credit(envelope.From, 100); err != nil {
+		t.Fatalf("credit proposer sender: %v", err)
+	}
+	if _, err := voterServer.ledger.Credit(envelope.From, 100); err != nil {
+		t.Fatalf("credit voter sender: %v", err)
+	}
+	if _, err := proposerServer.ledger.Accept(envelope); err != nil {
+		t.Fatalf("accept tx: %v", err)
+	}
+
+	waitFor(t, func() bool {
+		return proposerServer.ledger.HasVote(1, 0, proposer.address)
+	})
+
+	proposerServer.config.PeerURLs = []string{voterHTTP.URL}
+
+	waitFor(t, func() bool {
+		return proposerServer.ledger.Status().Height == 1 && voterServer.ledger.Status().Height == 1
+	})
+
+	voterArtifacts := voterServer.ledger.ConsensusArtifacts()
+	if voterArtifacts.LatestProposal == nil || voterArtifacts.LatestProposal.BlockHash == "" {
+		t.Fatalf("expected voter to receive rebroadcast proposal, got %+v", voterArtifacts)
+	}
+	if voterArtifacts.LatestCertificate == nil {
+		t.Fatalf("expected voter to receive certificate after rebroadcast path, got %+v", voterArtifacts)
+	}
+}
+
+func TestConsensusAutomationRebroadcastsVoteAfterPeerLinkRestored(t *testing.T) {
+	proposer := newConsensusSigner(t)
+	voter := newConsensusSigner(t)
+
+	proposerServer := newTestServer(t, Config{
+		DataDir:                      t.TempDir(),
+		NodeID:                       "node-a",
+		ValidatorPrivateKey:          encodedPrivateKey(t, proposer.privateKey),
+		PeerURLs:                     []string{"placeholder"},
+		BlockInterval:                0,
+		ConsensusInterval:            20 * time.Millisecond,
+		ConsensusRoundTimeout:        2 * time.Second,
+		SyncInterval:                 0,
+		MaxTransactionsPerBlock:      10,
+		EnableBlockProduction:        true,
+		EnableConsensusAutomation:    true,
+		EnablePeerSync:               false,
+		EnforceProposerSchedule:      true,
+		RequireConsensusCertificates: true,
+	})
+	proposerHTTP := httptest.NewServer(proposerServer.Handler())
+	defer proposerHTTP.Close()
+	proposerServer.config.PeerURLs = []string{}
+
+	voterServer := newTestServer(t, Config{
+		DataDir:                      t.TempDir(),
+		NodeID:                       "node-b",
+		ValidatorPrivateKey:          encodedPrivateKey(t, voter.privateKey),
+		BlockInterval:                0,
+		ConsensusInterval:            20 * time.Millisecond,
+		ConsensusRoundTimeout:        2 * time.Second,
+		SyncInterval:                 0,
+		MaxTransactionsPerBlock:      10,
+		EnableBlockProduction:        false,
+		EnableConsensusAutomation:    true,
+		EnablePeerSync:               false,
+		RequireConsensusCertificates: true,
+	})
+	voterHTTP := httptest.NewServer(voterServer.Handler())
+	defer voterHTTP.Close()
+	proposerServer.config.PeerURLs = []string{voterHTTP.URL}
+
+	validators := []dpos.Validator{
+		{Rank: 1, Address: proposer.address, VotingPower: 60, SelfStake: 40, DelegatedStake: 20},
+		{Rank: 2, Address: voter.address, VotingPower: 40, SelfStake: 25, DelegatedStake: 15},
+	}
+	if _, err := proposerServer.ledger.SetValidators(validators, dpos.ElectionConfig{MaxValidators: 2}); err != nil {
+		t.Fatalf("set proposer validators: %v", err)
+	}
+	if _, err := voterServer.ledger.SetValidators(validators, dpos.ElectionConfig{MaxValidators: 2}); err != nil {
+		t.Fatalf("set voter validators: %v", err)
+	}
+
+	envelope := signedEnvelope(t, 25, 1, "vote-rebroadcast")
+	if _, err := proposerServer.ledger.Credit(envelope.From, 100); err != nil {
+		t.Fatalf("credit proposer sender: %v", err)
+	}
+	if _, err := voterServer.ledger.Credit(envelope.From, 100); err != nil {
+		t.Fatalf("credit voter sender: %v", err)
+	}
+	if _, err := proposerServer.ledger.Accept(envelope); err != nil {
+		t.Fatalf("accept tx: %v", err)
+	}
+
+	waitFor(t, func() bool {
+		_, exists := voterServer.ledger.ProposalAt(1, 0)
+		return exists
+	})
+
+	proposerArtifacts := proposerServer.ledger.ConsensusArtifacts()
+	if proposerArtifacts.LatestCertificate != nil || proposerArtifacts.VoteCount != 1 {
+		t.Fatalf("expected proposer to be waiting on the remote vote before link recovery, got %+v", proposerArtifacts)
+	}
+
+	voterServer.config.PeerURLs = []string{proposerHTTP.URL}
+
+	waitFor(t, func() bool {
+		return proposerServer.ledger.Status().Height == 1 && voterServer.ledger.Status().Height == 1
+	})
+
+	voterVote, exists := voterServer.ledger.LatestVoteByValidatorForHeight(1, voter.address)
+	if !exists {
+		t.Fatal("expected voter to persist a local vote for the recovered height")
+	}
+
+	proposerArtifacts = proposerServer.ledger.ConsensusArtifacts()
+	if proposerArtifacts.LatestCertificate == nil {
+		t.Fatalf("expected proposer certificate after vote rebroadcast, got %+v", proposerArtifacts)
+	}
+	if proposerArtifacts.VoteCount != 2 {
+		t.Fatalf("expected proposer to observe both votes after rebroadcast, got %+v", proposerArtifacts)
+	}
+	if voterVote.BlockHash != proposerArtifacts.LatestCertificate.BlockHash {
+		t.Fatalf("expected recovered voter vote for block %s, got %+v", proposerArtifacts.LatestCertificate.BlockHash, voterVote)
+	}
+}
 func TestHandleBlockTemplateAndConsensusGatedProduceBlock(t *testing.T) {
 	proposer := newConsensusSigner(t)
 	voter := newConsensusSigner(t)

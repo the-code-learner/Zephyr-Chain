@@ -122,6 +122,8 @@ If `ZEPHYR_ENABLE_CONSENSUS_AUTOMATION=true`, the current automation loop can:
 - let the new proposer reuse the latest stored candidate body for that height
 - let the scheduled proposer auto-commit once a matching quorum certificate exists and certificate enforcement is enabled
 - send automated proposals before automated votes so peers do not observe vote-before-proposal races on the happy path
+- rebroadcast the latest stored local proposal and latest stored local vote for the pending height until the matching certificate exists
+- expose round-evidence state, deadlines, tallies, local vote presence, and certificate presence through the status, consensus, and block-template APIs
 
 If `ZEPHYR_VALIDATOR_PRIVATE_KEY` is configured, the API layer also derives a signed transport identity for the local validator and verifies peer proofs exposed through `GET /v1/status`. When `ZEPHYR_REQUIRE_PEER_IDENTITY` or `ZEPHYR_PEER_VALIDATORS` is configured, replicated peer POST requests must satisfy that admission policy before they are accepted.
 
@@ -130,8 +132,9 @@ If `ZEPHYR_VALIDATOR_PRIVATE_KEY` is configured, the API layer also derives a si
 The repository has moved from consensus-preparation-only into certificate-gated commit/import with concrete template commitments, durable round state, and a first timeout-driven proposer rotation loop, but it still falls short of production finality in several important ways:
 
 - validator nodes can now prove identity and enforce peer admission over the current transport, but peer discovery is still static HTTP configuration rather than authenticated libp2p
-- automation can now rotate proposers on timeout, but it still lacks vote rebroadcast and stronger round-change evidence
+- automation can now rotate proposers on timeout, rebroadcast the latest local proposal or vote after link recovery, and expose round evidence to operators, but it still lacks write-ahead replay of in-flight actions
 - there is no write-ahead log or replay of in-flight consensus actions after restart
-- the current operator and observability surface is still too thin for production incident handling
+- the current operator and observability surface is still too thin for production incident handling, especially for conflicting-round and partial-quorum diagnosis
 
 That is why the project has moved beyond replicated prototype, but it is still not a production blockchain.
+

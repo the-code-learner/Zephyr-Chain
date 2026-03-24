@@ -2,7 +2,7 @@
 
 Zephyr Chain is an early-stage blockchain node and wallet stack focused on a production path toward validator-driven consensus, deterministic WASM execution, and a confidential compute marketplace.
 
-The long-term product vision lives in [Zaphyr-chain_manifesto.md](./Zaphyr-chain_manifesto.md). This `README` stays practical: what works now, what changed in the latest iteration, and what comes next.
+The long-term product vision lives in [Zaphyr-chain_manifesto.md](./Zaphyr-chain_manifesto.md). Application and use-case framing lives in [docs/applications.md](./docs/applications.md). This `README` stays practical: what works now, what changed in the latest iteration, and what comes next.
 
 ## Current Status
 
@@ -31,19 +31,15 @@ Implemented today:
 
 Implemented in this iteration:
 
-- `ZEPHYR_CONSENSUS_ROUND_TIMEOUT` now works with `ZEPHYR_ENABLE_CONSENSUS_AUTOMATION` and `ZEPHYR_CONSENSUS_INTERVAL` to drive timeout-based round changes
-- consensus round height, round number, and round start time now persist in the ledger and survive restart
-- proposer selection is now round-aware, so timeout can rotate block proposal authority across validators for the same height
-- valid higher-round proposals and votes can move slower peers onto the newer round instead of being rejected purely because their local timer has not fired yet
-- when a round changes, the new proposer can reuse the latest stored candidate body for that height instead of depending only on local mempool convergence
-- automated proposal and vote broadcast on the validator path now happen in-order, which fixes the vote-before-proposal race on the multi-node happy path
-- focused tests now cover persisted round rotation, higher-round proposal acceptance, timeout-driven reproposal from stored candidate state, and automated proposer handoff after round timeout
+- `GET /v1/status`, `GET /v1/consensus`, and `GET /v1/dev/block-template` now expose `roundEvidence` with the active round state, timeout deadline, vote tallies, latest known proposal round, local vote presence, and certificate presence
+- the automation loop now rebroadcasts the latest local proposal and latest local vote for the pending height until a matching certificate exists, which improves recovery when a peer link comes back after a dropped proposal or vote
+- rebroadcast now uses the latest stored artifact for the pending height instead of only the current round, which makes delayed peer recovery more resilient across round changes
+- focused tests now cover round-evidence visibility plus delayed proposal and delayed vote recovery after peer links are restored
 
 Planned but not implemented yet:
 
 - authenticated peer discovery and replay-safe transport over libp2p on top of the new HTTP admission and binding policy
-- vote rebroadcast, stronger round-change evidence, and richer stale-round/operator diagnostics on top of the first timeout-driven round engine
-- consensus write-ahead recovery, restart-safe in-flight round replay, and richer operator evidence surfaces
+- consensus write-ahead recovery, restart-safe in-flight round replay, and richer operator evidence for conflicting rounds, partial quorum, and restart recovery
 - on-chain staking and governance-driven validator updates instead of ad hoc election API writes
 - deterministic WASM smart-contract runtime with native fee metering
 - confidential compute marketplace for encrypted off-chain jobs paid in native tokens
@@ -58,7 +54,7 @@ Planned but not implemented yet:
 - `internal/ledger`: persisted accounts, mempool entries, committed blocks, validator snapshots, round state, consensus artifacts, snapshots, and commit/import logic
 - `internal/tx`: transaction envelope validation, address derivation, and signature verification
 - `apps/wallet`: reference light wallet built with Vue 3, Vite, and Tailwind CSS
-- `docs/`: architecture, API, usage, and roadmap guides
+- `docs/`: architecture, API, usage, roadmap, and applications guides
 - `var/`: default local runtime state directory for the node, ignored by git
 
 ## Prerequisites
@@ -285,7 +281,7 @@ VITE_ZEPHYR_API_BASE=http://localhost:8080
 
 - the current multi-node layer is still HTTP-based under the new transport abstraction, not libp2p networking
 - peer admission and validator pinning can now be enforced over the current HTTP transport, but peer discovery is still static configuration rather than libp2p
-- the round engine now supports timeout-driven proposer rotation and stored-candidate reproposal, but vote rebroadcast and stronger round-change evidence are still missing
+- the round engine now supports timeout-driven proposer rotation, latest-artifact rebroadcast after link recovery, and round-evidence inspection, but write-ahead replay and richer conflicting-round diagnostics are still missing
 - crash recovery now persists active round metadata, but write-ahead logging and replay of in-flight consensus actions are not implemented yet
 - DPoS elections still happen through an API call, not an on-chain staking/governance flow
 - snapshot restore is a state catch-up mechanism, not a trust-minimized proof-based sync protocol
@@ -302,7 +298,7 @@ The production roadmap now lives in [docs/roadmap.md](./docs/roadmap.md).
 Short version:
 
 1. Move the new enforced HTTP peer-admission and validator-binding policy toward authenticated libp2p discovery plus replay-safe transport behavior.
-2. Extend the timeout-driven round engine with vote rebroadcast, stronger round-change evidence, and restart-safe recovery/WAL behavior.
+2. Persist restart-safe recovery/WAL behavior and expand operator evidence for timeout, partial quorum, and conflicting-round scenarios.
 3. Move validator lifecycle changes behind staking, delegation, slashing, and governance state transitions.
 4. Add deterministic WASM execution, native fee metering, and the confidential compute lane.
 5. Add production observability, recovery tooling, and public testnet operations.
@@ -313,8 +309,10 @@ Short version:
 - [docs/api.md](./docs/api.md)
 - [docs/usage.md](./docs/usage.md)
 - [docs/roadmap.md](./docs/roadmap.md)
+- [docs/applications.md](./docs/applications.md)
 - [Zaphyr-chain_manifesto.md](./Zaphyr-chain_manifesto.md)
 
 ## License
 
 Zephyr Chain is licensed under the MIT License. See [LICENSE](./LICENSE).
+
