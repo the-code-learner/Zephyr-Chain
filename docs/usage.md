@@ -26,9 +26,27 @@ Sanity-check the node with:
 
 ```powershell
 Invoke-RestMethod http://localhost:8080/health
+curl.exe -i http://localhost:8080/v1/health
 Invoke-RestMethod http://localhost:8080/v1/status
 Invoke-RestMethod http://localhost:8080/v1/consensus
 ```
+
+## Inspect Node Readiness
+
+`/health` tells you whether the process is responding. `/v1/health` tells you whether the node is actually ready based on validator-set expectations, recovery backlog, consensus warnings, peer-sync condition, and recent diagnostics.
+
+```powershell
+curl.exe -i http://localhost:8080/health
+curl.exe -i http://localhost:8080/v1/health
+Invoke-RestMethod http://localhost:8080/v1/metrics
+```
+
+What to expect:
+
+- `/health` returns `200` as long as the API loop is alive
+- `/v1/health` returns `200` when only `pass` or `warn` checks exist and `503` when at least one `fail` check is active
+- `checks` currently cover `api`, `validator_set`, `recovery`, `consensus`, `peer_sync`, and `diagnostics`
+- use `/v1/health` together with `/v1/metrics`, `GET /v1/status`, and structured logs when you need both a quick readiness gate and deeper incident context
 
 ## Run A Two-Node Devnet
 
@@ -271,7 +289,8 @@ Expected behavior:
 - inspect `diagnostics` in those same responses to see whether recent failures were caused by stale rounds, unexpected proposers, missing proposals, template mismatch, missing certificates, or other rejected consensus actions
 - inspect `GET /v1/metrics` when you want machine-readable totals for pending replay, diagnostic code frequency, and live peer sync-state distribution during the incident
 - enable `ZEPHYR_ENABLE_STRUCTURED_LOGS=true` when you want those same incident transitions as newline-delimited JSON in the node logs
-- remember the current engine now supports timeout-driven proposer rotation, latest-artifact rebroadcast after peer recovery, restart-safe local proposal or vote replay, pending import recovery, snapshot-restore history, durable peer-incident history, cross-peer `peerSyncSummary`, machine-readable `/v1/metrics`, structured event logs, per-height round history, block readiness inspection, and bounded rejection diagnostics, but broader recovery coverage plus richer export adapters are still limited
+- inspect `curl.exe -i http://localhost:8080/v1/health` to separate a live node from a ready one; `503` usually means recovery backlog or peer-sync availability has escalated into a hard failure, while `warn` highlights degraded but still serving conditions
+- remember the current engine now supports timeout-driven proposer rotation, latest-artifact rebroadcast after peer recovery, restart-safe local proposal or vote replay, pending import recovery, snapshot-restore history, durable peer-incident history, cross-peer `peerSyncSummary`, machine-readable `/v1/metrics`, derived `/v1/health`, structured event logs, per-height round history, block readiness inspection, and bounded rejection diagnostics, but broader recovery coverage plus richer export adapters are still limited
 
 ### Peer Sync Falls Back To Snapshot Restore
 
