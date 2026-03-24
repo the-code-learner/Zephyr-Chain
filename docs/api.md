@@ -182,16 +182,19 @@ Current behavior:
 
 Current fields include:
 
-- `pendingActionCount` and `needsReplay`
-- `pendingActions`, which list restart-relevant local actions still waiting to be completed for the current or earlier heights
+- `pendingActionCount`, `pendingReplayCount`, `pendingImportCount`, `pendingImportHeights`, `needsReplay`, and `needsRecovery`
+- `lastSnapshotRestoreAt`, `lastSnapshotRestoreHeight`, and `lastSnapshotRestoreBlockHash`
+- `pendingActions`, which now list replayable local actions plus pending import-repair actions that still need follow-up
 - `recentActions`, which show the latest local consensus actions with `status`, `replayAttempts`, `lastReplayAt`, and `completedAt`
 
 Current behavior:
 
 - locally authored proposals and votes for the configured validator are persisted into this WAL view
 - timeout-driven round advance is also recorded for operator history
+- recoverable peer block-import failures now append a pending `block_import` action so operators can see blocked import heights directly in the recovery view
 - when automation rebroadcasts a stored local proposal or vote, the matching action updates `replayAttempts` and `lastReplayAt`
-- when a block is committed locally or imported for that height, pending proposal and vote actions for that height are marked completed
+- when a block is committed locally or imported for that height, pending proposal, vote, and import-repair actions for that height are marked completed
+- when peer sync falls back to snapshot restore, the node preserves its own recovery and diagnostic history, completes any blocked import actions through the restored height, and records a completed `snapshot_restore` action with the restored height and latest block hash
 
 ### ConsensusDiagnosticsView
 
@@ -208,6 +211,7 @@ Current behavior:
 - rejected vote submissions append a `vote_rejected` diagnostic
 - rejected local commit attempts append a `block_commit_rejected` diagnostic
 - rejected peer block imports append a `block_import_rejected` diagnostic
+- background peer-sync import failures append the same `block_import_rejected` diagnostic with `source` set to `peer_sync` before snapshot fallback
 - `code` is a stable operator-facing category such as `unexpected_proposer`, `stale_round`, `conflicting_proposal`, `conflicting_vote`, `proposal_required`, `template_mismatch`, `certificate_required`, or `not_scheduled_proposer`
 
 ## Consensus Endpoints
@@ -226,7 +230,7 @@ Current behavior:
 - `roundEvidence` exposes the round deadline, proposal presence, vote tallies, leading vote, quorum remaining, replay backlog, warnings, local vote, and certificate state for operator inspection
 - `roundHistory` exposes the pending height across rounds so operators can compare prior and active proposer attempts side by side
 - `blockReadiness` exposes whether the current local template matches stored proposals and certificates for the pending height
-- `recovery` exposes the local consensus-action WAL, including pending replayable actions and recent replay/completion metadata
+- `recovery` exposes the local consensus-action WAL, including pending replayable actions, pending import backlog, and recent replay, completion, plus snapshot-restore metadata
 - `diagnostics` exposes recent rejected proposal, vote, commit, and import events
 
 ### POST /v1/consensus/proposals
@@ -283,7 +287,7 @@ Current behavior:
 - `roundEvidence` exposes the active round deadline, state, vote tallies, leading vote, quorum remaining, replay backlog, warnings, proposal presence, local vote, and certificate visibility for operators
 - `roundHistory` exposes the pending height across rounds so operators can inspect round-0, round-1, and later attempts together
 - `blockReadiness` exposes whether the local template is ready to commit and whether a certified stored proposal is already ready for commit or import
-- `recovery` exposes pending replayable local actions plus recent replay/completion metadata from the local consensus-action WAL
+- `recovery` exposes pending replayable local actions, pending import backlog, and recent replay/completion plus snapshot-restore metadata from the local consensus-action WAL
 - `diagnostics` exposes recent rejected proposal, vote, commit, and import events with stable error codes
 - when `ZEPHYR_VALIDATOR_PRIVATE_KEY` is configured, the response includes an `identity` object with a signed transport proof for the local validator
 - `peerIdentityRequired` is `true` when strict peer admission or explicit peer-validator binding is enabled
@@ -387,5 +391,8 @@ If proposals exist for that height but the imported block does not match any sto
 ### GET /v1/internal/snapshot
 
 Returns the current durable node snapshot used for catch-up restore.
+
+When another node applies this snapshot through peer sync, it preserves its own local recovery and diagnostic history instead of replacing that operator context with the peer's local WAL or diagnostics.
+
 
 

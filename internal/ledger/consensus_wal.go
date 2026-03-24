@@ -1,11 +1,16 @@
 package ledger
 
-import "time"
+import (
+	"sort"
+	"time"
+)
 
 const (
 	ConsensusActionProposal     = "proposal"
 	ConsensusActionVote         = "vote"
 	ConsensusActionRoundAdvance = "round_advance"
+	ConsensusActionBlockImport  = "block_import"
+	ConsensusActionSnapshotSync = "snapshot_restore"
 
 	ConsensusActionPending    = "pending"
 	ConsensusActionCompleted  = "completed"
@@ -30,10 +35,17 @@ type ConsensusAction struct {
 }
 
 type ConsensusRecoveryView struct {
-	PendingActionCount int               `json:"pendingActionCount"`
-	NeedsReplay        bool              `json:"needsReplay"`
-	PendingActions     []ConsensusAction `json:"pendingActions"`
-	RecentActions      []ConsensusAction `json:"recentActions"`
+	PendingActionCount           int               `json:"pendingActionCount"`
+	PendingReplayCount           int               `json:"pendingReplayCount"`
+	PendingImportCount           int               `json:"pendingImportCount"`
+	PendingImportHeights         []uint64          `json:"pendingImportHeights"`
+	NeedsReplay                  bool              `json:"needsReplay"`
+	NeedsRecovery                bool              `json:"needsRecovery"`
+	LastSnapshotRestoreAt        *time.Time        `json:"lastSnapshotRestoreAt,omitempty"`
+	LastSnapshotRestoreHeight    uint64            `json:"lastSnapshotRestoreHeight,omitempty"`
+	LastSnapshotRestoreBlockHash string            `json:"lastSnapshotRestoreBlockHash,omitempty"`
+	PendingActions               []ConsensusAction `json:"pendingActions"`
+	RecentActions                []ConsensusAction `json:"recentActions"`
 }
 
 func (s *Store) ConsensusRecovery() ConsensusRecoveryView {
@@ -74,22 +86,46 @@ func (s *Store) MarkConsensusActionReplayed(actionType string, height uint64, ro
 func consensusRecoveryFromState(state persistedState) ConsensusRecoveryView {
 	state = normalizeState(state)
 	view := ConsensusRecoveryView{
-		PendingActions: make([]ConsensusAction, 0),
-		RecentActions:  make([]ConsensusAction, 0),
+		PendingImportHeights: make([]uint64, 0),
+		PendingActions:       make([]ConsensusAction, 0),
+		RecentActions:        make([]ConsensusAction, 0),
 	}
+	pendingImportHeights := make(map[uint64]struct{})
 
 	for index := len(state.ConsensusActions) - 1; index >= 0; index-- {
 		action := cloneConsensusAction(state.ConsensusActions[index])
 		if action.Status == ConsensusActionPending {
 			view.PendingActions = append(view.PendingActions, action)
+			switch action.Type {
+			case ConsensusActionProposal, ConsensusActionVote:
+				view.PendingReplayCount++
+			case ConsensusActionBlockImport:
+				view.PendingImportCount++
+				pendingImportHeights[action.Height] = struct{}{}
+			}
 		}
 		if len(view.RecentActions) < consensusActionRecentLimit {
 			view.RecentActions = append(view.RecentActions, action)
 		}
+		if view.LastSnapshotRestoreAt == nil && action.Type == ConsensusActionSnapshotSync {
+			view.LastSnapshotRestoreAt = cloneTimePointer(action.CompletedAt)
+			if view.LastSnapshotRestoreAt == nil {
+				view.LastSnapshotRestoreAt = cloneNonZeroTimePointer(action.RecordedAt)
+			}
+			view.LastSnapshotRestoreHeight = action.Height
+			view.LastSnapshotRestoreBlockHash = action.BlockHash
+		}
 	}
 
 	view.PendingActionCount = len(view.PendingActions)
-	view.NeedsReplay = view.PendingActionCount > 0
+	for height := range pendingImportHeights {
+		view.PendingImportHeights = append(view.PendingImportHeights, height)
+	}
+	sort.Slice(view.PendingImportHeights, func(i, j int) bool {
+		return view.PendingImportHeights[i] < view.PendingImportHeights[j]
+	})
+	view.NeedsReplay = view.PendingReplayCount > 0
+	view.NeedsRecovery = view.PendingActionCount > 0
 	return view
 }
 
@@ -101,7 +137,7 @@ func recordConsensusActionIntoState(state persistedState, action ConsensusAction
 	action.RecordedAt = action.RecordedAt.UTC()
 	if action.Status == "" {
 		switch action.Type {
-		case ConsensusActionProposal, ConsensusActionVote:
+		case ConsensusActionProposal, ConsensusActionVote, ConsensusActionBlockImport:
 			action.Status = ConsensusActionPending
 		default:
 			action.Status = ConsensusActionCompleted

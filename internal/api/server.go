@@ -593,7 +593,7 @@ func (s *Server) handleImportBlock(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.ledger.ImportBlockWithOptions(request, s.config.RequireConsensusCertificates); err != nil {
-		s.recordConsensusDiagnostic("block_import_rejected", "peer", err, request.Height, 0, request.Hash, "")
+		s.recordBlockImportFailure("peer", request, err, requestSourceNode(r))
 		writeJSON(w, statusForError(err), map[string]string{"error": err.Error()})
 		return
 	}

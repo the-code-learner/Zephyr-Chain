@@ -32,15 +32,16 @@ As of this iteration, the repository has:
 - per-height `roundHistory` on status, consensus, and block-template endpoints so operators can inspect prior and active rounds for the pending height side by side
 - `blockReadiness` on status, consensus, and block-template endpoints so operators can see whether the local template matches stored proposals and certificates for the pending height
 - latest local proposal and latest local vote rebroadcast for the pending height during delayed peer recovery
-- a bounded local consensus-action WAL with pending/completed status, replay-attempt metadata, and restart-safe persistence
-- bounded recent consensus diagnostics for rejected proposal, vote, commit, and import paths, including explicit `template_mismatch`
+- explicit pending `block_import` recovery actions plus durable `snapshot_restore` history for peer-import repair and snapshot catch-up
+- a bounded local consensus-action WAL with pending/completed status, replay-attempt metadata, restart-safe persistence, and explicit import-recovery plus snapshot-restore history
+- bounded recent consensus diagnostics for rejected proposal, vote, commit, and import paths, including explicit `template_mismatch` and peer-sync import failures
 - a browser wallet that can create accounts, sign locally, and submit transactions
 
 What it still does not have:
 
 - authenticated peer discovery and replay-safe transport over libp2p
-- broader recovery and transport-facing incident evidence beyond the current local round history, block readiness, warnings, and rejection history
-- broader recovery coverage beyond the current local proposal/vote WAL path
+- broader recovery and transport-facing incident evidence beyond the current local round history, block readiness, warnings, import backlog, snapshot-restore history, and rejection history
+- broader recovery coverage beyond the current local proposal/vote WAL plus peer-import and snapshot-recovery path
 - on-chain staking/governance-driven validator updates
 - WASM contracts, fee metering, or compute markets
 - production operations tooling
@@ -85,12 +86,12 @@ Status:
 - valid higher-round proposals and votes can move a node onto the newer round instead of being rejected just because the local timer had not fired yet
 - a first timeout-driven engine now exists: the scheduled proposer can self-propose, active validators can auto-vote, timeout can rotate the proposer, the next proposer can reuse the latest stored candidate body, and the proposer can auto-commit after quorum when certificate enforcement is enabled
 - proposal and vote broadcasts on the automation path are now sent in-order to avoid vote-before-proposal races on the happy path
-- the current automation path now has delayed-link proposal and vote recovery, richer round evidence, per-height round history, block readiness, bounded rejection diagnostics, and a restart-safe local proposal/vote WAL, but it still lacks broader recovery coverage and deeper peer-import evidence
+- the current automation path now has delayed-link proposal and vote recovery, richer round evidence, per-height round history, block readiness, import-aware recovery state, bounded rejection diagnostics, and a restart-safe local proposal/vote WAL plus snapshot-repair history, but it still lacks broader recovery coverage and deeper cross-peer incident evidence
 
 Next steps:
 
-1. Extend the new `blockReadiness`, `roundHistory`, `roundEvidence`, and `diagnostics` surfaces into explicit peer-import and broader recovery diagnosis flows.
-2. Extend the current local proposal and vote WAL into broader consensus recovery coverage where more in-flight actions can resume safely after restart.
+1. Extend the new `blockReadiness`, `roundHistory`, `roundEvidence`, `recovery`, and `diagnostics` surfaces into deeper peer-import, divergence, and broader recovery diagnosis flows.
+2. Extend the current local proposal/vote WAL plus import-repair history into broader consensus recovery coverage where more in-flight actions can resume safely after restart.
 3. Add deterministic multi-node integration tests for certified happy path, conflicting proposals, timeout and re-proposal, restart during a round, rejection diagnostics, and recovery from partial quorum.
 4. Keep tightening the transport-backed consensus loop so proposal and vote recovery remain correct when peers reconnect after advancing rounds.
 5. Carry the same operator evidence into structured logs and metrics once the transport and recovery paths are more complete.
@@ -192,6 +193,8 @@ Broad direction:
 - upgrade strategy and rollback planning
 - monitoring, alerts, and SLOs for operators
 - staged path from devnet to public testnet to mainnet
+
+
 
 
 
