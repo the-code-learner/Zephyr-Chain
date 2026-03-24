@@ -2980,6 +2980,126 @@ func TestMetricsExposeConsensusAndPeerObservabilityAggregates(t *testing.T) {
 		t.Fatalf("unexpected peer runtime sync-state buckets %+v", response.PeerRuntime.BySyncState)
 	}
 }
+func TestStructuredLogsEmitConsensusPeerAndRecoveryEvents(t *testing.T) {
+	var logBuffer bytes.Buffer
+	server := newTestServer(t, Config{
+		DataDir:                 t.TempDir(),
+		NodeID:                  "structured-node",
+		ValidatorAddress:        "zph_validator_logs",
+		PeerURLs:                []string{"http://peer-a.example"},
+		BlockInterval:           0,
+		SyncInterval:            0,
+		MaxTransactionsPerBlock: 10,
+		EnableBlockProduction:   false,
+		EnablePeerSync:          false,
+		EnableStructuredLogs:    true,
+		StructuredLogWriter:     &logBuffer,
+	})
+
+	server.recordConsensusDiagnostic("proposal_rejected", "api", ledger.ErrConsensusTemplateMismatch, 3, 1, consensusTestHash("structured-diagnostic"), "zph_validator_peer")
+	incidentObservedAt := time.Date(2026, time.March, 24, 22, 0, 0, 0, time.UTC)
+	server.recordPeerView(PeerView{
+		URL:        "http://peer-a.example",
+		Height:     2,
+		Reachable:  false,
+		SyncState:  "unreachable",
+		LastSeenAt: &incidentObservedAt,
+		Error:      "dial tcp timeout",
+	})
+	restoredAt := incidentObservedAt.Add(1 * time.Minute)
+	snapshotBlockHash := consensusTestHash("structured-snapshot")
+	server.recordSnapshotRestore("http://peer-a.example", ledger.Snapshot{
+		Blocks: []ledger.Block{{Height: 1, Hash: consensusTestHash("structured-snapshot-previous")}, {Height: 2, Hash: snapshotBlockHash}},
+	}, restoredAt)
+
+	entries := decodeStructuredLogEntries(t, logBuffer.String())
+	if len(entries) != 3 {
+		t.Fatalf("expected 3 structured log entries, got %+v", entries)
+	}
+
+	diagnosticEntry := entries[0]
+	if diagnosticEntry["component"] != "consensus" || diagnosticEntry["event"] != "diagnostic" {
+		t.Fatalf("unexpected diagnostic structured log %+v", diagnosticEntry)
+	}
+	if diagnosticEntry["nodeId"] != "structured-node" || diagnosticEntry["validatorAddress"] != "zph_validator_logs" {
+		t.Fatalf("unexpected diagnostic identity fields %+v", diagnosticEntry)
+	}
+	if diagnosticEntry["kind"] != "proposal_rejected" || diagnosticEntry["code"] != "template_mismatch" || diagnosticEntry["source"] != "api" {
+		t.Fatalf("unexpected diagnostic fields %+v", diagnosticEntry)
+	}
+	if diagnosticEntry["timestamp"] == "" {
+		t.Fatalf("expected diagnostic timestamp %+v", diagnosticEntry)
+	}
+
+	incidentEntry := entries[1]
+	if incidentEntry["component"] != "peer_sync" || incidentEntry["event"] != "incident" {
+		t.Fatalf("unexpected incident structured log %+v", incidentEntry)
+	}
+	if incidentEntry["peerUrl"] != "http://peer-a.example" || incidentEntry["state"] != "unreachable" || incidentEntry["errorMessage"] != "dial tcp timeout" {
+		t.Fatalf("unexpected incident fields %+v", incidentEntry)
+	}
+	if incidentEntry["timestamp"] != incidentObservedAt.Format(time.RFC3339Nano) {
+		t.Fatalf("unexpected incident timestamp %+v", incidentEntry)
+	}
+
+	snapshotEntry := entries[2]
+	if snapshotEntry["component"] != "recovery" || snapshotEntry["event"] != "snapshot_restore" {
+		t.Fatalf("unexpected snapshot structured log %+v", snapshotEntry)
+	}
+	if snapshotEntry["peer"] != "http://peer-a.example" || snapshotEntry["blockHash"] != snapshotBlockHash {
+		t.Fatalf("unexpected snapshot fields %+v", snapshotEntry)
+	}
+	if snapshotEntry["height"] != float64(2) || snapshotEntry["timestamp"] != restoredAt.Format(time.RFC3339Nano) {
+		t.Fatalf("unexpected snapshot timing fields %+v", snapshotEntry)
+	}
+
+	metricsRequest := httptest.NewRequest(http.MethodGet, "/v1/metrics", nil)
+	metricsRecorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(metricsRecorder, metricsRequest)
+	if metricsRecorder.Code != http.StatusOK {
+		t.Fatalf("expected metrics 200, got %d", metricsRecorder.Code)
+	}
+	var metricsResponse MetricsResponse
+	if err := json.NewDecoder(metricsRecorder.Body).Decode(&metricsResponse); err != nil {
+		t.Fatalf("decode metrics response: %v", err)
+	}
+	if !metricsResponse.StructuredLogsEnabled {
+		t.Fatalf("expected structuredLogsEnabled=true in metrics response %+v", metricsResponse)
+	}
+}
+
+func TestStructuredLogsCanBeDisabled(t *testing.T) {
+	var logBuffer bytes.Buffer
+	server := newTestServer(t, Config{
+		DataDir:                 t.TempDir(),
+		NodeID:                  "plain-node",
+		PeerURLs:                []string{"http://peer-a.example"},
+		BlockInterval:           0,
+		SyncInterval:            0,
+		MaxTransactionsPerBlock: 10,
+		EnableBlockProduction:   false,
+		EnablePeerSync:          false,
+		StructuredLogWriter:     &logBuffer,
+	})
+
+	server.recordConsensusDiagnostic("proposal_rejected", "api", ledger.ErrConsensusTemplateMismatch, 3, 1, consensusTestHash("disabled-structured-diagnostic"), "zph_validator_peer")
+	observedAt := time.Date(2026, time.March, 24, 22, 5, 0, 0, time.UTC)
+	server.recordPeerView(PeerView{
+		URL:        "http://peer-a.example",
+		Height:     1,
+		Reachable:  false,
+		SyncState:  "unreachable",
+		LastSeenAt: &observedAt,
+		Error:      "dial tcp timeout",
+	})
+	server.recordSnapshotRestore("http://peer-a.example", ledger.Snapshot{
+		Blocks: []ledger.Block{{Height: 1, Hash: consensusTestHash("disabled-structured-snapshot")}},
+	}, observedAt.Add(1*time.Minute))
+
+	if strings.TrimSpace(logBuffer.String()) != "" {
+		t.Fatalf("expected no structured logs when disabled, got %q", logBuffer.String())
+	}
+}
 func TestHandleImportBlockRejectsAndExposesPendingImportRecovery(t *testing.T) {
 	proposer := newConsensusSigner(t)
 	voter := newConsensusSigner(t)
@@ -3239,6 +3359,28 @@ func TestPeerSyncConsensusImportFailureRestoresSnapshotAndRecordsRecoveryHistory
 	}
 }
 
+func decodeStructuredLogEntries(t *testing.T, raw string) []map[string]any {
+	t.Helper()
+
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	lines := strings.Split(raw, "\n")
+	entries := make([]map[string]any, 0, len(lines))
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		var entry map[string]any
+		if err := json.Unmarshal([]byte(line), &entry); err != nil {
+			t.Fatalf("decode structured log %q: %v", line, err)
+		}
+		entries = append(entries, entry)
+	}
+	return entries
+}
 func newTestServer(t *testing.T, config Config) *Server {
 	t.Helper()
 

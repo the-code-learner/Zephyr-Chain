@@ -26,6 +26,7 @@ Change it with `ZEPHYR_HTTP_ADDR` when starting the node.
 - `ZEPHYR_ENABLE_BLOCK_PRODUCTION`: enable local block production, default `true`
 - `ZEPHYR_ENABLE_CONSENSUS_AUTOMATION`: enable the current timeout-driven automation loop, default `false`
 - `ZEPHYR_ENABLE_PEER_SYNC`: enable background peer sync, default `true`
+- `ZEPHYR_ENABLE_STRUCTURED_LOGS`: emit newline-delimited JSON event logs for diagnostics, peer incidents, and snapshot recovery, default `false`
 - `ZEPHYR_REQUIRE_PEER_IDENTITY`: when `true`, replicated peer POST requests must include a valid signed transport identity, default `false`
 - `ZEPHYR_PEER_VALIDATORS`: comma-separated `<peer-url>=<validator-address>` bindings used to pin configured peers to expected validators, default empty
 - `ZEPHYR_ENFORCE_PROPOSER_SCHEDULE`: when `true`, only the scheduled proposer for the active round may produce the next block once a validator set exists, default `false`
@@ -253,7 +254,7 @@ Returns the durable validator snapshot, the latest consensus artifacts, and the 
 
 Current behavior:
 
-- the response includes `consensusAutomationEnabled`, `proposerScheduleEnforced`, and `consensusCertificatesRequired`
+- the response includes `consensusAutomationEnabled`, `structuredLogsEnabled`, `proposerScheduleEnforced`, and `consensusCertificatesRequired`
 - `validatorSet` exposes the durable validator snapshot
 - `artifacts` exposes the latest stored proposal, votes, and certificate
 - `consensus` now includes `currentRound` and `currentRoundStartedAt` in addition to `nextHeight`, `nextProposer`, total voting power, and quorum target
@@ -315,7 +316,7 @@ Returns the local runtime status for the current node, including consensus summa
 
 Current behavior:
 
-- the response includes `consensusAutomationEnabled`
+- the response includes `consensusAutomationEnabled` and `structuredLogsEnabled`
 - the embedded `consensus` view now exposes `currentRound`, `currentRoundStartedAt`, and the active-round `nextProposer`
 - `roundEvidence` exposes the active round deadline, state, vote tallies, leading vote, quorum remaining, replay backlog, warnings, proposal presence, local vote, and certificate visibility for operators
 - `roundHistory` exposes the pending height across rounds so operators can inspect round-0, round-1, and later attempts together
@@ -334,12 +335,24 @@ Returns a machine-readable observability snapshot built from durable ledger stat
 
 Current behavior:
 
-- the top-level response includes `generatedAt`, node identity, runtime flags, and embedded `status`, `consensus`, and `recovery` summaries
+- the top-level response includes `generatedAt`, node identity, runtime flags including `structuredLogsEnabled`, and embedded `status`, `consensus`, and `recovery` summaries
 - `consensusActions` rolls up the durable local WAL and recovery actions into `totalCount`, `pendingCount`, `totalReplayAttempts`, latest record or completion times, and `byType` or `byStatus` buckets
 - `diagnostics` rolls up the bounded rejection history into `totalCount`, `latestObservedAt`, and `byKind`, `byCode`, or `bySource` buckets
 - `peerSyncSummary` reuses the durable cross-peer incident summary also exposed by status, consensus, and block-template responses
 - `peerRuntime` reflects the current configured peer set and live `syncState` distribution, including reachable or admitted counts versus unreachable or unadmitted counts
 - unlike `peerSyncSummary`, `peerRuntime` is derived from the latest in-memory peer view and may reset on process restart until peers are seen again
+
+### Structured Event Logs
+
+When `ZEPHYR_ENABLE_STRUCTURED_LOGS=true`, the node emits newline-delimited JSON event logs alongside the existing text startup log.
+
+Current behavior:
+
+- every entry includes `timestamp`, `level`, `component`, `event`, `nodeId`, and optional `validatorAddress`
+- consensus diagnostic entries use `component=consensus` and `event=diagnostic`, then add `kind`, `code`, `message`, `height`, `round`, `blockHash`, `validator`, `source`, and `observedAt`
+- peer incident entries use `component=peer_sync` and `event=incident`, then add `peerUrl`, `state`, `reason`, `localHeight`, `peerHeight`, `heightDelta`, `blockHash`, `errorCode`, `errorMessage`, `firstObservedAt`, `lastObservedAt`, and `occurrences`
+- snapshot restore entries use `component=recovery` and `event=snapshot_restore`, then add `peer`, `height`, `blockHash`, and `restoredAt`
+- the current structured-log surface is intentionally narrow: it focuses on consensus rejection, peer incident, and snapshot-repair paths so operators can correlate the same events exposed by `diagnostics`, `peerSyncHistory`, and `GET /v1/metrics`
 
 ### GET /v1/peers
 
@@ -449,6 +462,9 @@ If proposals exist for that height but the imported block does not match any sto
 Returns the current durable node snapshot used for catch-up restore.
 
 When another node applies this snapshot through peer sync, it preserves its own local recovery, diagnostic, peer-sync incident history, and derived peer-sync summary context instead of replacing that operator context with the peer's local WAL or diagnostics.
+
+
+
 
 
 

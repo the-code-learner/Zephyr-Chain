@@ -97,6 +97,13 @@ func main() {
 		}
 		config.EnablePeerSync = parsed
 	}
+	if enabled := os.Getenv("ZEPHYR_ENABLE_STRUCTURED_LOGS"); enabled != "" {
+		parsed, err := strconv.ParseBool(enabled)
+		if err != nil {
+			log.Fatalf("invalid ZEPHYR_ENABLE_STRUCTURED_LOGS %q", enabled)
+		}
+		config.EnableStructuredLogs = parsed
+	}
 	if enabled := os.Getenv("ZEPHYR_REQUIRE_PEER_IDENTITY"); enabled != "" {
 		parsed, err := strconv.ParseBool(enabled)
 		if err != nil {
@@ -126,7 +133,7 @@ func main() {
 	defer server.Close()
 
 	log.Printf(
-		"zephyr node %s listening on %s (validator: %s, data dir: %s, block interval: %s, consensus automation: %t, consensus interval: %s, round timeout: %s, peer sync: %t, peer identity required: %t, peer bindings: %d, proposer schedule enforced: %t, consensus certificates required: %t, peers: %d)",
+		"zephyr node %s listening on %s (validator: %s, data dir: %s, block interval: %s, consensus automation: %t, consensus interval: %s, round timeout: %s, peer sync: %t, structured logs: %t, peer identity required: %t, peer bindings: %d, proposer schedule enforced: %t, consensus certificates required: %t, peers: %d)",
 		config.NodeID,
 		addr,
 		config.ValidatorAddress,
@@ -136,6 +143,7 @@ func main() {
 		config.ConsensusInterval,
 		config.ConsensusRoundTimeout,
 		config.EnablePeerSync,
+		config.EnableStructuredLogs,
 		config.RequirePeerIdentity || len(config.PeerValidatorBindings) > 0,
 		len(config.PeerValidatorBindings),
 		config.EnforceProposerSchedule,

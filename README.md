@@ -31,15 +31,15 @@ Implemented today:
 
 Implemented in this iteration:
 
-- `GET /v1/metrics` now exposes a machine-readable observability surface with ledger-derived `consensusActions`, diagnostic buckets, durable `peerSyncSummary`, and live `peerRuntime` sync-state counts for configured peers
-- `GET /v1/peers` continues to expose durable per-peer sync incident history through `recentIncidents`, plus `incidentCount`, `incidentOccurrences`, and `latestIncidentAt`, alongside the live `syncState`, `heightDelta`, last sync attempt or success, last import failure, and last snapshot-restore metadata
-- `GET /v1/status`, `GET /v1/consensus`, and `GET /v1/dev/block-template` continue to expose durable `peerSyncHistory` plus derived `peerSyncSummary`, and the new metrics endpoint now mirrors those durable summaries with live runtime counters instead of making operators reconstruct them by hand
-- focused tests now cover ledger metric persistence, API metrics aggregation, same-height divergence repair telemetry, peer-sync import-repair telemetry, durable peer-incident persistence across restart, multi-peer summary exposure, and preservation through peer snapshot restore
+- `ZEPHYR_ENABLE_STRUCTURED_LOGS=true` now emits newline-delimited JSON logs for consensus diagnostics, peer-sync incidents, and snapshot-restore recovery events with node and validator identity at the top level
+- `GET /v1/status`, `GET /v1/consensus`, and `GET /v1/metrics` now expose `structuredLogsEnabled` so operators can confirm the runtime log mode from the API
+- `GET /v1/metrics` continues to expose machine-readable consensus-action, diagnostic, and peer-runtime rollups, which now pair with structured event logs for live incident pipelines
+- focused tests now cover structured log emission, ledger metric persistence, API metrics aggregation, same-height divergence repair telemetry, peer-sync import-repair telemetry, durable peer-incident persistence across restart, multi-peer summary exposure, and preservation through peer snapshot restore
 
 Planned but not implemented yet:
 
 - authenticated peer discovery and replay-safe transport over libp2p on top of the new HTTP admission and binding policy
-- broader consensus recovery coverage plus structured logs, richer time-series export, and longer-horizon incident correlation beyond the current local proposal, vote, peer-import, snapshot-recovery, JSON metrics, durable peer-sync history, and derived peer-sync summary surfaces
+- broader consensus recovery coverage plus richer time-series export and longer-horizon incident correlation beyond the current local proposal, vote, peer-import, snapshot-recovery, JSON metrics, structured event logs, durable peer-sync history, and derived peer-sync summary surfaces
 - on-chain staking and governance-driven validator updates instead of ad hoc election API writes
 - deterministic WASM smart-contract runtime with native fee metering
 - confidential compute marketplace for encrypted off-chain jobs paid in native tokens
@@ -215,6 +215,7 @@ With an active validator set and queued transactions, the scheduled proposer sel
 - `ZEPHYR_ENABLE_BLOCK_PRODUCTION`: `true` or `false`
 - `ZEPHYR_ENABLE_CONSENSUS_AUTOMATION`: `true` or `false`; when enabled, active validators automatically propose, vote, and advance rounds on the current devnet path
 - `ZEPHYR_ENABLE_PEER_SYNC`: `true` or `false`
+- `ZEPHYR_ENABLE_STRUCTURED_LOGS`: `true` or `false`; when enabled, the node emits newline-delimited JSON event logs for diagnostics, peer incidents, and snapshot recovery
 - `ZEPHYR_REQUIRE_PEER_IDENTITY`: `true` or `false`; when enabled, replicated peer POST requests must include a valid signed transport identity
 - `ZEPHYR_PEER_VALIDATORS`: comma-separated `<peer-url>=<validator-address>` bindings used to pin configured peers to expected validators
 - `ZEPHYR_ENFORCE_PROPOSER_SCHEDULE`: `true` or `false`; when enabled and a validator set exists, only the scheduled proposer for the active round may produce the next block locally
@@ -236,6 +237,7 @@ Default values:
 - `ZEPHYR_ENABLE_BLOCK_PRODUCTION`: `true`
 - `ZEPHYR_ENABLE_CONSENSUS_AUTOMATION`: `false`
 - `ZEPHYR_ENABLE_PEER_SYNC`: `true`
+- `ZEPHYR_ENABLE_STRUCTURED_LOGS`: `false`
 - `ZEPHYR_REQUIRE_PEER_IDENTITY`: `false`
 - `ZEPHYR_PEER_VALIDATORS`: empty
 - `ZEPHYR_ENFORCE_PROPOSER_SCHEDULE`: `false`
@@ -298,7 +300,7 @@ The production roadmap now lives in [docs/roadmap.md](./docs/roadmap.md).
 Short version:
 
 1. Move the new enforced HTTP peer-admission and validator-binding policy toward authenticated libp2p discovery plus replay-safe transport behavior.
-2. Extend the new `blockReadiness`, `roundHistory`, `roundEvidence`, `recovery`, `diagnostics`, `peerSyncHistory`, `peerSyncSummary`, per-peer `recentIncidents`, and `GET /v1/metrics` into deeper recovery, longer-horizon incident retention, structured logs, richer exported metrics, and production incident tooling.
+2. Extend the new `blockReadiness`, `roundHistory`, `roundEvidence`, `recovery`, `diagnostics`, `peerSyncHistory`, `peerSyncSummary`, per-peer `recentIncidents`, `GET /v1/metrics`, and structured event logs into deeper recovery, longer-horizon incident retention, richer exported metrics, and production incident tooling.
 3. Move validator lifecycle changes behind staking, delegation, slashing, and governance state transitions.
 4. Add deterministic WASM execution, native fee metering, and the confidential compute lane.
 5. Add production observability, recovery tooling, and public testnet operations.
@@ -315,6 +317,8 @@ Short version:
 ## License
 
 Zephyr Chain is licensed under the MIT License. See [LICENSE](./LICENSE).
+
+
 
 
 

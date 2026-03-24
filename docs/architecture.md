@@ -4,7 +4,7 @@
 
 The current MVP is a five-part local development system:
 
-- a Go node API that validates transactions, persists chain state, produces blocks, and replicates state to configured peers
+- a Go node API that validates transactions, persists chain state, produces blocks, replicates state to configured peers, and can emit structured JSON incident logs
 - a durable ledger that stores accounts, mempool entries, committed blocks, validator snapshots, active round state, proposals, votes, certificates, local consensus-action WAL state, import-recovery and snapshot-restore history, bounded consensus diagnostics, durable peer-sync incident history, derived peer-sync summaries, derived action or diagnostic metrics, and restart-safe metadata on disk
 - a DPoS election module that ranks validators deterministically from candidate and vote inputs
 - a consensus message and automation layer that validates signed proposals and votes, derives quorum certificates, tracks the active round, and drives the first timeout-driven automation flow
@@ -142,10 +142,11 @@ The repository has moved from consensus-preparation-only into certificate-gated 
 
 - validator nodes can now prove identity and enforce peer admission over the current transport, but peer discovery is still static HTTP configuration rather than authenticated libp2p
 - automation can now rotate proposers on timeout, rebroadcast the latest local proposal or vote after link recovery, and replay persisted local proposal or vote actions after restart
-- the current operator surface is materially better through round warnings, per-height round history, block readiness, replay and import backlog visibility, durable peer-sync history, derived cross-peer summary, JSON metrics, snapshot-restore history, leading tallies, and bounded rejection diagnostics, but it is still too thin for full production incident handling across transport, peer-import, longer-horizon retention, and broader recovery scenarios
+- the current operator surface is materially better through round warnings, per-height round history, block readiness, replay and import backlog visibility, durable peer-sync history, derived cross-peer summary, JSON metrics, structured event logs, snapshot-restore history, leading tallies, and bounded rejection diagnostics, but it is still too thin for full production incident handling across transport, peer-import, longer-horizon retention, richer export, and broader recovery scenarios
 - broader consensus recovery coverage is still needed beyond the current local proposal/vote WAL plus import-repair and snapshot-recovery path
 
 That is why the project has moved beyond replicated prototype, but it is still not a production blockchain.
+
 
 
 

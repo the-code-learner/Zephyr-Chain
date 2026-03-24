@@ -119,6 +119,21 @@ What to expect:
 - background sync and outgoing replication use only admitted peers under this policy
 - replicated peer POST requests without a valid identity, or from validators outside the configured binding allowlist, are rejected with `403`
 
+## Enable Structured Event Logs
+
+If you want incident-friendly JSON logs while keeping the existing HTTP API surfaces, start the node with:
+
+```powershell
+$env:ZEPHYR_ENABLE_STRUCTURED_LOGS="true"
+go run ./cmd/node
+```
+
+What to expect:
+
+- consensus diagnostics, peer-sync incidents, and snapshot-restore recovery events are emitted as newline-delimited JSON
+- `GET /v1/status`, `GET /v1/consensus`, and `GET /v1/metrics` report `structuredLogsEnabled=true`
+- the logs are designed to pair with `GET /v1/metrics`, `diagnostics`, and `peerSyncSummary` rather than replace those durable views
+
 ## Run A Manual Certificate-Gated Commit Flow
 
 This is the lowest-level way to exercise the current certified block path.
@@ -220,6 +235,7 @@ Expected behavior:
 - those same responses now expose `peerSyncHistory`, which keeps recent cross-peer sync incidents visible even after restart
 - those same responses now expose `peerSyncSummary`, which rolls those incidents up by peer and state so operators can see the dominant network problem quickly
 - `GET /v1/metrics` now provides the same durable peer summary alongside machine-readable consensus-action, diagnostic, and live peer-runtime counters for dashboards or automation
+- if `ZEPHYR_ENABLE_STRUCTURED_LOGS=true`, the node also emits newline-delimited JSON logs for diagnostics, peer incidents, and snapshot recovery as those events happen
 - if a peer link drops and later returns, validators keep rebroadcasting their latest local proposal or vote for the pending height until the matching certificate exists
 - if a validator restarts mid-round after persisting a local proposal or vote, the node can replay that pending action from the persisted recovery state
 
@@ -254,7 +270,8 @@ Expected behavior:
 - inspect `recovery` in those same responses to see whether the node still has pending replayable local proposal or vote actions, blocked peer-import heights, or a recent snapshot restore after a restart or dropped peer link
 - inspect `diagnostics` in those same responses to see whether recent failures were caused by stale rounds, unexpected proposers, missing proposals, template mismatch, missing certificates, or other rejected consensus actions
 - inspect `GET /v1/metrics` when you want machine-readable totals for pending replay, diagnostic code frequency, and live peer sync-state distribution during the incident
-- remember the current engine now supports timeout-driven proposer rotation, latest-artifact rebroadcast after peer recovery, restart-safe local proposal or vote replay, pending import recovery, snapshot-restore history, durable peer-incident history, cross-peer `peerSyncSummary`, machine-readable `/v1/metrics`, per-height round history, block readiness inspection, and bounded rejection diagnostics, but broader recovery coverage plus structured logs are still limited
+- enable `ZEPHYR_ENABLE_STRUCTURED_LOGS=true` when you want those same incident transitions as newline-delimited JSON in the node logs
+- remember the current engine now supports timeout-driven proposer rotation, latest-artifact rebroadcast after peer recovery, restart-safe local proposal or vote replay, pending import recovery, snapshot-restore history, durable peer-incident history, cross-peer `peerSyncSummary`, machine-readable `/v1/metrics`, structured event logs, per-height round history, block readiness inspection, and bounded rejection diagnostics, but broader recovery coverage plus richer export adapters are still limited
 
 ### Peer Sync Falls Back To Snapshot Restore
 
@@ -305,6 +322,8 @@ Expected behavior:
 13. Inspect the resulting block, vote tallies, and certificate on both nodes.
 14. Optionally restart a node and confirm the validator snapshot, round state, consensus artifacts, and `recovery` state survived.
 15. If the restarted node had a pending local proposal or vote, confirm the action is replayed and later marked completed once the block finalizes.
+
+
 
 
 

@@ -25,7 +25,9 @@ func (s *Server) recordPeerIncident(view PeerView) {
 	}
 	if err := s.ledger.RecordPeerSyncIncident(incident); err != nil {
 		recordPeerLog("peer-sync-incident", err)
+		return
 	}
+	s.eventLogger.logPeerIncident(incident)
 }
 
 func peerSyncIncidentFromView(view PeerView, localStatus ledger.StatusView) (ledger.PeerSyncIncident, bool) {
