@@ -135,6 +135,23 @@ Current fields include:
 - `localVotePresent` and `localVoteBlockHash` for the local validator when configured
 - `certificatePresent` and `certificateBlockHash` when the active round already has a matching quorum certificate
 
+### ConsensusRecoveryView
+
+`recovery` is the durable local consensus-action recovery view exposed by `GET /v1/status`, `GET /v1/consensus`, `GET /v1/dev/block-template`, and local proposal or vote submissions.
+
+Current fields include:
+
+- `pendingActionCount` and `needsReplay`
+- `pendingActions`, which list restart-relevant local actions still waiting to be completed for the current or earlier heights
+- `recentActions`, which show the latest local consensus actions with `status`, `replayAttempts`, `lastReplayAt`, and `completedAt`
+
+Current behavior:
+
+- locally authored proposals and votes for the configured validator are persisted into this WAL view
+- timeout-driven round advance is also recorded for operator history
+- when automation rebroadcasts a stored local proposal or vote, the matching action updates `replayAttempts` and `lastReplayAt`
+- when a block is committed locally or imported for that height, pending proposal and vote actions for that height are marked completed
+
 ## Consensus Endpoints
 
 ### GET /v1/consensus
@@ -149,6 +166,7 @@ Current behavior:
 - `consensus` now includes `currentRound` and `currentRoundStartedAt` in addition to `nextHeight`, `nextProposer`, total voting power, and quorum target
 - `nextProposer` reflects the active round, not only the next height
 - `roundEvidence` exposes the round deadline, proposal presence, vote tallies, local vote, and certificate state for operator inspection
+- `recovery` exposes the local consensus-action WAL, including pending replayable actions and recent replay/completion metadata
 
 ### POST /v1/consensus/proposals
 
@@ -165,6 +183,7 @@ Current behavior:
 - a valid higher-round proposal can advance the local active round when needed
 - the proposal is stored durably and replicated to admitted peers
 - when automation is enabled, the scheduled proposer uses the same validation path internally before broadcasting the proposal
+- when the proposal is authored by the node's configured local validator, the node persists a local recovery action for restart replay
 - when automation is enabled and a peer link comes back, the proposer can rebroadcast its latest stored proposal for the pending height until a matching certificate exists
 
 ### POST /v1/consensus/votes
@@ -181,6 +200,7 @@ Current behavior:
 - if the accumulated vote power reaches quorum, the node stores a commit certificate artifact
 - when certificate enforcement is enabled, that certificate can unlock local commit and remote import for the matching block hash
 - when automation is enabled, active validators use the same validation path internally before broadcasting their vote
+- when the vote is authored by the node's configured local validator, the node persists a local recovery action for restart replay
 - when automation is enabled and a peer link comes back, validators can rebroadcast their latest stored vote for the pending height until the matching certificate exists
 
 ## Runtime And Ledger Endpoints
@@ -198,6 +218,7 @@ Current behavior:
 - the response includes `consensusAutomationEnabled`
 - the embedded `consensus` view now exposes `currentRound`, `currentRoundStartedAt`, and the active-round `nextProposer`
 - `roundEvidence` exposes the active round deadline, state, vote tallies, proposal presence, local vote, and certificate visibility for operators
+- `recovery` exposes pending replayable local actions plus recent replay/completion metadata from the local consensus-action WAL
 - when `ZEPHYR_VALIDATOR_PRIVATE_KEY` is configured, the response includes an `identity` object with a signed transport proof for the local validator
 - `peerIdentityRequired` is `true` when strict peer admission or explicit peer-validator binding is enabled
 
@@ -248,7 +269,7 @@ Current behavior:
 
 - the response includes the exact `blockHash`, `previousHash`, `producedAt`, full `transactions`, and ordered `transactionIds` validators should certify
 - operators can use that data directly when constructing a signed self-contained proposal
-- the response also includes the current consensus summary, `roundEvidence`, and latest durable artifacts for operator context
+- the response also includes the current consensus summary, `roundEvidence`, `recovery`, and latest durable artifacts for operator context
 
 ### POST /v1/dev/produce-block
 
@@ -294,4 +315,5 @@ If certificate enforcement is enabled on the receiving node, the imported block 
 ### GET /v1/internal/snapshot
 
 Returns the current durable node snapshot used for catch-up restore.
+
 

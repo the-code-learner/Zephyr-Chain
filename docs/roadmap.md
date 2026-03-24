@@ -30,13 +30,14 @@ As of this iteration, the repository has:
 - in-order automated proposal and vote dissemination on the validator path to avoid the vote-before-proposal race
 - operator-facing `roundEvidence` on status, consensus, and block-template endpoints
 - latest local proposal and latest local vote rebroadcast for the pending height during delayed peer recovery
+- a bounded local consensus-action WAL with pending/completed status, replay-attempt metadata, and restart-safe persistence
 - a browser wallet that can create accounts, sign locally, and submit transactions
 
 What it still does not have:
 
 - authenticated peer discovery and replay-safe transport over libp2p
 - richer operator evidence for conflicting rounds, partial quorum, and timeout diagnosis
-- restart-safe write-ahead recovery and replay of in-flight consensus actions
+- broader recovery coverage beyond the current local proposal/vote WAL path
 - on-chain staking/governance-driven validator updates
 - WASM contracts, fee metering, or compute markets
 - production operations tooling
@@ -81,15 +82,15 @@ Status:
 - valid higher-round proposals and votes can move a node onto the newer round instead of being rejected just because the local timer had not fired yet
 - a first timeout-driven engine now exists: the scheduled proposer can self-propose, active validators can auto-vote, timeout can rotate the proposer, the next proposer can reuse the latest stored candidate body, and the proposer can auto-commit after quorum when certificate enforcement is enabled
 - proposal and vote broadcasts on the automation path are now sent in-order to avoid vote-before-proposal races on the happy path
-- the current automation path now has delayed-link proposal and vote recovery plus operator-visible round evidence, but it still lacks WAL-style replay of in-flight actions and deeper conflicting-round diagnostics
+- the current automation path now has delayed-link proposal and vote recovery, operator-visible round evidence, and a restart-safe local proposal/vote WAL, but it still lacks deeper conflicting-round diagnostics and broader recovery coverage
 
 Next steps:
 
-1. Persist write-ahead recovery data for in-flight consensus actions so restart can resume without silent message loss.
-2. Add richer round-change and operator evidence for timeout, stale round, conflicting proposer, partial quorum, and multi-round recovery scenarios.
-3. Make commit and import surfaces expose clearer operator evidence for template mismatch, partial quorum, stale round, timeout, and re-proposal scenarios.
-4. Add deterministic multi-node integration tests for certified happy path, conflicting proposals, timeout and re-proposal, restart during a round, and recovery from partial quorum.
-5. Keep tightening the transport-backed consensus loop so proposal and vote recovery remain correct when peers reconnect after advancing rounds.
+1. Add richer round-change and operator evidence for timeout, stale round, conflicting proposer, partial quorum, and multi-round recovery scenarios.
+2. Make commit and import surfaces expose clearer operator evidence for template mismatch, partial quorum, stale round, timeout, and re-proposal scenarios.
+3. Add deterministic multi-node integration tests for certified happy path, conflicting proposals, timeout and re-proposal, restart during a round, and recovery from partial quorum.
+4. Keep tightening the transport-backed consensus loop so proposal and vote recovery remain correct when peers reconnect after advancing rounds.
+5. Extend the current local proposal/vote WAL into broader consensus recovery coverage where more in-flight actions can resume safely after restart.
 
 Exit criteria:
 
@@ -188,6 +189,7 @@ Broad direction:
 - upgrade strategy and rollback planning
 - monitoring, alerts, and SLOs for operators
 - staged path from devnet to public testnet to mainnet
+
 
 
 

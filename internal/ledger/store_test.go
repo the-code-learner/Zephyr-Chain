@@ -753,10 +753,27 @@ func TestStoreSetValidatorsClearsPendingConsensusArtifacts(t *testing.T) {
 	}
 
 	proposal := signedProposalWithSigner(t, proposer, 1, 0, "", time.Date(2026, time.March, 23, 9, 30, 0, 0, time.UTC), []tx.Envelope{signedEnvelope(t, 5, 1, "pending-artifacts-tx")})
-	if err := store.RecordProposal(proposal); err != nil {
+	if err := store.RecordProposalWithAction(proposal, &ConsensusAction{
+		Type:       ConsensusActionProposal,
+		Height:     proposal.Height,
+		Round:      proposal.Round,
+		BlockHash:  proposal.BlockHash,
+		Validator:  proposal.Proposer,
+		RecordedAt: proposal.ProposedAt,
+		Note:       "pending proposal before validator update",
+	}); err != nil {
 		t.Fatalf("record proposal: %v", err)
 	}
-	if _, _, err := store.RecordVote(signedVoteWithSigner(t, proposer, 1, 0, proposal.BlockHash)); err != nil {
+	vote := signedVoteWithSigner(t, proposer, 1, 0, proposal.BlockHash)
+	if _, _, err := store.RecordVoteWithAction(vote, &ConsensusAction{
+		Type:       ConsensusActionVote,
+		Height:     vote.Height,
+		Round:      vote.Round,
+		BlockHash:  vote.BlockHash,
+		Validator:  vote.Voter,
+		RecordedAt: vote.VotedAt,
+		Note:       "pending vote before validator update",
+	}); err != nil {
 		t.Fatalf("record vote: %v", err)
 	}
 	if store.ConsensusArtifacts().ProposalCount == 0 {
@@ -773,7 +790,85 @@ func TestStoreSetValidatorsClearsPendingConsensusArtifacts(t *testing.T) {
 	if artifacts.ProposalCount != 0 || artifacts.VoteCount != 0 || artifacts.CertificateCount != 0 {
 		t.Fatalf("expected consensus artifacts to reset after validator update, got %+v", artifacts)
 	}
+	if recovery := store.ConsensusRecovery(); recovery.PendingActionCount != 0 || recovery.NeedsReplay {
+		t.Fatalf("expected consensus recovery to reset after validator update, got %+v", recovery)
+	}
 }
+
+func TestStoreConsensusRecoveryPersistsAcrossRestartAndCompletesOnCommit(t *testing.T) {
+	dataDir := t.TempDir()
+	store, err := NewStore(dataDir)
+	if err != nil {
+		t.Fatalf("create store: %v", err)
+	}
+
+	validator := newConsensusSigner(t)
+	if _, err := store.SetValidators([]dpos.Validator{
+		{Rank: 1, Address: validator.address, VotingPower: 100, SelfStake: 100},
+	}, dpos.ElectionConfig{MaxValidators: 1}); err != nil {
+		t.Fatalf("set validators: %v", err)
+	}
+
+	envelope := signedEnvelope(t, 25, 1, "consensus-recovery")
+	if _, err := store.Credit(envelope.From, 100); err != nil {
+		t.Fatalf("credit sender: %v", err)
+	}
+	producedAt := time.Date(2026, time.March, 24, 16, 0, 0, 0, time.UTC)
+	proposal := signedProposalWithSigner(t, validator, 1, 0, "", producedAt, []tx.Envelope{envelope})
+	if err := store.RecordProposalWithAction(proposal, &ConsensusAction{
+		Type:       ConsensusActionProposal,
+		Height:     proposal.Height,
+		Round:      proposal.Round,
+		BlockHash:  proposal.BlockHash,
+		Validator:  proposal.Proposer,
+		RecordedAt: proposal.ProposedAt,
+		Note:       "test local proposal",
+	}); err != nil {
+		t.Fatalf("record proposal with action: %v", err)
+	}
+	vote := signedVoteWithSigner(t, validator, 1, 0, proposal.BlockHash)
+	if _, _, err := store.RecordVoteWithAction(vote, &ConsensusAction{
+		Type:       ConsensusActionVote,
+		Height:     vote.Height,
+		Round:      vote.Round,
+		BlockHash:  vote.BlockHash,
+		Validator:  vote.Voter,
+		RecordedAt: vote.VotedAt,
+		Note:       "test local vote",
+	}); err != nil {
+		t.Fatalf("record vote with action: %v", err)
+	}
+
+	reopened, err := NewStore(dataDir)
+	if err != nil {
+		t.Fatalf("reopen store: %v", err)
+	}
+
+	recovery := reopened.ConsensusRecovery()
+	if !recovery.NeedsReplay || recovery.PendingActionCount != 2 {
+		t.Fatalf("expected two pending consensus actions after restart, got %+v", recovery)
+	}
+
+	if _, err := reopened.ProduceBlockWithOptions(10, producedAt, true); err != nil {
+		t.Fatalf("produce certified block after restart: %v", err)
+	}
+
+	recovery = reopened.ConsensusRecovery()
+	if recovery.NeedsReplay || recovery.PendingActionCount != 0 {
+		t.Fatalf("expected no pending consensus actions after commit, got %+v", recovery)
+	}
+
+	completed := 0
+	for _, action := range recovery.RecentActions {
+		if (action.Type == ConsensusActionProposal || action.Type == ConsensusActionVote) && action.Status == ConsensusActionCompleted {
+			completed++
+		}
+	}
+	if completed < 2 {
+		t.Fatalf("expected completed proposal and vote actions after commit, got %+v", recovery.RecentActions)
+	}
+}
+
 func newTestStore(t *testing.T) *Store {
 	t.Helper()
 

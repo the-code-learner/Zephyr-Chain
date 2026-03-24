@@ -213,7 +213,9 @@ Expected behavior:
 - if the active proposer stalls past `ZEPHYR_CONSENSUS_ROUND_TIMEOUT`, the node advances `currentRound`, rotates `nextProposer`, and the new proposer can reuse the latest stored candidate body for that same height
 - admitted peers replicate the proposal, vote, certificate, and committed block over the current HTTP transport
 - `GET /v1/status`, `GET /v1/consensus`, and `GET /v1/dev/block-template` now expose `roundEvidence` so operators can see the active round deadline, proposal presence, vote tallies, and certificate state
+- those same responses now expose `recovery`, which shows pending replayable local proposal or vote actions plus recent replay/completion metadata from the local consensus-action WAL
 - if a peer link drops and later returns, validators keep rebroadcasting their latest local proposal or vote for the pending height until the matching certificate exists
+- if a validator restarts mid-round after persisting a local proposal or vote, the node can replay that pending action from the persisted recovery state
 
 ## Troubleshooting
 
@@ -239,7 +241,8 @@ Expected behavior:
 - confirm `ZEPHYR_CONSENSUS_ROUND_TIMEOUT` is long enough for proposal and vote dissemination in your local setup
 - confirm there is at least one queued transaction or a previously stored proposal body when you expect automatic proposal generation
 - inspect `roundEvidence` in `GET /v1/status`, `GET /v1/consensus`, or `GET /v1/dev/block-template` to see whether the node is waiting for a proposal, collecting votes, timed out, or already certified
-- remember the current engine now supports timeout-driven proposer rotation plus latest-artifact rebroadcast after peer recovery, but WAL-style replay is still not implemented
+- inspect `recovery` in those same responses to see whether the node still has pending replayable local proposal or vote actions after a restart or dropped peer link
+- remember the current engine now supports timeout-driven proposer rotation, latest-artifact rebroadcast after peer recovery, and restart-safe local proposal or vote replay, but conflicting-round diagnostics are still limited
 
 ### Peer Identity Verification Or Admission Fails
 
@@ -274,5 +277,7 @@ Expected behavior:
 11. Either submit a matching proposal and validator votes manually, or let the automated proposer and validators handle the active round.
 12. If the active proposer stalls, watch `currentRound` advance and `nextProposer` rotate.
 13. Inspect the resulting block, vote tallies, and certificate on both nodes.
-14. Optionally restart a node and confirm the validator snapshot, round state, and consensus artifacts survived.
+14. Optionally restart a node and confirm the validator snapshot, round state, consensus artifacts, and `recovery` state survived.
+15. If the restarted node had a pending local proposal or vote, confirm the action is replayed and later marked completed once the block finalizes.
+
 
