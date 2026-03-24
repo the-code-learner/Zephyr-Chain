@@ -95,6 +95,7 @@ type Snapshot struct {
 	Votes                   []VoteRecord            `json:"votes"`
 	CommitCertificates      []CommitCertificate     `json:"commitCertificates"`
 	ConsensusActions        []ConsensusAction       `json:"consensusActions"`
+	ConsensusDiagnostics    []ConsensusDiagnostic   `json:"consensusDiagnostics"`
 }
 
 type pendingState struct {
@@ -115,6 +116,7 @@ type persistedState struct {
 	Votes                   []VoteRecord            `json:"votes"`
 	CommitCertificates      []CommitCertificate     `json:"commitCertificates"`
 	ConsensusActions        []ConsensusAction       `json:"consensusActions"`
+	ConsensusDiagnostics    []ConsensusDiagnostic   `json:"consensusDiagnostics"`
 }
 
 type Store struct {
@@ -133,6 +135,7 @@ type Store struct {
 	votes                 []VoteRecord
 	commitCertificates    []CommitCertificate
 	consensusActions      []ConsensusAction
+	consensusDiagnostics  []ConsensusDiagnostic
 }
 
 func NewStore(dataDir string) (*Store, error) {
@@ -159,6 +162,7 @@ func NewStore(dataDir string) (*Store, error) {
 		votes:                 make([]VoteRecord, 0),
 		commitCertificates:    make([]CommitCertificate, 0),
 		consensusActions:      make([]ConsensusAction, 0),
+		consensusDiagnostics:  make([]ConsensusDiagnostic, 0),
 	}
 
 	if err := store.load(); err != nil {
@@ -285,6 +289,7 @@ func (s *Store) SetValidators(validators []dpos.Validator, config dpos.ElectionC
 	state.Votes = make([]VoteRecord, 0)
 	state.CommitCertificates = make([]CommitCertificate, 0)
 	state.ConsensusActions = make([]ConsensusAction, 0)
+	state.ConsensusDiagnostics = make([]ConsensusDiagnostic, 0)
 
 	if err := s.writeState(state); err != nil {
 		return ValidatorSnapshot{}, err
@@ -501,6 +506,7 @@ func (s *Store) snapshotLocked() persistedState {
 		Votes:                   cloneVoteRecords(s.votes),
 		CommitCertificates:      cloneCommitCertificates(s.commitCertificates),
 		ConsensusActions:        cloneConsensusActions(s.consensusActions),
+		ConsensusDiagnostics:    cloneConsensusDiagnostics(s.consensusDiagnostics),
 	}
 }
 
@@ -515,6 +521,7 @@ func (s *Store) applyStateLocked(state persistedState) {
 	s.votes = cloneVoteRecords(state.Votes)
 	s.commitCertificates = cloneCommitCertificates(state.CommitCertificates)
 	s.consensusActions = cloneConsensusActions(state.ConsensusActions)
+	s.consensusDiagnostics = cloneConsensusDiagnostics(state.ConsensusDiagnostics)
 	s.committedTransactions = make(map[string]struct{}, len(state.CommittedTransactionIDs))
 	for _, id := range state.CommittedTransactionIDs {
 		s.committedTransactions[id] = struct{}{}
@@ -756,6 +763,7 @@ func normalizeState(state persistedState) persistedState {
 		state.CommitCertificates = make([]CommitCertificate, 0)
 	}
 	state.ConsensusActions = normalizeConsensusActions(state.ConsensusActions)
+	state.ConsensusDiagnostics = normalizeConsensusDiagnostics(state.ConsensusDiagnostics)
 	state.ValidatorSnapshot = normalizeValidatorSnapshot(state.ValidatorSnapshot)
 	state.RoundState = normalizeConsensusRoundState(state.RoundState, state.Blocks)
 	state.CommittedTransactionIDs = uniqueSortedStrings(state.CommittedTransactionIDs)
@@ -777,6 +785,7 @@ func snapshotFromPersisted(state persistedState) Snapshot {
 		Votes:                   cloneVoteRecords(state.Votes),
 		CommitCertificates:      cloneCommitCertificates(state.CommitCertificates),
 		ConsensusActions:        cloneConsensusActions(state.ConsensusActions),
+		ConsensusDiagnostics:    cloneConsensusDiagnostics(state.ConsensusDiagnostics),
 	}
 }
 
@@ -793,6 +802,7 @@ func persistedFromSnapshot(snapshot Snapshot) persistedState {
 		Votes:                   cloneVoteRecords(snapshot.Votes),
 		CommitCertificates:      cloneCommitCertificates(snapshot.CommitCertificates),
 		ConsensusActions:        cloneConsensusActions(snapshot.ConsensusActions),
+		ConsensusDiagnostics:    cloneConsensusDiagnostics(snapshot.ConsensusDiagnostics),
 	})
 }
 
@@ -971,3 +981,4 @@ func containsString(values []string, target string) bool {
 func blockHash(block Block) string {
 	return consensus.BlockHash(block.Height, block.PreviousHash, block.ProducedAt, block.TransactionIDs)
 }
+

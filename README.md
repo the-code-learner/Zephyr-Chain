@@ -31,15 +31,15 @@ Implemented today:
 
 Implemented in this iteration:
 
-- the ledger now persists a bounded local consensus-action WAL with pending/completed status, replay-attempt metadata, and recent-action history for restart recovery
-- `GET /v1/status`, `GET /v1/consensus`, `GET /v1/dev/block-template`, and local proposal/vote responses now expose `recovery` alongside `roundEvidence`
-- local automated or operator-submitted proposals and votes now enter that WAL, replay attempts are tracked when automation rebroadcasts them, and block commit/import completes the pending actions for that height
-- focused tests now cover recovery visibility, store restart persistence, and proposer restart replay on the automated validator path
+- `roundEvidence` now exposes leading vote power, quorum remaining, pending replay rounds, and explicit warnings for timeout, partial quorum, reproposal, replay backlog, and proposer-schedule mismatch
+- `GET /v1/status`, `GET /v1/consensus`, and `GET /v1/dev/block-template` now expose a bounded recent `diagnostics` view alongside `roundEvidence` and `recovery`
+- rejected proposal, vote, commit, and import paths now persist stable consensus diagnostics so operators can inspect what failed after the fact instead of relying only on the immediate HTTP error
+- focused tests now cover partial-quorum visibility, timeout and reproposal warnings, and diagnostic persistence after rejected consensus actions
 
 Planned but not implemented yet:
 
 - authenticated peer discovery and replay-safe transport over libp2p on top of the new HTTP admission and binding policy
-- richer operator evidence for conflicting rounds, partial quorum, timeout diagnosis, and multi-round recovery
+- broader consensus recovery coverage beyond the current local proposal, vote, timeout-history, and rejection-diagnostic surfaces
 - on-chain staking and governance-driven validator updates instead of ad hoc election API writes
 - deterministic WASM smart-contract runtime with native fee metering
 - confidential compute marketplace for encrypted off-chain jobs paid in native tokens
@@ -281,8 +281,8 @@ VITE_ZEPHYR_API_BASE=http://localhost:8080
 
 - the current multi-node layer is still HTTP-based under the new transport abstraction, not libp2p networking
 - peer admission and validator pinning can now be enforced over the current HTTP transport, but peer discovery is still static configuration rather than libp2p
-- the round engine now supports timeout-driven proposer rotation, latest-artifact rebroadcast after link recovery, round-evidence inspection, and local consensus-action WAL replay across restart, but richer conflicting-round diagnostics are still missing
-- crash recovery now persists active round metadata plus a bounded local consensus-action WAL, but broader conflict and partial-quorum diagnosis is still thin
+- the round engine now supports timeout-driven proposer rotation, latest-artifact rebroadcast after link recovery, richer `roundEvidence`, bounded rejection diagnostics, and local consensus-action WAL replay across restart, but broader multi-round recovery tooling is still missing
+- crash recovery now persists active round metadata plus a bounded local consensus-action WAL, but replay coverage is still centered on local proposal and vote actions rather than the full consensus lifecycle
 - DPoS elections still happen through an API call, not an on-chain staking/governance flow
 - snapshot restore is a state catch-up mechanism, not a trust-minimized proof-based sync protocol
 - WASM smart-contract execution is planned, but not implemented yet
@@ -298,7 +298,7 @@ The production roadmap now lives in [docs/roadmap.md](./docs/roadmap.md).
 Short version:
 
 1. Move the new enforced HTTP peer-admission and validator-binding policy toward authenticated libp2p discovery plus replay-safe transport behavior.
-2. Expand operator evidence for timeout, partial quorum, conflicting rounds, and multi-round recovery scenarios on top of the new local consensus-action WAL.
+2. Extend the new `roundEvidence` and `diagnostics` surfaces into broader multi-round recovery, peer-import diagnosis, and production incident tooling.
 3. Move validator lifecycle changes behind staking, delegation, slashing, and governance state transitions.
 4. Add deterministic WASM execution, native fee metering, and the confidential compute lane.
 5. Add production observability, recovery tooling, and public testnet operations.

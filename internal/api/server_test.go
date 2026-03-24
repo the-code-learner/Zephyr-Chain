@@ -624,6 +624,86 @@ func TestHandleConsensusExposesRoundEvidence(t *testing.T) {
 	if response.RoundEvidence.DeadlineAt == nil || !response.RoundEvidence.DeadlineAt.After(startedAt) {
 		t.Fatalf("expected round deadline after %s, got %+v", startedAt, response.RoundEvidence)
 	}
+	if !response.RoundEvidence.PartialQuorum || response.RoundEvidence.LeadingVotePower != 60 || response.RoundEvidence.QuorumRemaining != 7 {
+		t.Fatalf("expected partial quorum details in round evidence, got %+v", response.RoundEvidence)
+	}
+	foundPartialQuorum := false
+	for _, warning := range response.RoundEvidence.Warnings {
+		if warning == "partial_quorum" {
+			foundPartialQuorum = true
+			break
+		}
+	}
+	if !foundPartialQuorum {
+		t.Fatalf("expected partial_quorum warning in round evidence, got %+v", response.RoundEvidence.Warnings)
+	}
+}
+
+func TestHandleConsensusExposesReproposalAndTimeoutWarnings(t *testing.T) {
+	proposer := newConsensusSigner(t)
+	nextProposer := newConsensusSigner(t)
+	server := newTestServer(t, Config{
+		DataDir:                   t.TempDir(),
+		NodeID:                    "node-a",
+		ValidatorPrivateKey:       encodedPrivateKey(t, proposer.privateKey),
+		ConsensusRoundTimeout:     30 * time.Second,
+		BlockInterval:             0,
+		SyncInterval:              0,
+		MaxTransactionsPerBlock:   10,
+		EnableBlockProduction:     false,
+		EnableConsensusAutomation: false,
+		EnablePeerSync:            false,
+	})
+
+	if _, err := server.ledger.SetValidators([]dpos.Validator{
+		{Rank: 1, Address: proposer.address, VotingPower: 60, SelfStake: 40, DelegatedStake: 20},
+		{Rank: 2, Address: nextProposer.address, VotingPower: 40, SelfStake: 25, DelegatedStake: 15},
+	}, dpos.ElectionConfig{MaxValidators: 2}); err != nil {
+		t.Fatalf("set validators: %v", err)
+	}
+	startedAt := time.Now().UTC().Add(-2 * time.Minute)
+	if _, err := server.ledger.EnsureRoundStarted(startedAt); err != nil {
+		t.Fatalf("ensure round started: %v", err)
+	}
+
+	proposal := signedConsensusProposal(t, proposer, 1, 0, "", startedAt.Add(5*time.Second), []tx.Envelope{signedEnvelope(t, 5, 1, "reproposal-warning")})
+	if err := server.ledger.RecordProposal(proposal); err != nil {
+		t.Fatalf("record proposal: %v", err)
+	}
+	if _, err := server.ledger.AdvanceRound(startedAt.Add(45 * time.Second)); err != nil {
+		t.Fatalf("advance round: %v", err)
+	}
+
+	request := httptest.NewRequest(http.MethodGet, "/v1/consensus", nil)
+	recorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", recorder.Code)
+	}
+
+	var response ConsensusResponse
+	if err := json.NewDecoder(recorder.Body).Decode(&response); err != nil {
+		t.Fatalf("decode consensus response: %v", err)
+	}
+	if response.RoundEvidence.State != "waiting_for_reproposal" || !response.RoundEvidence.TimedOut {
+		t.Fatalf("expected waiting_for_reproposal timed-out state, got %+v", response.RoundEvidence)
+	}
+	if response.RoundEvidence.LatestKnownProposalRound == nil || *response.RoundEvidence.LatestKnownProposalRound != 0 {
+		t.Fatalf("expected latest known proposal round 0, got %+v", response.RoundEvidence)
+	}
+	foundTimeout := false
+	foundReproposal := false
+	for _, warning := range response.RoundEvidence.Warnings {
+		if warning == "timeout_elapsed" {
+			foundTimeout = true
+		}
+		if warning == "reproposal_pending" {
+			foundReproposal = true
+		}
+	}
+	if !foundTimeout || !foundReproposal {
+		t.Fatalf("expected timeout and reproposal warnings, got %+v", response.RoundEvidence.Warnings)
+	}
 }
 
 func TestHandleStatusExposesConsensusRecovery(t *testing.T) {
@@ -686,6 +766,117 @@ func TestHandleStatusExposesConsensusRecovery(t *testing.T) {
 	}
 	if len(response.Recovery.PendingActions) != 2 {
 		t.Fatalf("expected two pending recovery actions, got %+v", response.Recovery.PendingActions)
+	}
+}
+
+func TestHandleStatusRecordsConsensusDiagnosticForUnexpectedProposer(t *testing.T) {
+	proposer := newConsensusSigner(t)
+	voter := newConsensusSigner(t)
+	server := newTestServer(t, Config{
+		DataDir:                 t.TempDir(),
+		BlockInterval:           0,
+		SyncInterval:            0,
+		MaxTransactionsPerBlock: 10,
+		EnableBlockProduction:   false,
+		EnablePeerSync:          false,
+	})
+
+	if _, err := server.ledger.SetValidators([]dpos.Validator{
+		{Rank: 1, Address: proposer.address, VotingPower: 60, SelfStake: 40, DelegatedStake: 20},
+		{Rank: 2, Address: voter.address, VotingPower: 40, SelfStake: 25, DelegatedStake: 15},
+	}, dpos.ElectionConfig{MaxValidators: 2}); err != nil {
+		t.Fatalf("set validators: %v", err)
+	}
+
+	proposal := signedConsensusProposal(t, voter, 1, 0, "", time.Date(2026, time.March, 24, 15, 0, 0, 0, time.UTC), []tx.Envelope{signedEnvelope(t, 5, 1, "unexpected-proposer")})
+	body, err := json.Marshal(proposal)
+	if err != nil {
+		t.Fatalf("marshal proposal: %v", err)
+	}
+	request := httptest.NewRequest(http.MethodPost, "/v1/consensus/proposals", bytes.NewReader(body))
+	recorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusConflict {
+		t.Fatalf("expected status 409, got %d", recorder.Code)
+	}
+
+	statusRequest := httptest.NewRequest(http.MethodGet, "/v1/status", nil)
+	statusRecorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(statusRecorder, statusRequest)
+	if statusRecorder.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", statusRecorder.Code)
+	}
+
+	var response StatusResponse
+	if err := json.NewDecoder(statusRecorder.Body).Decode(&response); err != nil {
+		t.Fatalf("decode status response: %v", err)
+	}
+	if len(response.Diagnostics.Recent) == 0 {
+		t.Fatal("expected recent consensus diagnostics in status response")
+	}
+	diagnostic := response.Diagnostics.Recent[0]
+	if diagnostic.Kind != "proposal_rejected" || diagnostic.Code != "unexpected_proposer" || diagnostic.Source != "local_api" {
+		t.Fatalf("unexpected diagnostic %+v", diagnostic)
+	}
+	if diagnostic.Height != 1 || diagnostic.Round != 0 {
+		t.Fatalf("expected diagnostic for height 1 round 0, got %+v", diagnostic)
+	}
+}
+
+func TestHandleStatusRecordsConsensusDiagnosticForMissingCertificate(t *testing.T) {
+	proposer := newConsensusSigner(t)
+	voter := newConsensusSigner(t)
+	server := newTestServer(t, Config{
+		DataDir:                      t.TempDir(),
+		NodeID:                       "node-a",
+		ValidatorAddress:             proposer.address,
+		BlockInterval:                0,
+		SyncInterval:                 0,
+		MaxTransactionsPerBlock:      10,
+		EnableBlockProduction:        true,
+		EnablePeerSync:               false,
+		EnforceProposerSchedule:      true,
+		RequireConsensusCertificates: true,
+	})
+
+	if _, err := server.ledger.SetValidators([]dpos.Validator{
+		{Rank: 1, Address: proposer.address, VotingPower: 60, SelfStake: 40, DelegatedStake: 20},
+		{Rank: 2, Address: voter.address, VotingPower: 40, SelfStake: 25, DelegatedStake: 15},
+	}, dpos.ElectionConfig{MaxValidators: 2}); err != nil {
+		t.Fatalf("set validators: %v", err)
+	}
+	envelope := signedEnvelope(t, 25, 1, "missing-certificate")
+	if _, err := server.ledger.Credit(envelope.From, 100); err != nil {
+		t.Fatalf("credit sender: %v", err)
+	}
+	if _, err := server.ledger.Accept(envelope); err != nil {
+		t.Fatalf("accept tx: %v", err)
+	}
+
+	request := httptest.NewRequest(http.MethodPost, "/v1/dev/produce-block", nil)
+	recorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusConflict {
+		t.Fatalf("expected status 409, got %d", recorder.Code)
+	}
+
+	statusRequest := httptest.NewRequest(http.MethodGet, "/v1/status", nil)
+	statusRecorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(statusRecorder, statusRequest)
+	if statusRecorder.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", statusRecorder.Code)
+	}
+
+	var response StatusResponse
+	if err := json.NewDecoder(statusRecorder.Body).Decode(&response); err != nil {
+		t.Fatalf("decode status response: %v", err)
+	}
+	if len(response.Diagnostics.Recent) == 0 {
+		t.Fatal("expected recent diagnostics after failed commit")
+	}
+	diagnostic := response.Diagnostics.Recent[0]
+	if diagnostic.Kind != "block_commit_rejected" || diagnostic.Code != "proposal_required" || diagnostic.Source != "local_api" {
+		t.Fatalf("unexpected diagnostic %+v", diagnostic)
 	}
 }
 
@@ -2199,3 +2390,5 @@ func consensusTestHash(seed string) string {
 	sum := sha256.Sum256([]byte(seed))
 	return hex.EncodeToString(sum[:])
 }
+
+
