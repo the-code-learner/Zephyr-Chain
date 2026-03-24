@@ -6,6 +6,19 @@ import (
 	"github.com/zephyr-chain/zephyr-chain/internal/consensus"
 )
 
+func (s *Store) ProposalsForHeight(height uint64) []consensus.Proposal {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	return proposalsForHeight(s.proposals, height)
+}
+
+func (s *Store) CertificatesForHeight(height uint64) []CommitCertificate {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	return certificatesForHeight(s.commitCertificates, height)
+}
 func (s *Store) ProposalAt(height uint64, round uint64) (*consensus.Proposal, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()

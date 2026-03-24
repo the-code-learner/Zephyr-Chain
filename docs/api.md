@@ -155,6 +155,27 @@ Current behavior:
 - prior rounds remain visible when the node advances after timeout or accepts higher-round messages
 - operators can compare round-0 and round-1 proposal, vote, and certificate state directly without reconstructing it from logs or diagnostics
 
+### BlockReadiness
+
+`blockReadiness` is a derived next-block readiness view exposed by `GET /v1/status`, `GET /v1/consensus`, and `GET /v1/dev/block-template`.
+
+Current fields include:
+
+- `height`, the current pending `nextHeight`
+- `localTemplateAvailable`, `localTemplateBlockHash`, `localTemplateProducedAt`, and `localTemplateTransactionCount`
+- `storedProposalCount` and `certifiedProposalCount`
+- `matchingLocalProposalRound` and `matchingLocalCertificate`
+- `readyToCommitLocalTemplate`, `readyToCommitStoredProposal`, and `readyToImportCertifiedBlock`
+- `latestCertifiedRound`, `latestCertifiedBlockHash`, and `latestCertifiedProducedAt`
+- `warnings`, currently drawn from `proposal_missing`, `local_template_mismatch`, `certificate_missing`, `certified_proposal_differs_from_local_template`, and `certified_proposal_available_without_local_template`
+
+Current behavior:
+
+- when no proposal exists yet, the view shows whether the node can build a local candidate and warns with `proposal_missing`
+- when a proposal exists but lacks quorum, the view shows the matching round but warns with `certificate_missing`
+- when a certified proposal exists for the pending height, the view shows whether the current local template still matches it and whether commit or peer import can proceed from stored artifacts
+- wrong `producedAt` or wrong imported block attempts now surface as `template_mismatch` in diagnostics instead of looking like a missing proposal
+
 ### ConsensusRecoveryView
 
 `recovery` is the durable local consensus-action recovery view exposed by `GET /v1/status`, `GET /v1/consensus`, `GET /v1/dev/block-template`, and local proposal or vote submissions.
@@ -187,7 +208,7 @@ Current behavior:
 - rejected vote submissions append a `vote_rejected` diagnostic
 - rejected local commit attempts append a `block_commit_rejected` diagnostic
 - rejected peer block imports append a `block_import_rejected` diagnostic
-- `code` is a stable operator-facing category such as `unexpected_proposer`, `stale_round`, `conflicting_proposal`, `conflicting_vote`, `proposal_required`, `certificate_required`, or `not_scheduled_proposer`
+- `code` is a stable operator-facing category such as `unexpected_proposer`, `stale_round`, `conflicting_proposal`, `conflicting_vote`, `proposal_required`, `template_mismatch`, `certificate_required`, or `not_scheduled_proposer`
 
 ## Consensus Endpoints
 
@@ -204,6 +225,7 @@ Current behavior:
 - `nextProposer` reflects the active round, not only the next height
 - `roundEvidence` exposes the round deadline, proposal presence, vote tallies, leading vote, quorum remaining, replay backlog, warnings, local vote, and certificate state for operator inspection
 - `roundHistory` exposes the pending height across rounds so operators can compare prior and active proposer attempts side by side
+- `blockReadiness` exposes whether the current local template matches stored proposals and certificates for the pending height
 - `recovery` exposes the local consensus-action WAL, including pending replayable actions and recent replay/completion metadata
 - `diagnostics` exposes recent rejected proposal, vote, commit, and import events
 
@@ -260,6 +282,7 @@ Current behavior:
 - the embedded `consensus` view now exposes `currentRound`, `currentRoundStartedAt`, and the active-round `nextProposer`
 - `roundEvidence` exposes the active round deadline, state, vote tallies, leading vote, quorum remaining, replay backlog, warnings, proposal presence, local vote, and certificate visibility for operators
 - `roundHistory` exposes the pending height across rounds so operators can inspect round-0, round-1, and later attempts together
+- `blockReadiness` exposes whether the local template is ready to commit and whether a certified stored proposal is already ready for commit or import
 - `recovery` exposes pending replayable local actions plus recent replay/completion metadata from the local consensus-action WAL
 - `diagnostics` exposes recent rejected proposal, vote, commit, and import events with stable error codes
 - when `ZEPHYR_VALIDATOR_PRIVATE_KEY` is configured, the response includes an `identity` object with a signed transport proof for the local validator
@@ -312,7 +335,7 @@ Current behavior:
 
 - the response includes the exact `blockHash`, `previousHash`, `producedAt`, full `transactions`, and ordered `transactionIds` validators should certify
 - operators can use that data directly when constructing a signed self-contained proposal
-- the response also includes the current consensus summary, `roundEvidence`, `roundHistory`, `recovery`, `diagnostics`, and latest durable artifacts for operator context
+- the response also includes the current consensus summary, `roundEvidence`, `roundHistory`, `blockReadiness`, `recovery`, `diagnostics`, and latest durable artifacts for operator context
 
 ### POST /v1/dev/produce-block
 
@@ -327,6 +350,7 @@ Behavior:
 - when certificate enforcement is enabled and a matching certified proposal exists, the node can commit from the stored proposal body even if the local mempool no longer contains those transactions
 - when automation is enabled, the scheduled proposer may reach the same commit path without an operator POST as soon as quorum exists for its current round proposal
 - rejected local commit attempts are appended to the diagnostic history exposed by status and consensus surfaces
+- wrong `producedAt` for an otherwise known certified proposal now reports `template_mismatch` instead of `proposal_required`
 
 ## Internal Node-To-Node Endpoints
 
@@ -357,6 +381,8 @@ Imports a committed block from another node.
 If certificate enforcement is enabled on the receiving node, the imported block must match a stored proposal template and quorum certificate or the import is rejected.
 
 Rejected imports are appended to the diagnostic history exposed by status and consensus surfaces.
+
+If proposals exist for that height but the imported block does not match any stored proposal template, the rejection now reports `template_mismatch`.
 
 ### GET /v1/internal/snapshot
 

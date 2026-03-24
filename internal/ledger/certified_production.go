@@ -30,31 +30,39 @@ func produceCertifiedBlockFromState(state persistedState, producedAt time.Time) 
 func proposalForProduction(state persistedState, producedAt time.Time, requireCertificate bool) (*consensus.Proposal, error) {
 	state = normalizeState(state)
 	nextHeight := uint64(len(state.Blocks) + 1)
-	matchedProposal := false
+	matchedHeight := false
+	matchedProducedAt := false
 
 	for index := len(state.Proposals) - 1; index >= 0; index-- {
 		proposal := state.Proposals[index]
 		if proposal.Height != nextHeight {
 			continue
 		}
+		matchedHeight = true
 		if !producedAt.IsZero() && !proposal.ProducedAt.Equal(producedAt) {
 			continue
 		}
+		matchedProducedAt = true
 		if len(proposal.Transactions) == 0 || len(proposal.Transactions) != len(proposal.TransactionIDs) {
 			continue
 		}
 
-		matchedProposal = true
 		if !requireCertificate || findCertificate(state.CommitCertificates, proposal.Height, proposal.Round, proposal.BlockHash) != nil {
 			cloned := cloneProposal(proposal)
 			return &cloned, nil
 		}
 	}
 
-	if matchedProposal && requireCertificate {
+	switch {
+	case matchedProducedAt && requireCertificate:
 		return nil, ErrConsensusCertificateRequired
+	case matchedHeight && !producedAt.IsZero():
+		return nil, ErrConsensusTemplateMismatch
+	case matchedHeight && requireCertificate:
+		return nil, ErrConsensusCertificateRequired
+	default:
+		return nil, ErrConsensusProposalRequired
 	}
-	return nil, ErrConsensusProposalRequired
 }
 
 func blockFromProposal(proposal consensus.Proposal) Block {

@@ -40,6 +40,8 @@ func consensusDiagnosticCode(err error) string {
 		return "conflicting_vote"
 	case errors.Is(err, ledger.ErrConsensusCertificateRequired):
 		return "certificate_required"
+	case errors.Is(err, ledger.ErrConsensusTemplateMismatch):
+		return "template_mismatch"
 	case errors.Is(err, ledger.ErrConsensusProposalRequired):
 		return "proposal_required"
 	case errors.Is(err, ledger.ErrConsensusPreviousHash):

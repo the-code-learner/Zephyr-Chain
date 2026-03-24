@@ -81,6 +81,7 @@ The store currently persists:
 - durable quorum certificates built from vote power
 - bounded recent consensus diagnostics for rejected proposal, vote, commit, and import paths
 - derived per-height round history for proposal, vote, and certificate state across rounds
+- derived block-readiness inspection for pending-height template, certificate, commit, and import readiness
 
 On startup, the node reloads this state and rebuilds pending balance and nonce reservations from the persisted mempool. Validator state, active round state, consensus artifacts, the local consensus-action WAL, and recent consensus diagnostics also survive restart and snapshot restore.
 
@@ -126,7 +127,7 @@ If `ZEPHYR_ENABLE_CONSENSUS_AUTOMATION=true`, the current automation loop can:
 - send automated proposals before automated votes so peers do not observe vote-before-proposal races on the happy path
 - rebroadcast the latest stored local proposal and latest stored local vote for the pending height until the matching certificate exists
 - persist locally authored proposals and votes into a bounded restart-safe consensus-action WAL with replay-attempt metadata
-- expose round-evidence state, per-height round history, deadlines, leading tallies, quorum remaining, warning flags, local vote presence, certificate presence, local recovery state, and recent rejection diagnostics through the status, consensus, and block-template APIs
+- expose round-evidence state, per-height round history, block readiness, deadlines, leading tallies, quorum remaining, warning flags, local vote presence, certificate presence, local recovery state, and recent rejection diagnostics through the status, consensus, and block-template APIs
 
 If `ZEPHYR_VALIDATOR_PRIVATE_KEY` is configured, the API layer also derives a signed transport identity for the local validator and verifies peer proofs exposed through `GET /v1/status`. When `ZEPHYR_REQUIRE_PEER_IDENTITY` or `ZEPHYR_PEER_VALIDATORS` is configured, replicated peer POST requests must satisfy that admission policy before they are accepted.
 
@@ -136,7 +137,7 @@ The repository has moved from consensus-preparation-only into certificate-gated 
 
 - validator nodes can now prove identity and enforce peer admission over the current transport, but peer discovery is still static HTTP configuration rather than authenticated libp2p
 - automation can now rotate proposers on timeout, rebroadcast the latest local proposal or vote after link recovery, and replay persisted local proposal or vote actions after restart
-- the current operator surface is materially better through round warnings, per-height round history, leading tallies, replay backlog visibility, and bounded rejection diagnostics, but it is still too thin for full production incident handling across transport, peer-import, and broader recovery scenarios
+- the current operator surface is materially better through round warnings, per-height round history, block readiness, leading tallies, replay backlog visibility, and bounded rejection diagnostics, but it is still too thin for full production incident handling across transport, peer-import, and broader recovery scenarios
 - broader consensus recovery coverage is still needed beyond the current local proposal/vote WAL path
 
 That is why the project has moved beyond replicated prototype, but it is still not a production blockchain.

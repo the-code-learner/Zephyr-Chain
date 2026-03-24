@@ -19,6 +19,7 @@ var (
 	ErrUnknownProposal              = errors.New("vote references an unknown proposal")
 	ErrConflictingVote              = errors.New("validator already voted for a different block at this height and round")
 	ErrConsensusProposalRequired    = errors.New("block is missing a matching proposal")
+	ErrConsensusTemplateMismatch    = errors.New("block template does not match the stored proposal set")
 	ErrConsensusCertificateRequired = errors.New("block is missing a matching quorum certificate")
 )
 
