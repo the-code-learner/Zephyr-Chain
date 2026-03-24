@@ -131,6 +131,7 @@ type StatusResponse struct {
 	Recovery                      ledger.ConsensusRecoveryView     `json:"recovery"`
 	Diagnostics                   ledger.ConsensusDiagnosticsView  `json:"diagnostics"`
 	PeerSyncHistory               ledger.PeerSyncHistoryView       `json:"peerSyncHistory"`
+	PeerSyncSummary               ledger.PeerSyncSummaryView       `json:"peerSyncSummary"`
 }
 
 type ConsensusResponse struct {
@@ -148,6 +149,7 @@ type ConsensusResponse struct {
 	Recovery                      ledger.ConsensusRecoveryView     `json:"recovery"`
 	Diagnostics                   ledger.ConsensusDiagnosticsView  `json:"diagnostics"`
 	PeerSyncHistory               ledger.PeerSyncHistoryView       `json:"peerSyncHistory"`
+	PeerSyncSummary               ledger.PeerSyncSummaryView       `json:"peerSyncSummary"`
 }
 
 type LatestBlockResponse struct {
@@ -164,6 +166,7 @@ type BlockTemplateResponse struct {
 	Recovery        ledger.ConsensusRecoveryView     `json:"recovery"`
 	Diagnostics     ledger.ConsensusDiagnosticsView  `json:"diagnostics"`
 	PeerSyncHistory ledger.PeerSyncHistoryView       `json:"peerSyncHistory"`
+	PeerSyncSummary ledger.PeerSyncSummaryView       `json:"peerSyncSummary"`
 }
 
 type ProduceBlockRequest struct {
@@ -303,6 +306,7 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		Recovery:                      s.ledger.ConsensusRecovery(),
 		Diagnostics:                   s.ledger.ConsensusDiagnostics(),
 		PeerSyncHistory:               s.ledger.PeerSyncHistory(),
+		PeerSyncSummary:               s.ledger.PeerSyncSummary(),
 	}
 	if s.identitySigner != nil {
 		identity, err := s.identitySigner.Build(now)
@@ -346,6 +350,7 @@ func (s *Server) handleConsensus(w http.ResponseWriter, r *http.Request) {
 		Recovery:                      s.ledger.ConsensusRecovery(),
 		Diagnostics:                   s.ledger.ConsensusDiagnostics(),
 		PeerSyncHistory:               s.ledger.PeerSyncHistory(),
+		PeerSyncSummary:               s.ledger.PeerSyncSummary(),
 	})
 }
 
@@ -552,6 +557,7 @@ func (s *Server) handleBlockTemplate(w http.ResponseWriter, r *http.Request) {
 		Recovery:        s.ledger.ConsensusRecovery(),
 		Diagnostics:     s.ledger.ConsensusDiagnostics(),
 		PeerSyncHistory: s.ledger.PeerSyncHistory(),
+		PeerSyncSummary: s.ledger.PeerSyncSummary(),
 	})
 }
 

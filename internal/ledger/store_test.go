@@ -965,6 +965,14 @@ func TestStoreRestoreFromPeerSnapshotPreservesLocalRecoveryAndDiagnostics(t *tes
 	if history.Recent[0].PeerURL != "http://producer.example" || history.Recent[0].State != "unreachable" {
 		t.Fatalf("unexpected peer sync history after peer snapshot restore: %+v", history.Recent)
 	}
+
+	summary := replica.PeerSyncSummary()
+	if summary.IncidentCount != 1 || summary.AffectedPeerCount != 1 || summary.TotalOccurrences != 1 {
+		t.Fatalf("unexpected peer sync summary after peer snapshot restore: %+v", summary)
+	}
+	if len(summary.Peers) != 1 || summary.Peers[0].PeerURL != "http://producer.example" || summary.Peers[0].LatestState != "unreachable" {
+		t.Fatalf("unexpected peer sync peer summary after peer snapshot restore: %+v", summary.Peers)
+	}
 }
 
 func TestStorePeerSyncHistoryPersistsAcrossRestartAndMergesRepeatedIncidents(t *testing.T) {
@@ -1037,6 +1045,30 @@ func TestStorePeerSyncHistoryPersistsAcrossRestartAndMergesRepeatedIncidents(t *
 	}
 	if !peerA[0].FirstObservedAt.Equal(firstObservedAt) || !peerA[0].LastObservedAt.Equal(secondObservedAt) {
 		t.Fatalf("unexpected merged incident timestamps %+v", peerA[0])
+	}
+
+	summary := reopened.PeerSyncSummary()
+	if summary.IncidentCount != 2 || summary.AffectedPeerCount != 2 || summary.TotalOccurrences != 3 {
+		t.Fatalf("unexpected peer sync summary %+v", summary)
+	}
+	if summary.LatestObservedAt == nil || !summary.LatestObservedAt.Equal(thirdObservedAt) {
+		t.Fatalf("unexpected latest observed time %+v", summary)
+	}
+	if len(summary.States) != 2 {
+		t.Fatalf("expected two state summaries, got %+v", summary.States)
+	}
+	if summary.States[0].State != "unreachable" || summary.States[0].IncidentCount != 1 || summary.States[0].AffectedPeerCount != 1 || summary.States[0].TotalOccurrences != 2 {
+		t.Fatalf("unexpected unreachable state summary %+v", summary.States[0])
+	}
+	if len(summary.Peers) != 2 {
+		t.Fatalf("expected two peer summaries, got %+v", summary.Peers)
+	}
+	if summary.Peers[0].PeerURL != "http://peer-b.example" || summary.Peers[0].LatestState != "snapshot_restored" {
+		t.Fatalf("unexpected latest peer summary %+v", summary.Peers[0])
+	}
+	peerASummary := reopened.PeerSyncPeerSummary("http://peer-a.example")
+	if peerASummary.IncidentCount != 1 || peerASummary.TotalOccurrences != 2 || peerASummary.LatestState != "unreachable" {
+		t.Fatalf("unexpected peer-a summary %+v", peerASummary)
 	}
 }
 

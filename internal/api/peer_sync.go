@@ -38,6 +38,9 @@ type PeerView struct {
 	LastSnapshotRestoreHeight    uint64                    `json:"lastSnapshotRestoreHeight,omitempty"`
 	LastSnapshotRestoreBlockHash string                    `json:"lastSnapshotRestoreBlockHash,omitempty"`
 	LastSnapshotRestoreReason    string                    `json:"lastSnapshotRestoreReason,omitempty"`
+	IncidentCount                int                       `json:"incidentCount,omitempty"`
+	IncidentOccurrences          int                       `json:"incidentOccurrences,omitempty"`
+	LatestIncidentAt             *time.Time                `json:"latestIncidentAt,omitempty"`
 	RecentIncidents              []ledger.PeerSyncIncident `json:"recentIncidents,omitempty"`
 	LastSeenAt                   *time.Time                `json:"lastSeenAt,omitempty"`
 	Reachable                    bool                      `json:"reachable"`
