@@ -1060,10 +1060,16 @@ func TestStorePeerSyncHistoryPersistsAcrossRestartAndMergesRepeatedIncidents(t *
 	if summary.States[0].State != "unreachable" || summary.States[0].IncidentCount != 1 || summary.States[0].AffectedPeerCount != 1 || summary.States[0].TotalOccurrences != 2 {
 		t.Fatalf("unexpected unreachable state summary %+v", summary.States[0])
 	}
+	if len(summary.Reasons) != 2 || summary.Reasons[0].Reason != "unknown" || summary.Reasons[0].IncidentCount != 1 || summary.Reasons[0].AffectedPeerCount != 1 || summary.Reasons[0].TotalOccurrences != 2 || summary.Reasons[1].Reason != "peer_diverged" || summary.Reasons[1].TotalOccurrences != 1 {
+		t.Fatalf("unexpected reason summaries %+v", summary.Reasons)
+	}
+	if len(summary.ErrorCodes) != 1 || summary.ErrorCodes[0].ErrorCode != "unknown" || summary.ErrorCodes[0].IncidentCount != 2 || summary.ErrorCodes[0].AffectedPeerCount != 2 || summary.ErrorCodes[0].TotalOccurrences != 3 {
+		t.Fatalf("unexpected error code summaries %+v", summary.ErrorCodes)
+	}
 	if len(summary.Peers) != 2 {
 		t.Fatalf("expected two peer summaries, got %+v", summary.Peers)
 	}
-	if summary.Peers[0].PeerURL != "http://peer-b.example" || summary.Peers[0].LatestState != "snapshot_restored" {
+	if summary.Peers[0].PeerURL != "http://peer-b.example" || summary.Peers[0].LatestState != "snapshot_restored" || summary.Peers[0].LatestReason != "peer_diverged" {
 		t.Fatalf("unexpected latest peer summary %+v", summary.Peers[0])
 	}
 	peerASummary := reopened.PeerSyncPeerSummary("http://peer-a.example")

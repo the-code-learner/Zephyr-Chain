@@ -235,6 +235,46 @@ func (s *Server) buildPrometheusMetrics(now time.Time) string {
 			prometheusLabel{Name: "state", Value: state.State},
 		)
 	}
+	for _, reason := range peerSummary.Reasons {
+		writer.gauge(
+			"zephyr_peer_sync_reason_incident_count",
+			"Retained peer-sync incidents grouped by dominant reason.",
+			float64(reason.IncidentCount),
+			prometheusLabel{Name: "reason", Value: reason.Reason},
+		)
+		writer.gauge(
+			"zephyr_peer_sync_reason_affected_peer_count",
+			"Peers affected by retained peer-sync incidents grouped by dominant reason.",
+			float64(reason.AffectedPeerCount),
+			prometheusLabel{Name: "reason", Value: reason.Reason},
+		)
+		writer.gauge(
+			"zephyr_peer_sync_reason_occurrence_count",
+			"Total occurrences represented by retained peer-sync incidents grouped by dominant reason.",
+			float64(reason.TotalOccurrences),
+			prometheusLabel{Name: "reason", Value: reason.Reason},
+		)
+	}
+	for _, errorCode := range peerSummary.ErrorCodes {
+		writer.gauge(
+			"zephyr_peer_sync_error_code_incident_count",
+			"Retained peer-sync incidents grouped by dominant error code.",
+			float64(errorCode.IncidentCount),
+			prometheusLabel{Name: "code", Value: errorCode.ErrorCode},
+		)
+		writer.gauge(
+			"zephyr_peer_sync_error_code_affected_peer_count",
+			"Peers affected by retained peer-sync incidents grouped by dominant error code.",
+			float64(errorCode.AffectedPeerCount),
+			prometheusLabel{Name: "code", Value: errorCode.ErrorCode},
+		)
+		writer.gauge(
+			"zephyr_peer_sync_error_code_occurrence_count",
+			"Total occurrences represented by retained peer-sync incidents grouped by dominant error code.",
+			float64(errorCode.TotalOccurrences),
+			prometheusLabel{Name: "code", Value: errorCode.ErrorCode},
+		)
+	}
 
 	return writer.String()
 }

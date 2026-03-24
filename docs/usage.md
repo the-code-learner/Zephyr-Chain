@@ -60,7 +60,7 @@ What to expect:
 - `checks` currently cover `api`, `validator_set`, `recovery`, `consensus`, `peer_sync`, and `diagnostics`
 - `/v1/alerts` turns those same operator signals into a derived critical or warning alert set for polling dashboards and automation
 - `/v1/slo` groups them into objective states so operators can see whether readiness, consensus continuity, or peer sync continuity is meeting, at risk, breached, or not applicable
-- `/metrics` exports the alert, health, and SLO state as Prometheus-style gauges such as `zephyr_node_ready`, `zephyr_health_check_status`, `zephyr_alert_active`, and `zephyr_slo_objective_status`, while `/v1/metrics` keeps the structured JSON view
+- `/metrics` exports the alert, health, and SLO state as Prometheus-style gauges such as `zephyr_node_ready`, `zephyr_health_check_status`, `zephyr_alert_active`, and `zephyr_slo_objective_status`, plus peer-incident gauges such as `zephyr_peer_sync_reason_occurrence_count` and `zephyr_peer_sync_error_code_occurrence_count`, while `/v1/metrics` keeps the structured JSON view
 - `/v1/alert-rules` keeps the structured recommended alert bundle, while `/v1/alert-rules/prometheus` exports the enabled subset as Prometheus-rule YAML for scrape-based alerting stacks
 - `/v1/recording-rules` keeps the structured recommended recording bundle, while `/v1/recording-rules/prometheus` exports the enabled subset as Prometheus recording-rule YAML for dashboard and aggregation stacks
 - `/v1/dashboards` keeps the structured recommended dashboard bundle, while `/v1/dashboards/grafana` exports the enabled subset as Grafana-oriented JSON built on the current recording rules and metrics
@@ -107,7 +107,7 @@ curl.exe http://localhost:8080/v1/dashboards/grafana
 
 What to expect:
 
-- `/v1/dashboards` returns overview, consensus-and-recovery, and peer-sync dashboard bundles with stable panel IDs, PromQL queries, source endpoints, related recording rules, and disabled reasons when a dashboard or panel is not applicable to the current node configuration
+- `/v1/dashboards` returns overview, consensus-and-recovery, and peer-sync dashboard bundles with stable panel IDs, PromQL queries, source endpoints, related recording rules, and disabled reasons when a dashboard or panel is not applicable to the current node configuration; the peer-sync bundle now includes incident-by-state and incident-by-error-code panels
 - `/v1/dashboards/grafana` exports only the enabled dashboards and panels as Grafana-oriented JSON so you can import a starting Zephyr dashboard set after wiring a Prometheus data source to `/metrics`
 - treat the bundle as a production-oriented starting point rather than a final layout; tune datasource selection, labels, thresholds, and panel arrangement for your deployment
 
@@ -314,8 +314,8 @@ Expected behavior:
 - those same responses now expose `recovery`, which shows pending replayable local proposal or vote actions, pending import backlog, and recent replay/completion plus snapshot-restore metadata from the broader local consensus recovery surface
 - those same responses now expose `diagnostics`, which show recent rejected proposal, vote, commit, or import actions with stable error codes
 - those same responses now expose `peerSyncHistory`, which keeps recent cross-peer sync incidents visible even after restart
-- those same responses now expose `peerSyncSummary`, which rolls those incidents up by peer and state so operators can see the dominant network problem quickly
-- `GET /v1/metrics` now provides the same durable peer summary alongside machine-readable consensus-action, diagnostic, and live peer-runtime counters for dashboards or automation
+- those same responses now expose `peerSyncSummary`, which rolls those incidents up by peer, state, reason, and error code so operators can see the dominant network problem quickly
+- `GET /v1/metrics` now provides the same durable peer summary alongside machine-readable consensus-action, diagnostic, peer-incident reason and error-code counters, and live peer-runtime counters for dashboards or automation
 - if `ZEPHYR_ENABLE_STRUCTURED_LOGS=true`, the node also emits newline-delimited JSON logs for diagnostics, peer incidents, and snapshot recovery as those events happen
 - if a peer link drops and later returns, validators keep rebroadcasting their latest local proposal or vote for the pending height until the matching certificate exists
 - if a validator restarts mid-round after persisting a local proposal or vote, the node can replay that pending action from the persisted recovery state
@@ -363,8 +363,8 @@ Expected behavior:
 
 - inspect `GET /v1/peers` first; `syncState=snapshot_restored` tells you a peer-specific repair happened, `lastSnapshotRestoreReason` distinguishes `peer_diverged`, `import_repair`, and `fetch_fallback`, and `recentIncidents` plus the per-peer counters keep that story available after restart
 - inspect `lastImportErrorCode`, `lastImportFailureHeight`, and `lastImportFailureBlockHash` on that peer view when the repair was triggered by a rejected block import
-- inspect `peerSyncSummary` in `GET /v1/status` or `GET /v1/consensus` to see whether the issue is isolated to one peer or part of a broader state like repeated `unreachable`, `import_blocked`, or `snapshot_restored` incidents across several peers
-- inspect `GET /v1/metrics` to compare that durable summary with the live `peerRuntime.bySyncState` distribution when some peers have already recovered and others are still failing
+- inspect `peerSyncSummary` in `GET /v1/status` or `GET /v1/consensus` to see whether the issue is isolated to one peer or part of a broader pattern such as repeated `unreachable` incidents, admission failures, or `proposal_required` import blocks across several peers
+- inspect `GET /v1/metrics` to compare that durable summary with the live `peerRuntime.bySyncState` distribution and the Prometheus-facing reason or error-code rollups when some peers have already recovered and others are still failing
 - inspect `diagnostics` in `GET /v1/status` or `GET /v1/consensus`; if the latest `block_import_rejected` entry has `source=peer_sync`, the node hit a block-import problem during background sync before falling back to snapshot restore
 - inspect `recovery.pendingImportCount` and `recovery.pendingImportHeights` to see whether the node is still blocked on a peer-import path or whether that backlog has already been cleared
 - inspect `recovery.lastSnapshotRestoreAt`, `recovery.lastSnapshotRestoreHeight`, and `recovery.lastSnapshotRestoreBlockHash` to confirm that snapshot repair actually ran and which chain tip it restored
@@ -408,6 +408,10 @@ Expected behavior:
 13. Inspect the resulting block, vote tallies, and certificate on both nodes.
 14. Optionally restart a node and confirm the validator snapshot, round state, consensus artifacts, and `recovery` state survived.
 15. If the restarted node had a pending local proposal or vote, confirm the action is replayed and later marked completed once the block finalizes.
+
+
+
+
 
 
 

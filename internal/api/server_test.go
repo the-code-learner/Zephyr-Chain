@@ -2758,7 +2758,13 @@ func TestStatusExposesPeerSyncSummaryAcrossPeers(t *testing.T) {
 	if len(statusResponse.PeerSyncSummary.States) != 2 || statusResponse.PeerSyncSummary.States[0].State != "unreachable" || statusResponse.PeerSyncSummary.States[0].TotalOccurrences != 2 {
 		t.Fatalf("unexpected peer sync state summaries %+v", statusResponse.PeerSyncSummary.States)
 	}
-	if len(statusResponse.PeerSyncSummary.Peers) != 2 || statusResponse.PeerSyncSummary.Peers[0].PeerURL != "http://peer-b.example" || statusResponse.PeerSyncSummary.Peers[0].LatestState != "import_blocked" {
+	if len(statusResponse.PeerSyncSummary.Reasons) != 1 || statusResponse.PeerSyncSummary.Reasons[0].Reason != "unknown" || statusResponse.PeerSyncSummary.Reasons[0].IncidentCount != 2 || statusResponse.PeerSyncSummary.Reasons[0].AffectedPeerCount != 2 || statusResponse.PeerSyncSummary.Reasons[0].TotalOccurrences != 3 {
+		t.Fatalf("unexpected peer sync reason summaries %+v", statusResponse.PeerSyncSummary.Reasons)
+	}
+	if len(statusResponse.PeerSyncSummary.ErrorCodes) != 2 || statusResponse.PeerSyncSummary.ErrorCodes[0].ErrorCode != "unknown" || statusResponse.PeerSyncSummary.ErrorCodes[0].TotalOccurrences != 2 || statusResponse.PeerSyncSummary.ErrorCodes[1].ErrorCode != "proposal_required" || statusResponse.PeerSyncSummary.ErrorCodes[1].TotalOccurrences != 1 {
+		t.Fatalf("unexpected peer sync error code summaries %+v", statusResponse.PeerSyncSummary.ErrorCodes)
+	}
+	if len(statusResponse.PeerSyncSummary.Peers) != 2 || statusResponse.PeerSyncSummary.Peers[0].PeerURL != "http://peer-b.example" || statusResponse.PeerSyncSummary.Peers[0].LatestState != "import_blocked" || statusResponse.PeerSyncSummary.Peers[0].LatestErrorCode != "proposal_required" {
 		t.Fatalf("unexpected peer sync peer summaries %+v", statusResponse.PeerSyncSummary.Peers)
 	}
 
@@ -3274,7 +3280,7 @@ func TestHandleDashboardsExposeRecommendedBundles(t *testing.T) {
 	if response.DashboardCount != 3 || response.EnabledDashboardCount != 2 || response.DisabledDashboardCount != 1 {
 		t.Fatalf("unexpected dashboard counts %+v", response)
 	}
-	if response.PanelCount != 15 || response.EnabledPanelCount != 10 || response.DisabledPanelCount != 5 {
+	if response.PanelCount != 16 || response.EnabledPanelCount != 10 || response.DisabledPanelCount != 6 {
 		t.Fatalf("unexpected dashboard panel counts %+v", response)
 	}
 	if dashboard, ok := dashboardByName(response.Dashboards, "zephyr.overview"); !ok || !dashboard.Enabled {
@@ -3286,6 +3292,11 @@ func TestHandleDashboardsExposeRecommendedBundles(t *testing.T) {
 		t.Fatalf("expected disabled peer-sync dashboard, got %+v", response.Dashboards)
 	} else if panel, ok := dashboardPanelByID(dashboard.Panels, "peer_admitted_ratio"); !ok || panel.Enabled || !strings.Contains(panel.DisabledReason, "disabled") {
 		t.Fatalf("expected disabled peer_admitted_ratio panel, got %+v", dashboard.Panels)
+	}
+	if dashboard, ok := dashboardByName(response.Dashboards, "zephyr.peer_sync"); !ok {
+		t.Fatalf("expected peer-sync dashboard metadata, got %+v", response.Dashboards)
+	} else if panel, ok := dashboardPanelByID(dashboard.Panels, "peer_incident_error_codes"); !ok || panel.Enabled || !strings.Contains(panel.DisabledReason, "disabled") {
+		t.Fatalf("expected disabled peer_incident_error_codes panel, got %+v", dashboard.Panels)
 	}
 }
 
@@ -3318,7 +3329,7 @@ func TestHandleGrafanaDashboardsExportsEnabledDashboardsOnly(t *testing.T) {
 	if response.NodeID != "dashboard-export-node" {
 		t.Fatalf("unexpected grafana dashboard node %+v", response)
 	}
-	if response.DashboardCount != 3 || response.PanelCount != 15 {
+	if response.DashboardCount != 3 || response.PanelCount != 16 {
 		t.Fatalf("unexpected grafana dashboard counts %+v", response)
 	}
 	if dashboard, ok := grafanaDashboardByName(response.Dashboards, "zephyr.peer_sync"); !ok {
@@ -3336,6 +3347,13 @@ func TestHandleGrafanaDashboardsExportsEnabledDashboardsOnly(t *testing.T) {
 		}
 		if _, ok := grafanaTargetByExpression(panel.Targets, "zephyr:peer_sync_continuity:breached"); !ok {
 			t.Fatalf("expected peer sync breach query in grafana panel, got %+v", panel.Targets)
+		}
+		panel, ok = grafanaPanelByTitle(dashboard.Dashboard.Panels, "Peer incident error codes")
+		if !ok || panel.Type != "bargauge" {
+			t.Fatalf("expected peer incident error codes bargauge panel, got %+v", dashboard.Dashboard.Panels)
+		}
+		if _, ok := grafanaTargetByExpression(panel.Targets, "zephyr_peer_sync_error_code_occurrence_count"); !ok {
+			t.Fatalf("expected peer incident error code query in grafana panel, got %+v", panel.Targets)
 		}
 	}
 	if dashboard, ok := grafanaDashboardByName(response.Dashboards, "zephyr.overview"); !ok {
@@ -3532,6 +3550,12 @@ func TestMetricsExposeConsensusAndPeerObservabilityAggregates(t *testing.T) {
 	if len(response.PeerSyncSummary.States) == 0 || response.PeerSyncSummary.States[0].State != "unreachable" || response.PeerSyncSummary.States[0].TotalOccurrences != 2 {
 		t.Fatalf("unexpected peer sync state summaries %+v", response.PeerSyncSummary.States)
 	}
+	if len(response.PeerSyncSummary.Reasons) != 2 || response.PeerSyncSummary.Reasons[0].Reason != "unknown" || response.PeerSyncSummary.Reasons[0].IncidentCount != 2 || response.PeerSyncSummary.Reasons[0].AffectedPeerCount != 2 || response.PeerSyncSummary.Reasons[0].TotalOccurrences != 3 || response.PeerSyncSummary.Reasons[1].Reason != "validator binding mismatch" || response.PeerSyncSummary.Reasons[1].TotalOccurrences != 1 {
+		t.Fatalf("unexpected peer sync reason summaries %+v", response.PeerSyncSummary.Reasons)
+	}
+	if len(response.PeerSyncSummary.ErrorCodes) != 2 || response.PeerSyncSummary.ErrorCodes[0].ErrorCode != "unknown" || response.PeerSyncSummary.ErrorCodes[0].IncidentCount != 2 || response.PeerSyncSummary.ErrorCodes[0].AffectedPeerCount != 2 || response.PeerSyncSummary.ErrorCodes[0].TotalOccurrences != 3 || response.PeerSyncSummary.ErrorCodes[1].ErrorCode != "proposal_required" || response.PeerSyncSummary.ErrorCodes[1].TotalOccurrences != 1 {
+		t.Fatalf("unexpected peer sync error code summaries %+v", response.PeerSyncSummary.ErrorCodes)
+	}
 	if response.PeerRuntime.ConfiguredPeerCount != 3 || response.PeerRuntime.ReachablePeerCount != 2 || response.PeerRuntime.UnreachablePeerCount != 1 || response.PeerRuntime.AdmittedPeerCount != 2 || response.PeerRuntime.UnadmittedPeerCount != 1 {
 		t.Fatalf("unexpected peer runtime metrics %+v", response.PeerRuntime)
 	}
@@ -3636,6 +3660,9 @@ func TestPrometheusMetricsExportOperatorSignals(t *testing.T) {
 	requirePrometheusLine(t, body, "zephyr_peer_runtime_by_sync_state_count{state=\"unreachable\"} 1")
 	requirePrometheusLine(t, body, "zephyr_peer_runtime_by_sync_state_count{state=\"import_blocked\"} 1")
 	requirePrometheusLine(t, body, "zephyr_peer_sync_occurrence_count 2")
+	requirePrometheusLine(t, body, "zephyr_peer_sync_reason_occurrence_count{reason=\"unknown\"} 2")
+	requirePrometheusLine(t, body, "zephyr_peer_sync_error_code_occurrence_count{code=\"proposal_required\"} 1")
+	requirePrometheusLine(t, body, "zephyr_peer_sync_error_code_occurrence_count{code=\"unknown\"} 1")
 }
 func TestStructuredLogsEmitConsensusPeerAndRecoveryEvents(t *testing.T) {
 	var logBuffer bytes.Buffer
