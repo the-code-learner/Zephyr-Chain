@@ -31,15 +31,15 @@ Implemented today:
 
 Implemented in this iteration:
 
-- `GET /v1/peers` now exposes durable per-peer sync incident history through `recentIncidents`, plus `incidentCount`, `incidentOccurrences`, and `latestIncidentAt`, alongside the live `syncState`, `heightDelta`, last sync attempt/success, last import failure, and last snapshot-restore metadata
-- `GET /v1/status`, `GET /v1/consensus`, and `GET /v1/dev/block-template` now expose both durable `peerSyncHistory` and derived `peerSyncSummary` surfaces so operators can see cross-peer incident totals, affected peers, and dominant failure states without reconstructing them by hand
-- peer sync incidents are now durably recorded in the ledger, merged when the same peer failure repeats, rolled up into restart-safe cross-peer and per-peer summaries, and preserved when peer snapshot repair replaces chain state
-- focused tests now cover same-height divergence repair telemetry, peer-sync import-repair telemetry, durable peer-incident persistence across restart, multi-peer summary exposure, and preservation through peer snapshot restore
+- `GET /v1/metrics` now exposes a machine-readable observability surface with ledger-derived `consensusActions`, diagnostic buckets, durable `peerSyncSummary`, and live `peerRuntime` sync-state counts for configured peers
+- `GET /v1/peers` continues to expose durable per-peer sync incident history through `recentIncidents`, plus `incidentCount`, `incidentOccurrences`, and `latestIncidentAt`, alongside the live `syncState`, `heightDelta`, last sync attempt or success, last import failure, and last snapshot-restore metadata
+- `GET /v1/status`, `GET /v1/consensus`, and `GET /v1/dev/block-template` continue to expose durable `peerSyncHistory` plus derived `peerSyncSummary`, and the new metrics endpoint now mirrors those durable summaries with live runtime counters instead of making operators reconstruct them by hand
+- focused tests now cover ledger metric persistence, API metrics aggregation, same-height divergence repair telemetry, peer-sync import-repair telemetry, durable peer-incident persistence across restart, multi-peer summary exposure, and preservation through peer snapshot restore
 
 Planned but not implemented yet:
 
 - authenticated peer discovery and replay-safe transport over libp2p on top of the new HTTP admission and binding policy
-- broader consensus recovery coverage plus structured logs, metrics, and longer-horizon incident correlation beyond the current local proposal, vote, peer-import, snapshot-recovery, durable peer-sync history, and derived peer-sync summary surfaces
+- broader consensus recovery coverage plus structured logs, richer time-series export, and longer-horizon incident correlation beyond the current local proposal, vote, peer-import, snapshot-recovery, JSON metrics, durable peer-sync history, and derived peer-sync summary surfaces
 - on-chain staking and governance-driven validator updates instead of ad hoc election API writes
 - deterministic WASM smart-contract runtime with native fee metering
 - confidential compute marketplace for encrypted off-chain jobs paid in native tokens
@@ -298,7 +298,7 @@ The production roadmap now lives in [docs/roadmap.md](./docs/roadmap.md).
 Short version:
 
 1. Move the new enforced HTTP peer-admission and validator-binding policy toward authenticated libp2p discovery plus replay-safe transport behavior.
-2. Extend the new `blockReadiness`, `roundHistory`, `roundEvidence`, `recovery`, `diagnostics`, `peerSyncHistory`, `peerSyncSummary`, and per-peer `recentIncidents` into broader recovery, multi-peer diagnosis, structured logs, and production incident tooling.
+2. Extend the new `blockReadiness`, `roundHistory`, `roundEvidence`, `recovery`, `diagnostics`, `peerSyncHistory`, `peerSyncSummary`, per-peer `recentIncidents`, and `GET /v1/metrics` into deeper recovery, longer-horizon incident retention, structured logs, richer exported metrics, and production incident tooling.
 3. Move validator lifecycle changes behind staking, delegation, slashing, and governance state transitions.
 4. Add deterministic WASM execution, native fee metering, and the confidential compute lane.
 5. Add production observability, recovery tooling, and public testnet operations.
@@ -315,6 +315,7 @@ Short version:
 ## License
 
 Zephyr Chain is licensed under the MIT License. See [LICENSE](./LICENSE).
+
 
 
 

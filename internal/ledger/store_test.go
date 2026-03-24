@@ -1072,6 +1072,156 @@ func TestStorePeerSyncHistoryPersistsAcrossRestartAndMergesRepeatedIncidents(t *
 	}
 }
 
+func TestStoreConsensusMetricsPersistAcrossRestart(t *testing.T) {
+	dataDir := t.TempDir()
+	store, err := NewStore(dataDir)
+	if err != nil {
+		t.Fatalf("create store: %v", err)
+	}
+
+	proposalRecordedAt := time.Date(2026, time.March, 24, 20, 30, 0, 0, time.UTC)
+	replayedAt := proposalRecordedAt.Add(30 * time.Second)
+	voteRecordedAt := proposalRecordedAt.Add(1 * time.Minute)
+	roundAdvanceRecordedAt := proposalRecordedAt.Add(2 * time.Minute)
+	proposalHash := testHash("metrics-proposal")
+	voteHash := testHash("metrics-vote")
+	if err := store.RecordConsensusAction(ConsensusAction{
+		Type:       ConsensusActionProposal,
+		Height:     3,
+		Round:      0,
+		BlockHash:  proposalHash,
+		Validator:  "zph_validator_a",
+		RecordedAt: proposalRecordedAt,
+	}); err != nil {
+		t.Fatalf("record proposal action: %v", err)
+	}
+	if err := store.MarkConsensusActionReplayed(ConsensusActionProposal, 3, 0, proposalHash, "zph_validator_a", replayedAt); err != nil {
+		t.Fatalf("mark proposal replayed: %v", err)
+	}
+	if err := store.RecordConsensusAction(ConsensusAction{
+		Type:       ConsensusActionVote,
+		Height:     3,
+		Round:      0,
+		BlockHash:  voteHash,
+		Validator:  "zph_validator_b",
+		RecordedAt: voteRecordedAt,
+	}); err != nil {
+		t.Fatalf("record vote action: %v", err)
+	}
+	if err := store.RecordConsensusAction(ConsensusAction{
+		Type:       ConsensusActionRoundAdvance,
+		Height:     3,
+		Round:      1,
+		Validator:  "zph_validator_a",
+		RecordedAt: roundAdvanceRecordedAt,
+		Status:     ConsensusActionCompleted,
+		Note:       "advanced after timeout",
+	}); err != nil {
+		t.Fatalf("record round-advance action: %v", err)
+	}
+
+	firstDiagnosticAt := proposalRecordedAt.Add(3 * time.Minute)
+	secondDiagnosticAt := proposalRecordedAt.Add(4 * time.Minute)
+	thirdDiagnosticAt := proposalRecordedAt.Add(5 * time.Minute)
+	if err := store.RecordConsensusDiagnostic(ConsensusDiagnostic{
+		Kind:       "proposal_rejected",
+		Code:       "template_mismatch",
+		Message:    "proposal template does not match local block template",
+		Height:     3,
+		Round:      0,
+		BlockHash:  proposalHash,
+		Validator:  "zph_validator_a",
+		Source:     "api",
+		ObservedAt: firstDiagnosticAt,
+	}); err != nil {
+		t.Fatalf("record first diagnostic: %v", err)
+	}
+	if err := store.RecordConsensusDiagnostic(ConsensusDiagnostic{
+		Kind:       "block_import_rejected",
+		Code:       "proposal_required",
+		Message:    "consensus proposal is required before block import",
+		Height:     3,
+		Round:      0,
+		BlockHash:  proposalHash,
+		Validator:  "zph_validator_b",
+		Source:     "peer_sync",
+		ObservedAt: secondDiagnosticAt,
+	}); err != nil {
+		t.Fatalf("record second diagnostic: %v", err)
+	}
+	if err := store.RecordConsensusDiagnostic(ConsensusDiagnostic{
+		Kind:       "block_import_rejected",
+		Code:       "proposal_required",
+		Message:    "consensus proposal is required before block import",
+		Height:     4,
+		Round:      1,
+		BlockHash:  voteHash,
+		Validator:  "zph_validator_c",
+		Source:     "peer_sync",
+		ObservedAt: thirdDiagnosticAt,
+	}); err != nil {
+		t.Fatalf("record third diagnostic: %v", err)
+	}
+
+	reopened, err := NewStore(dataDir)
+	if err != nil {
+		t.Fatalf("reopen store: %v", err)
+	}
+
+	actionMetrics := reopened.ConsensusActionMetrics()
+	if actionMetrics.TotalCount != 3 || actionMetrics.PendingCount != 2 || actionMetrics.TotalReplayAttempts != 1 {
+		t.Fatalf("unexpected action metrics %+v", actionMetrics)
+	}
+	if actionMetrics.LatestRecordedAt == nil || !actionMetrics.LatestRecordedAt.Equal(roundAdvanceRecordedAt) {
+		t.Fatalf("unexpected latest action recorded time %+v", actionMetrics)
+	}
+	if actionMetrics.LatestCompletedAt == nil || !actionMetrics.LatestCompletedAt.Equal(roundAdvanceRecordedAt) {
+		t.Fatalf("unexpected latest action completed time %+v", actionMetrics)
+	}
+	actionTypes := make(map[string]int)
+	for _, bucket := range actionMetrics.ByType {
+		actionTypes[bucket.Label] = bucket.Count
+	}
+	if actionTypes[ConsensusActionProposal] != 1 || actionTypes[ConsensusActionVote] != 1 || actionTypes[ConsensusActionRoundAdvance] != 1 {
+		t.Fatalf("unexpected action type buckets %+v", actionMetrics.ByType)
+	}
+	actionStatuses := make(map[string]int)
+	for _, bucket := range actionMetrics.ByStatus {
+		actionStatuses[bucket.Label] = bucket.Count
+	}
+	if actionStatuses[ConsensusActionPending] != 2 || actionStatuses[ConsensusActionCompleted] != 1 {
+		t.Fatalf("unexpected action status buckets %+v", actionMetrics.ByStatus)
+	}
+
+	diagnosticMetrics := reopened.ConsensusDiagnosticMetrics()
+	if diagnosticMetrics.TotalCount != 3 {
+		t.Fatalf("unexpected diagnostic metrics %+v", diagnosticMetrics)
+	}
+	if diagnosticMetrics.LatestObservedAt == nil || !diagnosticMetrics.LatestObservedAt.Equal(thirdDiagnosticAt) {
+		t.Fatalf("unexpected latest diagnostic time %+v", diagnosticMetrics)
+	}
+	diagnosticKinds := make(map[string]int)
+	for _, bucket := range diagnosticMetrics.ByKind {
+		diagnosticKinds[bucket.Label] = bucket.Count
+	}
+	if diagnosticKinds["proposal_rejected"] != 1 || diagnosticKinds["block_import_rejected"] != 2 {
+		t.Fatalf("unexpected diagnostic kind buckets %+v", diagnosticMetrics.ByKind)
+	}
+	diagnosticCodes := make(map[string]int)
+	for _, bucket := range diagnosticMetrics.ByCode {
+		diagnosticCodes[bucket.Label] = bucket.Count
+	}
+	if diagnosticCodes["template_mismatch"] != 1 || diagnosticCodes["proposal_required"] != 2 {
+		t.Fatalf("unexpected diagnostic code buckets %+v", diagnosticMetrics.ByCode)
+	}
+	diagnosticSources := make(map[string]int)
+	for _, bucket := range diagnosticMetrics.BySource {
+		diagnosticSources[bucket.Label] = bucket.Count
+	}
+	if diagnosticSources["api"] != 1 || diagnosticSources["peer_sync"] != 2 {
+		t.Fatalf("unexpected diagnostic source buckets %+v", diagnosticMetrics.BySource)
+	}
+}
 func newTestStore(t *testing.T) *Store {
 	t.Helper()
 
