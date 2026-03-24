@@ -30,7 +30,7 @@ The API layer now handles:
 
 - liveness through `GET /health`
 - runtime status through `GET /v1/status`
-- peer visibility through `GET /v1/peers`
+- peer visibility through `GET /v1/peers`, including admission, identity, and per-peer sync/repair telemetry
 - consensus visibility through `GET /v1/consensus`
 - validator election inputs through `POST /v1/election`
 - the latest durable validator snapshot through `GET /v1/validators`
@@ -61,7 +61,7 @@ Today the concrete implementation still uses static HTTP peer URLs, but the rest
 - snapshot fetches for catch-up restore
 - signed validator transport-identity headers on replicated POSTs when a validator private key is configured
 
-This is an important production-preparation step because it gives the codebase a seam where authenticated libp2p networking can later replace the HTTP implementation. The current HTTP layer can already expose and verify validator identity proofs, enforce strict peer admission, and pin configured peers to expected validators when the operator enables that policy.
+This is an important production-preparation step because it gives the codebase a seam where authenticated libp2p networking can later replace the HTTP implementation. The current HTTP layer can already expose and verify validator identity proofs, enforce strict peer admission, pin configured peers to expected validators when the operator enables that policy, and surface per-peer sync state plus repair metadata through the peer view.
 
 ### Durable Ledger
 
@@ -138,10 +138,11 @@ The repository has moved from consensus-preparation-only into certificate-gated 
 
 - validator nodes can now prove identity and enforce peer admission over the current transport, but peer discovery is still static HTTP configuration rather than authenticated libp2p
 - automation can now rotate proposers on timeout, rebroadcast the latest local proposal or vote after link recovery, and replay persisted local proposal or vote actions after restart
-- the current operator surface is materially better through round warnings, per-height round history, block readiness, replay and import backlog visibility, snapshot-restore history, leading tallies, and bounded rejection diagnostics, but it is still too thin for full production incident handling across transport, peer-import, and broader recovery scenarios
+- the current operator surface is materially better through round warnings, per-height round history, block readiness, replay and import backlog visibility, per-peer sync telemetry, snapshot-restore history, leading tallies, and bounded rejection diagnostics, but it is still too thin for full production incident handling across transport, peer-import, and broader recovery scenarios
 - broader consensus recovery coverage is still needed beyond the current local proposal/vote WAL plus import-repair and snapshot-recovery path
 
 That is why the project has moved beyond replicated prototype, but it is still not a production blockchain.
+
 
 
 

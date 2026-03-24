@@ -301,6 +301,10 @@ Current behavior:
 - each peer view includes the remote `validatorAddress` when advertised
 - `expectedValidator`, `admitted`, and `admissionError` show the local admission policy and whether the peer passed it
 - `identityPresent`, `identityVerified`, and `identityError` show whether the peer exposed a signed transport identity and whether local verification succeeded
+- `heightDelta` and `syncState` show whether the peer is aligned, ahead, behind, divergent, unadmitted, unreachable, blocked on import, or was recently repaired through snapshot restore
+- `lastSyncAttemptAt` and `lastSyncSuccessAt` show the last peer-sync attempt and completion times for that peer
+- `lastImportErrorCode`, `lastImportErrorMessage`, `lastImportFailureAt`, `lastImportFailureHeight`, and `lastImportFailureBlockHash` show the most recent import-side failure observed while syncing from that peer
+- `lastSnapshotRestoreAt`, `lastSnapshotRestoreHeight`, `lastSnapshotRestoreBlockHash`, and `lastSnapshotRestoreReason` show the latest snapshot-based repair event for that peer, with reasons currently drawn from `fetch_fallback`, `import_repair`, and `peer_diverged`
 - when strict peer admission or peer binding is enabled, background sync and outgoing replication use only admitted peers
 
 ### POST /v1/election
@@ -377,6 +381,7 @@ Current behavior:
 - proposal, vote, and block dissemination for the current automation flow use these same admitted peer paths
 - the automation path now sends proposals before votes to avoid vote-before-proposal races on the happy path
 - the automation loop also rebroadcasts the latest stored proposal and latest stored local vote for the pending height until a matching certificate exists, which helps delayed peers recover on the current HTTP devnet
+- `GET /v1/peers` now shows whether a given peer most recently aligned normally, fell back to snapshot restore, or triggered an import-side repair path during sync
 
 ### POST /v1/internal/blocks
 
@@ -393,6 +398,7 @@ If proposals exist for that height but the imported block does not match any sto
 Returns the current durable node snapshot used for catch-up restore.
 
 When another node applies this snapshot through peer sync, it preserves its own local recovery and diagnostic history instead of replacing that operator context with the peer's local WAL or diagnostics.
+
 
 
 

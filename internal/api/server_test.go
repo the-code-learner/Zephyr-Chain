@@ -2532,6 +2532,24 @@ func TestPeerSyncRestoresSnapshotWhenSameHeightDiverges(t *testing.T) {
 	if replicaAccount.Balance != 75 || replicaAccount.Nonce != 1 {
 		t.Fatalf("unexpected replica sender state after divergence repair: %+v", replicaAccount)
 	}
+
+	waitFor(t, func() bool {
+		peers := replica.peerSnapshot()
+		return len(peers) == 1 && peers[0].LastSnapshotRestoreAt != nil
+	})
+	peers := replica.peerSnapshot()
+	if len(peers) != 1 {
+		t.Fatalf("expected 1 peer view after divergence repair, got %d", len(peers))
+	}
+	if peers[0].SyncState != "snapshot_restored" {
+		t.Fatalf("expected snapshot_restored sync state after divergence repair, got %+v", peers[0])
+	}
+	if peers[0].LastSnapshotRestoreReason != "peer_diverged" {
+		t.Fatalf("expected peer_diverged snapshot reason, got %+v", peers[0])
+	}
+	if peers[0].LastSnapshotRestoreHeight != producerBlock.Height || peers[0].LastSnapshotRestoreBlockHash != producerBlock.Hash {
+		t.Fatalf("unexpected peer snapshot restore metadata %+v", peers[0])
+	}
 }
 
 func TestHandleImportBlockRejectsAndExposesPendingImportRecovery(t *testing.T) {
@@ -2773,7 +2791,26 @@ func TestPeerSyncConsensusImportFailureRestoresSnapshotAndRecordsRecoveryHistory
 	if diagnostic.Kind != "block_import_rejected" || diagnostic.Code != "proposal_required" || diagnostic.Source != "peer_sync" {
 		t.Fatalf("unexpected peer-sync diagnostic %+v", diagnostic)
 	}
+
+	waitFor(t, func() bool {
+		peers := replica.peerSnapshot()
+		return len(peers) == 1 && peers[0].LastSnapshotRestoreAt != nil && peers[0].LastImportFailureAt != nil
+	})
+	peers := replica.peerSnapshot()
+	if len(peers) != 1 {
+		t.Fatalf("expected 1 peer view after import repair, got %d", len(peers))
+	}
+	if peers[0].SyncState != "snapshot_restored" {
+		t.Fatalf("expected snapshot_restored peer sync state, got %+v", peers[0])
+	}
+	if peers[0].LastImportErrorCode != "proposal_required" || peers[0].LastImportFailureHeight != block.Height || peers[0].LastImportFailureBlockHash != block.Hash {
+		t.Fatalf("unexpected peer import failure telemetry %+v", peers[0])
+	}
+	if peers[0].LastSnapshotRestoreReason != "import_repair" || peers[0].LastSnapshotRestoreHeight != block.Height || peers[0].LastSnapshotRestoreBlockHash != block.Hash {
+		t.Fatalf("unexpected peer snapshot repair telemetry %+v", peers[0])
+	}
 }
+
 func newTestServer(t *testing.T, config Config) *Server {
 	t.Helper()
 
