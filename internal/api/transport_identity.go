@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/zephyr-chain/zephyr-chain/internal/consensus"
 	"github.com/zephyr-chain/zephyr-chain/internal/tx"
 )
 
@@ -149,6 +150,48 @@ func (s *transportIdentitySigner) Build(now time.Time) (TransportIdentity, error
 	}
 	identity.Signature = signature
 	return identity, nil
+}
+
+func (s *transportIdentitySigner) SignProposal(proposal consensus.Proposal, now time.Time) (consensus.Proposal, error) {
+	if s == nil {
+		return consensus.Proposal{}, errInvalidValidatorPrivateKey
+	}
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	proposal.Proposer = s.validatorAddress
+	proposal.PublicKey = s.publicKey
+	if proposal.ProposedAt.IsZero() {
+		proposal.ProposedAt = now.UTC()
+	}
+	proposal.Payload = proposal.CanonicalPayload()
+	signature, err := signTransportIdentityPayload(s.privateKey, proposal.Payload)
+	if err != nil {
+		return consensus.Proposal{}, err
+	}
+	proposal.Signature = signature
+	return proposal, nil
+}
+
+func (s *transportIdentitySigner) SignVote(vote consensus.Vote, now time.Time) (consensus.Vote, error) {
+	if s == nil {
+		return consensus.Vote{}, errInvalidValidatorPrivateKey
+	}
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	vote.Voter = s.validatorAddress
+	vote.PublicKey = s.publicKey
+	if vote.VotedAt.IsZero() {
+		vote.VotedAt = now.UTC()
+	}
+	vote.Payload = vote.CanonicalPayload()
+	signature, err := signTransportIdentityPayload(s.privateKey, vote.Payload)
+	if err != nil {
+		return consensus.Vote{}, err
+	}
+	vote.Signature = signature
+	return vote, nil
 }
 
 func parseValidatorPrivateKey(raw string) (*ecdsa.PrivateKey, string, error) {

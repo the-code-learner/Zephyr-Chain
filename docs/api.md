@@ -14,19 +14,26 @@ Change it with `ZEPHYR_HTTP_ADDR` when starting the node.
 
 - `ZEPHYR_HTTP_ADDR`: HTTP bind address, default `:8080`
 - `ZEPHYR_NODE_ID`: node identifier, default `node-local`
-- `ZEPHYR_VALIDATOR_ADDRESS`: local validator address for proposer-schedule enforcement, default empty
-- `ZEPHYR_VALIDATOR_PRIVATE_KEY`: base64-encoded PKCS#8 P-256 private key used to derive and sign the node transport identity, default empty
+- `ZEPHYR_VALIDATOR_ADDRESS`: local validator address for proposer-schedule enforcement and status output, default empty
+- `ZEPHYR_VALIDATOR_PRIVATE_KEY`: base64-encoded PKCS#8 P-256 private key used to derive and sign the node transport identity plus automated proposal and vote messages, default empty
 - `ZEPHYR_DATA_DIR`: durable node state directory, default `var/node`
 - `ZEPHYR_PEERS`: comma-separated peer base URLs, default empty
 - `ZEPHYR_BLOCK_INTERVAL`: automatic block-production interval, default `15s`
+- `ZEPHYR_CONSENSUS_INTERVAL`: consensus automation ticker interval, default `1s`
 - `ZEPHYR_SYNC_INTERVAL`: peer poll/sync interval, default `5s`
 - `ZEPHYR_MAX_TXS_PER_BLOCK`: maximum committed transactions per block, default `100`
 - `ZEPHYR_ENABLE_BLOCK_PRODUCTION`: enable local block production, default `true`
+- `ZEPHYR_ENABLE_CONSENSUS_AUTOMATION`: enable the current round-0 automation loop, default `false`
 - `ZEPHYR_ENABLE_PEER_SYNC`: enable background peer sync, default `true`
 - `ZEPHYR_REQUIRE_PEER_IDENTITY`: when `true`, replicated peer POST requests must include a valid signed transport identity, default `false`
 - `ZEPHYR_PEER_VALIDATORS`: comma-separated `<peer-url>=<validator-address>` bindings used to pin configured peers to expected validators, default empty
 - `ZEPHYR_ENFORCE_PROPOSER_SCHEDULE`: when `true`, only the scheduled proposer may produce the next block once a validator set exists, default `false`
 - `ZEPHYR_REQUIRE_CONSENSUS_CERTIFICATES`: when `true`, local block commit and remote block import require a matching proposal and quorum certificate, default `false`
+
+Notes:
+
+- startup rejects `ZEPHYR_ENABLE_CONSENSUS_AUTOMATION=true` unless `ZEPHYR_VALIDATOR_PRIVATE_KEY` is configured
+- if `ZEPHYR_VALIDATOR_ADDRESS` is also set, startup rejects mismatches between that address and the private key-derived address
 
 ## Core Consensus Types
 
@@ -115,7 +122,6 @@ Current meaning:
 Current meaning:
 
 - this proof exists when `ZEPHYR_VALIDATOR_PRIVATE_KEY` is configured
-- the node derives the validator address from that key or rejects startup if it conflicts with `ZEPHYR_VALIDATOR_ADDRESS`
 - peers verify the proof when reading `GET /v1/status`, and validator nodes attach the same proof to replicated POST requests
 - when `ZEPHYR_REQUIRE_PEER_IDENTITY=true`, replicated peer POST requests without a valid proof are rejected with `403`
 - when `ZEPHYR_PEER_VALIDATORS` is configured, the receiving node also checks that the proven validator belongs to its configured peer-binding allowlist
@@ -125,6 +131,13 @@ Current meaning:
 ### GET /v1/consensus
 
 Returns the durable validator snapshot, the latest consensus artifacts, and the derived consensus summary for the next height.
+
+Current behavior:
+
+- the response includes `consensusAutomationEnabled`, `proposerScheduleEnforced`, and `consensusCertificatesRequired`
+- `validatorSet` exposes the durable validator snapshot
+- `artifacts` exposes the latest stored proposal, votes, and certificate
+- `consensus` exposes the derived summary for `nextHeight`, `nextProposer`, total voting power, and quorum target
 
 ### POST /v1/consensus/proposals
 
@@ -139,6 +152,7 @@ Current behavior:
 - `transactions` must be present and must match `transactionIds` in the same order
 - the proposal is stored durably and replicated to admitted peers when strict peer admission is enabled
 - the proposal becomes part of the block-gating path when certificate enforcement is enabled
+- when automation is enabled, the scheduled proposer uses the same validation path internally before broadcasting the proposal
 
 ### POST /v1/consensus/votes
 
@@ -151,6 +165,7 @@ Current behavior:
 - duplicate same-block votes from the same validator are idempotent
 - if the accumulated vote power reaches quorum, the node stores a commit certificate artifact
 - when certificate enforcement is enabled, that certificate can unlock local commit and remote import for the matching block hash
+- when automation is enabled, active validators use the same validation path internally before broadcasting their vote
 
 ## Runtime And Ledger Endpoints
 
@@ -164,6 +179,7 @@ Returns the local runtime status for the current node, including consensus summa
 
 Current behavior:
 
+- the response includes `consensusAutomationEnabled`
 - when `ZEPHYR_VALIDATOR_PRIVATE_KEY` is configured, the response includes an `identity` object with a signed transport proof for the local validator
 - `peerIdentityRequired` is `true` when strict peer admission or explicit peer-validator binding is enabled
 - if `ZEPHYR_VALIDATOR_ADDRESS` is also configured, startup rejects mismatches between the configured address and the private key-derived address
@@ -181,7 +197,7 @@ Current behavior:
 
 ### POST /v1/election
 
-Calculates a validator set from the provided candidates, votes, and config, persists it durably in the ledger, increments the validator-set version, and resets pending proposal/vote/certificate artifacts.
+Calculates a validator set from the provided candidates, votes, and config, persists it durably in the ledger, increments the validator-set version, and resets pending proposal, vote, and certificate artifacts.
 
 ### GET /v1/validators
 
@@ -219,7 +235,7 @@ Current behavior:
 
 ### POST /v1/dev/produce-block
 
-Forces immediate block production from the current local mempool.
+Forces immediate block production from the current local mempool or a stored certified proposal.
 
 Behavior:
 
@@ -228,6 +244,7 @@ Behavior:
 - if proposer-schedule enforcement is enabled, the endpoint returns `409` when the local validator is not the scheduled proposer for the next height
 - if certificate enforcement is enabled, the endpoint returns `409` unless the resulting block exactly matches a stored proposal template and quorum certificate
 - when certificate enforcement is enabled and a matching certified proposal exists, the node can commit from the stored proposal body even if the local mempool no longer contains those transactions
+- when automation is enabled, the scheduled proposer may reach the same commit path without an operator POST as soon as quorum exists for its current proposal
 
 ## Internal Node-To-Node Endpoints
 
@@ -247,6 +264,7 @@ Current behavior:
 - if signed transport-identity headers are present, they must be complete and valid or the request is rejected with `400`
 - when `ZEPHYR_REQUIRE_PEER_IDENTITY=true`, replicated peer POST requests must include a valid signed transport identity or they are rejected with `403`
 - when `ZEPHYR_PEER_VALIDATORS` is configured, replicated peer POST requests are also rejected with `403` unless the proven validator belongs to the configured peer-binding allowlist
+- proposal, vote, and block dissemination for the current automation flow use these same admitted peer paths
 
 ### POST /v1/internal/blocks
 
@@ -257,7 +275,3 @@ If certificate enforcement is enabled on the receiving node, the imported block 
 ### GET /v1/internal/snapshot
 
 Returns the current durable node snapshot used for catch-up restore.
-
-
-
-
