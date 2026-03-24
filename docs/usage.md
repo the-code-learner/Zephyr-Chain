@@ -62,7 +62,7 @@ What to expect:
 - Node A accepts wallet transactions and can produce blocks
 - Node B polls peer status on `ZEPHYR_SYNC_INTERVAL`
 - transactions, faucet credits, proposals, votes, and blocks are replicated over the current transport implementation
-- if validator private keys are configured, `GET /v1/status` exposes a signed identity proof and `GET /v1/peers` shows whether peer identity verification succeeded
+- if validator private keys are configured, `GET /v1/status` exposes a signed identity proof and `GET /v1/peers` shows verification plus admission state for configured peers
 - if Node B starts late or misses a block import, it can recover from Node A's snapshot
 
 ## Inspect Validator Scheduling
@@ -110,6 +110,27 @@ What to expect:
 - `GET /v1/status` includes an `identity` object signed by the validator key
 - the node derives `validatorAddress` from that key unless you also set `ZEPHYR_VALIDATOR_ADDRESS`, in which case startup rejects mismatches
 - `GET /v1/peers` shows `identityPresent`, `identityVerified`, and `identityError` for configured peers
+- when strict peer admission is enabled, `GET /v1/status` also reports `peerIdentityRequired=true`
+
+## Enforce Peer Admission
+
+If you want the current HTTP devnet to fail closed on unsigned or mismatched peers, start the node with:
+
+```powershell
+$env:ZEPHYR_NODE_ID="node-a"
+$env:ZEPHYR_VALIDATOR_PRIVATE_KEY="<base64-pkcs8-p256-private-key>"
+$env:ZEPHYR_PEERS="http://localhost:8081"
+$env:ZEPHYR_REQUIRE_PEER_IDENTITY="true"
+$env:ZEPHYR_PEER_VALIDATORS="http://localhost:8081=zph_validator_b"
+go run ./cmd/node
+```
+
+What to expect:
+
+- `GET /v1/status` reports `peerIdentityRequired=true`
+- `GET /v1/peers` shows `expectedValidator`, `admitted`, and `admissionError` for each configured peer
+- background sync and outgoing replication use only admitted peers under this policy
+- replicated peer POST requests without a valid identity, or from validators outside the configured binding allowlist, are rejected with `403`
 
 ## Run A Certificate-Gated Commit Flow
 
@@ -134,7 +155,7 @@ go run ./cmd/node
 Invoke-RestMethod http://localhost:8080/v1/dev/block-template
 ```
 
-5. Build a signed proposal whose `height`, `previousHash`, `producedAt`, `transactionIds`, and `blockHash` match that template exactly.
+5. Build a signed proposal whose `height`, `previousHash`, `producedAt`, full `transactions`, ordered `transactionIds`, and `blockHash` match that template exactly.
 6. POST the proposal to `/v1/consensus/proposals`.
 7. Submit validator votes to `/v1/consensus/votes` until a quorum certificate exists for that same `blockHash`.
 8. Commit that exact block template by reusing the returned `producedAt` timestamp:
@@ -148,9 +169,11 @@ Expected behavior:
 
 - the proposal is rejected if the proposer is not scheduled for that height or if `previousHash` does not match the current tip
 - the proposal is rejected if `blockHash` does not match the signed `producedAt` plus ordered `transactionIds`
+- the proposal is rejected if embedded `transactions` are missing or do not match those `transactionIds`
 - votes are rejected if they do not reference a known proposal
 - once the accumulated vote power crosses quorum, the node stores a quorum certificate artifact
 - with `ZEPHYR_REQUIRE_CONSENSUS_CERTIFICATES=true`, block commit returns `409` until the matching proposal and certificate exist
+- once certified, the node can commit from the stored proposal body even if the local mempool no longer contains that candidate
 - even after certification, changing `producedAt` changes the candidate and the commit is rejected
 - peers configured with the same enforcement flag import only certified blocks whose concrete template matches a stored proposal
 
@@ -178,24 +201,25 @@ After an election is stored, `POST /v1/dev/produce-block` returns `409` if the l
 - confirm the proposal height matches the node's `nextHeight` in `GET /v1/consensus`
 - confirm the proposal signer matches `nextProposer`
 - confirm the proposal `previousHash` matches the current chain tip
-- confirm the proposal `producedAt` and ordered `transactionIds` come from the same `GET /v1/dev/block-template` response as `blockHash`
+- confirm the proposal `producedAt`, full `transactions`, and ordered `transactionIds` come from the same `GET /v1/dev/block-template` response as `blockHash`
 - confirm votes reference the same `blockHash`, `height`, and `round` as a known proposal
 - confirm the signed payload still matches the visible request fields exactly
 
-### Peer Identity Verification Fails
+### Peer Identity Verification Or Admission Fails
 
 - confirm the peer validator node is started with `ZEPHYR_VALIDATOR_PRIVATE_KEY`
 - confirm the private key is a base64-encoded PKCS#8 P-256 key
 - confirm `GET /v1/status` on the remote node includes an `identity` object
-- confirm `GET /v1/peers` shows the expected `validatorAddress` and read `identityError` for the exact verification failure
-- if you intentionally run unsigned legacy peers during development, expect `identityPresent=false`
+- confirm `GET /v1/peers` shows the expected `validatorAddress`, then read `identityError` or `admissionError` for the exact failure
+- if you enable `ZEPHYR_REQUIRE_PEER_IDENTITY`, peer-originated replicated POST requests without a valid identity are rejected with `403`
+- if you configure `ZEPHYR_PEER_VALIDATORS`, confirm the bound `<peer-url>=<validator-address>` pair matches what the peer proves in `GET /v1/status`
 
 ### Certified Block Production Is Rejected
 
 - confirm `GET /v1/consensus` shows a non-empty validator set
 - confirm `ZEPHYR_VALIDATOR_ADDRESS` matches the local validator you expect this node to represent
 - confirm `GET /v1/consensus` reports the same address in `nextProposer`
-- confirm `GET /v1/dev/block-template` and your proposal use the same `blockHash`, `previousHash`, `producedAt`, and `transactionIds`
+- confirm `GET /v1/dev/block-template` and your proposal use the same `blockHash`, `previousHash`, `producedAt`, full `transactions`, and `transactionIds`
 - confirm `GET /v1/consensus` shows a latest certificate for that same `blockHash`
 - confirm you replay `POST /v1/dev/produce-block` with the same `producedAt` used by the certified template
 - disable `ZEPHYR_REQUIRE_CONSENSUS_CERTIFICATES` only if you intentionally want a looser local dev flow
@@ -216,6 +240,10 @@ After an election is stored, `POST /v1/dev/produce-block` returns `409` if the l
 12. Produce the certified block with the same `producedAt` timestamp.
 13. Inspect the resulting block, vote tallies, and certificate on both nodes.
 14. Optionally restart a node and confirm the validator snapshot and consensus artifacts survived.
+
+
+
+
 
 
 

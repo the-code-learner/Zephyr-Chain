@@ -30,7 +30,7 @@ func (s *Server) handleConsensusProposal(w http.ResponseWriter, r *http.Request)
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return
 	}
-	if err := validateRequestTransportIdentity(r); err != nil {
+	if err := s.validatePeerRequest(r); err != nil {
 		writeJSON(w, statusForError(err), map[string]string{"error": err.Error()})
 		return
 	}
@@ -65,7 +65,7 @@ func (s *Server) handleConsensusVote(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return
 	}
-	if err := validateRequestTransportIdentity(r); err != nil {
+	if err := s.validatePeerRequest(r); err != nil {
 		writeJSON(w, statusForError(err), map[string]string{"error": err.Error()})
 		return
 	}

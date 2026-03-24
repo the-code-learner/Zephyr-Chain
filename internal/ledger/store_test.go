@@ -405,7 +405,7 @@ func TestStoreRecordProposalVotesAndCertificatePersistAcrossRestart(t *testing.T
 		t.Fatalf("set validators: %v", err)
 	}
 
-	proposal := signedProposalWithSigner(t, proposer, 1, 0, "", time.Date(2026, time.March, 23, 9, 0, 0, 0, time.UTC), []string{testHash("block-1-tx")})
+	proposal := signedProposalWithSigner(t, proposer, 1, 0, "", time.Date(2026, time.March, 23, 9, 0, 0, 0, time.UTC), []tx.Envelope{signedEnvelope(t, 5, 1, "block-1-tx")})
 	if err := store.RecordProposal(proposal); err != nil {
 		t.Fatalf("record proposal: %v", err)
 	}
@@ -470,9 +470,27 @@ func TestStoreRecordProposalRejectsUnexpectedProposer(t *testing.T) {
 		t.Fatalf("set validators: %v", err)
 	}
 
-	proposal := signedProposalWithSigner(t, other, 1, 0, "", time.Date(2026, time.March, 23, 9, 15, 0, 0, time.UTC), []string{testHash("wrong-proposer-tx")})
+	proposal := signedProposalWithSigner(t, other, 1, 0, "", time.Date(2026, time.March, 23, 9, 15, 0, 0, time.UTC), []tx.Envelope{signedEnvelope(t, 5, 1, "wrong-proposer-tx")})
 	if err := store.RecordProposal(proposal); !errors.Is(err, ErrUnexpectedProposer) {
 		t.Fatalf("expected unexpected proposer error, got %v", err)
+	}
+}
+
+func TestStoreRecordProposalRejectsMissingTransactions(t *testing.T) {
+	store := newTestStore(t)
+	proposer := newConsensusSigner(t)
+	voter := newConsensusSigner(t)
+	if _, err := store.SetValidators([]dpos.Validator{
+		{Rank: 1, Address: proposer.address, VotingPower: 60, SelfStake: 40, DelegatedStake: 20},
+		{Rank: 2, Address: voter.address, VotingPower: 40, SelfStake: 25, DelegatedStake: 15},
+	}, dpos.ElectionConfig{MaxValidators: 2}); err != nil {
+		t.Fatalf("set validators: %v", err)
+	}
+
+	proposal := signedProposalWithSigner(t, proposer, 1, 0, "", time.Date(2026, time.March, 23, 9, 45, 0, 0, time.UTC), []tx.Envelope{signedEnvelope(t, 5, 1, "missing-proposal-body")})
+	proposal.Transactions = nil
+	if err := store.RecordProposal(proposal); !errors.Is(err, consensus.ErrMissingTransactions) {
+		t.Fatalf("expected missing transactions error, got %v", err)
 	}
 }
 
@@ -505,7 +523,7 @@ func TestStoreProduceBlockWithConsensusRequiresProposalAndCertificate(t *testing
 		t.Fatalf("expected proposal required error, got %v", err)
 	}
 
-	proposal := signedProposalWithSigner(t, proposer, template.Height, 0, template.PreviousHash, template.ProducedAt, template.TransactionIDs)
+	proposal := signedProposalWithSigner(t, proposer, template.Height, 0, template.PreviousHash, template.ProducedAt, template.Transactions)
 	if err := store.RecordProposal(proposal); err != nil {
 		t.Fatalf("record proposal: %v", err)
 	}
@@ -537,6 +555,51 @@ func TestStoreProduceBlockWithConsensusRequiresProposalAndCertificate(t *testing
 	}
 }
 
+func TestStoreProduceCertifiedBlockFromProposalBodyWithoutMempool(t *testing.T) {
+	store := newTestStore(t)
+	proposer := newConsensusSigner(t)
+	voter := newConsensusSigner(t)
+	if _, err := store.SetValidators([]dpos.Validator{
+		{Rank: 1, Address: proposer.address, VotingPower: 60, SelfStake: 40, DelegatedStake: 20},
+		{Rank: 2, Address: voter.address, VotingPower: 40, SelfStake: 25, DelegatedStake: 15},
+	}, dpos.ElectionConfig{MaxValidators: 2}); err != nil {
+		t.Fatalf("set validators: %v", err)
+	}
+
+	envelope := signedEnvelope(t, 25, 1, "proposal-body-only")
+	if _, err := store.Credit(envelope.From, 100); err != nil {
+		t.Fatalf("credit sender: %v", err)
+	}
+	producedAt := time.Date(2026, time.March, 23, 10, 30, 0, 0, time.UTC)
+	proposal := signedProposalWithSigner(t, proposer, 1, 0, "", producedAt, []tx.Envelope{envelope})
+	if err := store.RecordProposal(proposal); err != nil {
+		t.Fatalf("record proposal: %v", err)
+	}
+	if _, _, err := store.RecordVote(signedVoteWithSigner(t, proposer, 1, 0, proposal.BlockHash)); err != nil {
+		t.Fatalf("record proposer vote: %v", err)
+	}
+	if _, _, err := store.RecordVote(signedVoteWithSigner(t, voter, 1, 0, proposal.BlockHash)); err != nil {
+		t.Fatalf("record voter vote: %v", err)
+	}
+	if store.MempoolSize() != 0 {
+		t.Fatalf("expected empty mempool before certified production, got %d", store.MempoolSize())
+	}
+
+	block, err := store.ProduceBlockWithOptions(10, producedAt, true)
+	if err != nil {
+		t.Fatalf("produce certified block from proposal body: %v", err)
+	}
+	if block.Hash != proposal.BlockHash {
+		t.Fatalf("expected produced block hash %s, got %s", proposal.BlockHash, block.Hash)
+	}
+	if store.Status().Height != 1 {
+		t.Fatalf("expected committed height 1, got %d", store.Status().Height)
+	}
+	if sender := store.View(envelope.From); sender.Balance != 75 || sender.Nonce != 1 {
+		t.Fatalf("unexpected sender state after proposal-body commit: %+v", sender)
+	}
+}
+
 func TestStoreImportBlockWithConsensusRequiresProposalAndCertificate(t *testing.T) {
 	proposer := newConsensusSigner(t)
 	voter := newConsensusSigner(t)
@@ -562,7 +625,7 @@ func TestStoreImportBlockWithConsensusRequiresProposalAndCertificate(t *testing.
 	if err != nil {
 		t.Fatalf("build producer template: %v", err)
 	}
-	proposal := signedProposalWithSigner(t, proposer, template.Height, 0, template.PreviousHash, template.ProducedAt, template.TransactionIDs)
+	proposal := signedProposalWithSigner(t, proposer, template.Height, 0, template.PreviousHash, template.ProducedAt, template.Transactions)
 	if err := producer.RecordProposal(proposal); err != nil {
 		t.Fatalf("record producer proposal: %v", err)
 	}
@@ -620,7 +683,7 @@ func TestStoreSetValidatorsClearsPendingConsensusArtifacts(t *testing.T) {
 		t.Fatalf("set initial validators: %v", err)
 	}
 
-	proposal := signedProposalWithSigner(t, proposer, 1, 0, "", time.Date(2026, time.March, 23, 9, 30, 0, 0, time.UTC), []string{testHash("pending-artifacts-tx")})
+	proposal := signedProposalWithSigner(t, proposer, 1, 0, "", time.Date(2026, time.March, 23, 9, 30, 0, 0, time.UTC), []tx.Envelope{signedEnvelope(t, 5, 1, "pending-artifacts-tx")})
 	if err := store.RecordProposal(proposal); err != nil {
 		t.Fatalf("record proposal: %v", err)
 	}
@@ -735,15 +798,20 @@ func newConsensusSigner(t *testing.T) consensusSigner {
 	return consensusSigner{privateKey: privateKey, address: address, publicKey: encodedPublicKey}
 }
 
-func signedProposalWithSigner(t *testing.T, signer consensusSigner, height uint64, round uint64, previousHash string, producedAt time.Time, transactionIDs []string) consensus.Proposal {
+func signedProposalWithSigner(t *testing.T, signer consensusSigner, height uint64, round uint64, previousHash string, producedAt time.Time, transactions []tx.Envelope) consensus.Proposal {
 	t.Helper()
 
+	transactionIDs := make([]string, 0, len(transactions))
+	for _, envelope := range transactions {
+		transactionIDs = append(transactionIDs, tx.ID(envelope))
+	}
 	proposal := consensus.Proposal{
 		Height:         height,
 		Round:          round,
 		PreviousHash:   previousHash,
 		ProducedAt:     producedAt,
 		TransactionIDs: append([]string(nil), transactionIDs...),
+		Transactions:   append([]tx.Envelope(nil), transactions...),
 		Proposer:       signer.address,
 		PublicKey:      signer.publicKey,
 	}

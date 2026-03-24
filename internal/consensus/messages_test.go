@@ -16,7 +16,10 @@ import (
 )
 
 func TestProposalValidateStaticAcceptsValidSignedProposal(t *testing.T) {
-	proposal := signedProposal(t, 3, 1, testHash("block-2"), time.Date(2026, time.March, 23, 12, 0, 0, 123000000, time.UTC), []string{testHash("tx-1"), testHash("tx-2")})
+	proposal := signedProposal(t, 3, 1, testHash("block-2"), time.Date(2026, time.March, 23, 12, 0, 0, 123000000, time.UTC), []tx.Envelope{
+		signedEnvelope(t, 5, 1, "tx-1"),
+		signedEnvelope(t, 7, 1, "tx-2"),
+	})
 
 	if err := proposal.ValidateStatic(); err != nil {
 		t.Fatalf("expected valid proposal, got %v", err)
@@ -24,7 +27,7 @@ func TestProposalValidateStaticAcceptsValidSignedProposal(t *testing.T) {
 }
 
 func TestProposalValidateStaticRejectsAddressMismatch(t *testing.T) {
-	proposal := signedProposal(t, 3, 1, testHash("block-2"), time.Date(2026, time.March, 23, 12, 0, 0, 0, time.UTC), []string{testHash("tx-1")})
+	proposal := signedProposal(t, 3, 1, testHash("block-2"), time.Date(2026, time.March, 23, 12, 0, 0, 0, time.UTC), []tx.Envelope{signedEnvelope(t, 5, 1, "tx-1")})
 	proposal.Proposer = "zph_not_the_real_proposer"
 
 	if err := proposal.ValidateStatic(); err != ErrInvalidAddress {
@@ -32,8 +35,26 @@ func TestProposalValidateStaticRejectsAddressMismatch(t *testing.T) {
 	}
 }
 
+func TestProposalValidateStaticRejectsMissingTransactions(t *testing.T) {
+	proposal := signedProposal(t, 3, 1, testHash("block-2"), time.Date(2026, time.March, 23, 12, 0, 0, 0, time.UTC), []tx.Envelope{signedEnvelope(t, 5, 1, "tx-1")})
+	proposal.Transactions = nil
+
+	if err := proposal.ValidateStatic(); err != ErrMissingTransactions {
+		t.Fatalf("expected missing transactions error, got %v", err)
+	}
+}
+
+func TestProposalValidateStaticRejectsTransactionMismatch(t *testing.T) {
+	proposal := signedProposal(t, 3, 1, testHash("block-2"), time.Date(2026, time.March, 23, 12, 0, 0, 0, time.UTC), []tx.Envelope{signedEnvelope(t, 5, 1, "tx-1")})
+	proposal.Transactions = []tx.Envelope{signedEnvelope(t, 5, 1, "other")}
+
+	if err := proposal.ValidateStatic(); err != ErrTransactionMismatch {
+		t.Fatalf("expected transaction mismatch error, got %v", err)
+	}
+}
+
 func TestProposalValidateStaticRejectsHashMismatch(t *testing.T) {
-	proposal := signedProposal(t, 3, 1, testHash("block-2"), time.Date(2026, time.March, 23, 12, 0, 0, 0, time.UTC), []string{testHash("tx-1")})
+	proposal := signedProposal(t, 3, 1, testHash("block-2"), time.Date(2026, time.March, 23, 12, 0, 0, 0, time.UTC), []tx.Envelope{signedEnvelope(t, 5, 1, "tx-1")})
 	proposal.BlockHash = testHash("different-block")
 
 	if err := proposal.ValidateStatic(); err != ErrHashMismatch {
@@ -58,16 +79,21 @@ func TestVoteValidateStaticRejectsPayloadMismatch(t *testing.T) {
 	}
 }
 
-func signedProposal(t *testing.T, height uint64, round uint64, previousHash string, producedAt time.Time, transactionIDs []string) Proposal {
+func signedProposal(t *testing.T, height uint64, round uint64, previousHash string, producedAt time.Time, transactions []tx.Envelope) Proposal {
 	t.Helper()
 
 	privateKey, encodedPublicKey, address := newSigner(t)
+	transactionIDs := make([]string, 0, len(transactions))
+	for _, envelope := range transactions {
+		transactionIDs = append(transactionIDs, tx.ID(envelope))
+	}
 	proposal := Proposal{
 		Height:         height,
 		Round:          round,
 		PreviousHash:   previousHash,
 		ProducedAt:     producedAt,
 		TransactionIDs: append([]string(nil), transactionIDs...),
+		Transactions:   append([]tx.Envelope(nil), transactions...),
 		Proposer:       address,
 		PublicKey:      encodedPublicKey,
 	}
@@ -91,6 +117,36 @@ func signedVote(t *testing.T, height uint64, round uint64, blockHash string) Vot
 	vote.Payload = vote.CanonicalPayload()
 	vote.Signature = signPayload(t, privateKey, vote.Payload)
 	return vote
+}
+
+func signedEnvelope(t *testing.T, amount uint64, nonce uint64, memo string) tx.Envelope {
+	t.Helper()
+
+	privateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("generate transaction key: %v", err)
+	}
+	publicKeyBytes, err := x509.MarshalPKIXPublicKey(&privateKey.PublicKey)
+	if err != nil {
+		t.Fatalf("marshal transaction public key: %v", err)
+	}
+	encodedPublicKey := base64.StdEncoding.EncodeToString(publicKeyBytes)
+	address, err := tx.DeriveAddressFromPublicKey(encodedPublicKey)
+	if err != nil {
+		t.Fatalf("derive transaction address: %v", err)
+	}
+
+	envelope := tx.Envelope{
+		From:      address,
+		To:        "zph_receiver",
+		Amount:    amount,
+		Nonce:     nonce,
+		Memo:      memo,
+		PublicKey: encodedPublicKey,
+	}
+	envelope.Payload = envelope.CanonicalPayload()
+	envelope.Signature = signPayload(t, privateKey, envelope.Payload)
+	return envelope
 }
 
 func newSigner(t *testing.T) (*ecdsa.PrivateKey, string, string) {

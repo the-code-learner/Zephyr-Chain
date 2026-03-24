@@ -12,30 +12,34 @@ import (
 )
 
 var (
-	ErrMissingFields        = errors.New("missing required consensus fields")
-	ErrInvalidPayload       = errors.New("payload does not match canonical consensus message")
-	ErrInvalidPublicKey     = errors.New("invalid public key")
-	ErrInvalidAddress       = errors.New("signer address does not match public key")
-	ErrInvalidSignature     = errors.New("invalid signature")
-	ErrInvalidHash          = errors.New("invalid block hash")
-	ErrInvalidHeight        = errors.New("height must be greater than zero")
-	ErrInvalidProducedAt    = errors.New("producedAt must be set")
-	ErrInvalidTransactionID = errors.New("invalid transaction ID")
-	ErrHashMismatch         = errors.New("block hash does not match proposal fields")
+	ErrMissingFields              = errors.New("missing required consensus fields")
+	ErrInvalidPayload             = errors.New("payload does not match canonical consensus message")
+	ErrInvalidPublicKey           = errors.New("invalid public key")
+	ErrInvalidAddress             = errors.New("signer address does not match public key")
+	ErrInvalidSignature           = errors.New("invalid signature")
+	ErrInvalidHash                = errors.New("invalid block hash")
+	ErrInvalidHeight              = errors.New("height must be greater than zero")
+	ErrInvalidProducedAt          = errors.New("producedAt must be set")
+	ErrInvalidTransactionID       = errors.New("invalid transaction ID")
+	ErrMissingTransactions        = errors.New("proposal must include transactions for each transaction ID")
+	ErrInvalidProposalTransaction = errors.New("proposal contains an invalid transaction")
+	ErrTransactionMismatch        = errors.New("proposal transactions do not match transaction IDs")
+	ErrHashMismatch               = errors.New("block hash does not match proposal fields")
 )
 
 type Proposal struct {
-	Height         uint64    `json:"height"`
-	Round          uint64    `json:"round"`
-	BlockHash      string    `json:"blockHash"`
-	PreviousHash   string    `json:"previousHash"`
-	ProducedAt     time.Time `json:"producedAt"`
-	TransactionIDs []string  `json:"transactionIds"`
-	Proposer       string    `json:"proposer"`
-	Payload        string    `json:"payload"`
-	PublicKey      string    `json:"publicKey"`
-	Signature      string    `json:"signature"`
-	ProposedAt     time.Time `json:"proposedAt"`
+	Height         uint64        `json:"height"`
+	Round          uint64        `json:"round"`
+	BlockHash      string        `json:"blockHash"`
+	PreviousHash   string        `json:"previousHash"`
+	ProducedAt     time.Time     `json:"producedAt"`
+	TransactionIDs []string      `json:"transactionIds"`
+	Transactions   []tx.Envelope `json:"transactions"`
+	Proposer       string        `json:"proposer"`
+	Payload        string        `json:"payload"`
+	PublicKey      string        `json:"publicKey"`
+	Signature      string        `json:"signature"`
+	ProposedAt     time.Time     `json:"proposedAt"`
 }
 
 type Vote struct {
@@ -118,6 +122,9 @@ func (p Proposal) ValidateStatic() error {
 		return err
 	}
 	if err := validateTransactionIDs(p.TransactionIDs); err != nil {
+		return err
+	}
+	if err := validateProposalTransactions(p.TransactionIDs, p.Transactions); err != nil {
 		return err
 	}
 	if p.BlockHash != p.CandidateHash() {
@@ -227,6 +234,24 @@ func validateTransactionIDs(transactionIDs []string) error {
 			return ErrInvalidTransactionID
 		}
 		seen[id] = struct{}{}
+	}
+	return nil
+}
+
+func validateProposalTransactions(transactionIDs []string, transactions []tx.Envelope) error {
+	if len(transactions) == 0 {
+		return ErrMissingTransactions
+	}
+	if len(transactions) != len(transactionIDs) {
+		return ErrTransactionMismatch
+	}
+	for index, envelope := range transactions {
+		if err := envelope.ValidateStatic(); err != nil {
+			return ErrInvalidProposalTransaction
+		}
+		if tx.ID(envelope) != transactionIDs[index] {
+			return ErrTransactionMismatch
+		}
 	}
 	return nil
 }

@@ -12,11 +12,11 @@ The current MVP is a five-part local development system:
 
 The current data flow is:
 
-`wallet UI -> wallet signing logic -> node HTTP API -> durable mempool -> block template -> proposal/vote/certificate artifacts -> gated or ungated block commit -> durable block/account state -> transport-backed peer replication`
+`wallet UI -> wallet signing logic -> node HTTP API -> durable mempool -> block template -> self-contained proposal/vote/certificate artifacts -> gated or ungated block commit -> durable block/account state -> transport-backed peer replication`
 
 The current consensus-artifact flow is:
 
-`validator election -> durable validator snapshot -> block template -> signed proposal -> signed votes -> quorum certificate -> optional gated block commit/import`
+`validator election -> durable validator snapshot -> block template -> signed self-contained proposal -> signed votes -> quorum certificate -> optional gated block commit/import`
 
 This is still a development-stage system. It now has an enforceable certified commit/import path with richer proposal commitments plus signed validator transport identity proofs, but it is not yet a complete validator finality protocol.
 
@@ -60,7 +60,7 @@ Today the concrete implementation still uses static HTTP peer URLs, but the rest
 - snapshot fetches for catch-up restore
 - signed validator transport-identity headers on replicated POSTs when a validator private key is configured
 
-This is an important production-preparation step because it gives the codebase a seam where authenticated libp2p networking can later replace the HTTP implementation. The current HTTP layer can already expose and verify validator identity proofs, even though it does not enforce peer admission yet.
+This is an important production-preparation step because it gives the codebase a seam where authenticated libp2p networking can later replace the HTTP implementation. The current HTTP layer can already expose and verify validator identity proofs, enforce strict peer admission, and pin configured peers to expected validators when the operator enables that policy.
 
 ### Durable Ledger
 
@@ -81,7 +81,7 @@ The store currently persists:
 
 On startup, the node reloads this state and rebuilds pending balance and nonce reservations from the persisted mempool. Validator and consensus artifacts also survive restart and snapshot restore.
 
-The current ledger can also derive a deterministic next block candidate from the current mempool plus chain tip. That candidate is what operators propose and certify in the present dev flow.
+The current ledger can also derive a deterministic next block candidate from the current mempool plus chain tip. That candidate is what operators propose and certify in the present dev flow, and once the proposal is stored the node can later replay that same candidate from proposal storage without depending on the mempool alone.
 
 ### Consensus Message Layer
 
@@ -89,7 +89,7 @@ The `internal/consensus` package introduces signed consensus messages.
 
 Current message types:
 
-- `Proposal`: signed by the scheduled proposer for a height and round
+- `Proposal`: signed by the scheduled proposer for a height and round and carrying the full candidate transaction body
 - `Vote`: signed by a validator for a proposed block hash at a height and round
 
 Current validation rules:
@@ -99,6 +99,7 @@ Current validation rules:
 - the proposal or vote must target the node's next block height
 - the proposal `previousHash` must match the current chain tip
 - the proposal `blockHash` must match the signed `producedAt` plus ordered `transactionIds`
+- the proposal transaction body must be present and must match those `transactionIds`
 - the proposer must match the scheduled proposer for that height
 - the voter must belong to the active validator set
 - votes must reference a known proposal
@@ -107,16 +108,18 @@ When a vote set for a block hash reaches the `>2/3` voting-power threshold, the 
 
 If `ZEPHYR_REQUIRE_CONSENSUS_CERTIFICATES=true`, the node uses those artifacts to gate both local block commit and remote block import. The gate now checks the exact proposal template fields through the shared block hash path, not just an opaque hash string.
 
-If `ZEPHYR_VALIDATOR_PRIVATE_KEY` is configured, the API layer also derives a signed transport identity for the local validator and verifies peer proofs exposed through `GET /v1/status`.
+If `ZEPHYR_VALIDATOR_PRIVATE_KEY` is configured, the API layer also derives a signed transport identity for the local validator and verifies peer proofs exposed through `GET /v1/status`. When `ZEPHYR_REQUIRE_PEER_IDENTITY` or `ZEPHYR_PEER_VALIDATORS` is configured, replicated peer POST requests must satisfy that admission policy before they are accepted.
 
 ## Current Production Gap
 
 The repository has moved from consensus-preparation-only into certificate-gated commit/import with concrete template commitments, but it still falls short of production finality in several important ways:
 
-- validator nodes can now prove identity over the current transport, but peer admission and discovery do not enforce that proof yet
-- the current proposal flow still depends on local template fetches or local mempool convergence instead of a fuller self-contained distributed proposal object
+- validator nodes can now prove identity and enforce peer admission over the current transport, but peer discovery is still static HTTP configuration rather than authenticated libp2p
+- proposals are now self-contained, but proposal broadcast and voting are still operator-driven rather than a full autonomous round engine
 - there is no timeout, round-change, or crash-recovery protocol yet
 - the current operator flow is still manual or externally driven rather than a fully autonomous validator engine
 
 That is why the project has moved beyond replicated prototype, but it is still not a production blockchain.
+
+
 
