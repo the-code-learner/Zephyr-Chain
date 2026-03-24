@@ -310,6 +310,20 @@ Current behavior:
 
 Returns a simple liveness response.
 
+### GET /v1/health
+
+Returns a derived readiness response built from durable ledger state plus the latest live peer-runtime view.
+
+Current behavior:
+
+- `/health` remains a simple liveness probe, while `/v1/health` is the richer readiness surface for operators and automation
+- the top-level response includes `generatedAt`, node identity, peer count, runtime flags, `live`, `ready`, `status`, ordered `checks`, and flattened `warnings`
+- `status` is currently one of `ok`, `warn`, or `fail`, while each check uses `pass`, `warn`, or `fail`
+- the current checks are `api`, `validator_set`, `recovery`, `consensus`, `peer_sync`, and `diagnostics`
+- `warn` checks keep the node live and ready but surface degraded conditions such as recent diagnostics, early peer observation, or consensus warnings
+- `fail` checks set `ready=false` and return HTTP `503`; the current hard-fail cases are recovery backlog and peer-sync availability failures when peer sync is enabled
+- `warnings` is a flattened operator-facing list built from the active warn or fail checks so dashboards do not need to re-derive short incident summaries
+
 ### GET /v1/status
 
 Returns the local runtime status for the current node, including consensus summary and whether proposer or certificate enforcement is enabled.
@@ -326,6 +340,7 @@ Current behavior:
 - `peerSyncHistory` exposes a durable recent history of cross-peer sync incidents, including repeated failures merged by occurrence count
 - `peerSyncSummary` exposes affected-peer totals, dominant states, and the latest incident summary across peers
 - `GET /v1/metrics` offers a machine-readable roll-up of that durable summary plus live peer runtime counts
+- `GET /v1/health` offers a pass, warn, or fail readiness summary derived from the same durable and live operator signals; unlike `/health`, it can return HTTP `503` when fail checks are active
 - when `ZEPHYR_VALIDATOR_PRIVATE_KEY` is configured, the response includes an `identity` object with a signed transport proof for the local validator
 - `peerIdentityRequired` is `true` when strict peer admission or explicit peer-validator binding is enabled
 
@@ -352,7 +367,7 @@ Current behavior:
 - consensus diagnostic entries use `component=consensus` and `event=diagnostic`, then add `kind`, `code`, `message`, `height`, `round`, `blockHash`, `validator`, `source`, and `observedAt`
 - peer incident entries use `component=peer_sync` and `event=incident`, then add `peerUrl`, `state`, `reason`, `localHeight`, `peerHeight`, `heightDelta`, `blockHash`, `errorCode`, `errorMessage`, `firstObservedAt`, `lastObservedAt`, and `occurrences`
 - snapshot restore entries use `component=recovery` and `event=snapshot_restore`, then add `peer`, `height`, `blockHash`, and `restoredAt`
-- the current structured-log surface is intentionally narrow: it focuses on consensus rejection, peer incident, and snapshot-repair paths so operators can correlate the same events exposed by `diagnostics`, `peerSyncHistory`, and `GET /v1/metrics`
+- the current structured-log surface is intentionally narrow: it focuses on consensus rejection, peer incident, and snapshot-repair paths so operators can correlate the same events exposed by `diagnostics`, `peerSyncHistory`, `GET /v1/metrics`, and the higher-level readiness summaries from `GET /v1/health`
 
 ### GET /v1/peers
 

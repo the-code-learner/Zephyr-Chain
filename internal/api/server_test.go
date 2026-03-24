@@ -2787,6 +2787,132 @@ func TestStatusExposesPeerSyncSummaryAcrossPeers(t *testing.T) {
 	}
 }
 
+func TestHandleNodeHealthReportsReadyWhenSignalsAreClear(t *testing.T) {
+	server := newTestServer(t, Config{
+		DataDir:                 t.TempDir(),
+		NodeID:                  "health-ok",
+		BlockInterval:           0,
+		SyncInterval:            0,
+		MaxTransactionsPerBlock: 10,
+		EnableBlockProduction:   false,
+		EnablePeerSync:          false,
+	})
+
+	request := httptest.NewRequest(http.MethodGet, "/v1/health", nil)
+	recorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected health 200, got %d", recorder.Code)
+	}
+
+	var response HealthResponse
+	if err := json.NewDecoder(recorder.Body).Decode(&response); err != nil {
+		t.Fatalf("decode health response: %v", err)
+	}
+	if !response.Live || !response.Ready || response.Status != healthStatusOK {
+		t.Fatalf("unexpected healthy response %+v", response)
+	}
+	if response.StructuredLogsEnabled {
+		t.Fatalf("expected structured logs disabled by default %+v", response)
+	}
+	if check, ok := healthCheckByName(response.Checks, "recovery"); !ok || check.Status != healthCheckPass {
+		t.Fatalf("expected passing recovery check, got %+v", response.Checks)
+	}
+	if check, ok := healthCheckByName(response.Checks, "peer_sync"); !ok || check.Status != healthCheckPass {
+		t.Fatalf("expected passing peer_sync check, got %+v", response.Checks)
+	}
+}
+
+func TestHandleNodeHealthWarnsOnRecentDiagnostics(t *testing.T) {
+	server := newTestServer(t, Config{
+		DataDir:                 t.TempDir(),
+		NodeID:                  "health-warn",
+		BlockInterval:           0,
+		SyncInterval:            0,
+		MaxTransactionsPerBlock: 10,
+		EnableBlockProduction:   false,
+		EnablePeerSync:          false,
+	})
+
+	server.recordConsensusDiagnostic("proposal_rejected", "api", ledger.ErrConsensusTemplateMismatch, 2, 0, consensusTestHash("health-warn"), "zph_validator_warn")
+
+	request := httptest.NewRequest(http.MethodGet, "/v1/health", nil)
+	recorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected health warn to return 200, got %d", recorder.Code)
+	}
+
+	var response HealthResponse
+	if err := json.NewDecoder(recorder.Body).Decode(&response); err != nil {
+		t.Fatalf("decode warning health response: %v", err)
+	}
+	if !response.Ready || response.Status != healthStatusWarn {
+		t.Fatalf("expected ready warn health response, got %+v", response)
+	}
+	check, ok := healthCheckByName(response.Checks, "diagnostics")
+	if !ok || check.Status != healthCheckWarn {
+		t.Fatalf("expected warning diagnostics check, got %+v", response.Checks)
+	}
+}
+
+func TestHandleNodeHealthFailsWhenRecoveryAndPeersAreBlocked(t *testing.T) {
+	server := newTestServer(t, Config{
+		DataDir:                      t.TempDir(),
+		NodeID:                       "health-fail",
+		PeerURLs:                     []string{"http://peer-a.example"},
+		BlockInterval:                0,
+		SyncInterval:                 0,
+		MaxTransactionsPerBlock:      10,
+		EnableBlockProduction:        false,
+		EnablePeerSync:               true,
+		RequireConsensusCertificates: true,
+	})
+
+	now := time.Now().UTC()
+	if err := server.ledger.RecordConsensusAction(ledger.ConsensusAction{
+		Type:       ledger.ConsensusActionBlockImport,
+		Height:     3,
+		Round:      0,
+		BlockHash:  consensusTestHash("health-import"),
+		Validator:  "zph_validator_fail",
+		RecordedAt: now,
+		Status:     ledger.ConsensusActionPending,
+		Note:       "waiting for peer block import after proposal_required",
+	}); err != nil {
+		t.Fatalf("record pending import action: %v", err)
+	}
+	server.recordPeerView(PeerView{
+		URL:        "http://peer-a.example",
+		Height:     2,
+		Reachable:  false,
+		Admitted:   false,
+		SyncState:  "unreachable",
+		LastSeenAt: &now,
+		Error:      "dial tcp timeout",
+	})
+
+	request := httptest.NewRequest(http.MethodGet, "/v1/health", nil)
+	recorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected health failure 503, got %d", recorder.Code)
+	}
+
+	var response HealthResponse
+	if err := json.NewDecoder(recorder.Body).Decode(&response); err != nil {
+		t.Fatalf("decode failing health response: %v", err)
+	}
+	if response.Ready || response.Status != healthStatusFail {
+		t.Fatalf("expected failing health response, got %+v", response)
+	}
+	if check, ok := healthCheckByName(response.Checks, "recovery"); !ok || check.Status != healthCheckFail {
+		t.Fatalf("expected failing recovery check, got %+v", response.Checks)
+	}
+	if check, ok := healthCheckByName(response.Checks, "peer_sync"); !ok || check.Status != healthCheckFail {
+		t.Fatalf("expected failing peer_sync check, got %+v", response.Checks)
+	}
+}
 func TestMetricsExposeConsensusAndPeerObservabilityAggregates(t *testing.T) {
 	server := newTestServer(t, Config{
 		DataDir:                      t.TempDir(),
@@ -3359,6 +3485,14 @@ func TestPeerSyncConsensusImportFailureRestoresSnapshotAndRecordsRecoveryHistory
 	}
 }
 
+func healthCheckByName(checks []HealthCheck, name string) (HealthCheck, bool) {
+	for _, check := range checks {
+		if check.Name == name {
+			return check, true
+		}
+	}
+	return HealthCheck{}, false
+}
 func decodeStructuredLogEntries(t *testing.T, raw string) []map[string]any {
 	t.Helper()
 

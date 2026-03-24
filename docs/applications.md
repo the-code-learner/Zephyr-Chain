@@ -12,7 +12,7 @@ Today the codebase is best suited for:
 
 - wallet, transaction, and settlement demos on a single node or a small admitted-peer devnet
 - validator scheduling, certificate-gated commit, and round-timeout recovery experiments
-- operator drills around peer identity, peer admission, delayed peer recovery, durable per-peer incident history, cross-peer incident summaries, machine-readable `/v1/metrics`, structured event logs, partial quorum, reproposal, per-height round history, block readiness, pending import backlog, snapshot-restore history, rejection diagnostics, and state catch-up
+- operator drills around peer identity, peer admission, delayed peer recovery, durable per-peer incident history, cross-peer incident summaries, machine-readable `/v1/metrics`, derived `/v1/health`, structured event logs, partial quorum, reproposal, per-height round history, block readiness, pending import backlog, snapshot-restore history, rejection diagnostics, and state catch-up
 - product prototyping for applications that need auditable transfers plus predictable validator coordination
 - architecture work for teams that want to design on top of a Rust-first WASM and confidential-compute roadmap before those phases land
 
@@ -74,6 +74,20 @@ Production prerequisites:
 - stronger sync trust models
 - richer exported metrics and alerting on top of the current structured logs, operator evidence, durable incident history, cross-peer summaries, and production incident tooling
 - governance around validator membership changes
+
+### Managed Validator And Partner-Network Operations
+
+Zephyr can also fit managed validator services and consortium-operated partner networks where a small known peer set needs explicit readiness and incident evidence.
+
+Why it fits:
+
+- `/v1/health`, `/v1/metrics`, structured logs, and durable peer incident history give operators a concrete base for automated health checks and incident response
+- peer admission and validator binding map well to known-participant topologies
+
+Production prerequisites:
+
+- richer export adapters and alerting
+- broader restart-safe recovery across more consensus actions
 
 ### Supply Chain, Provenance, And Shared Audit Trails
 

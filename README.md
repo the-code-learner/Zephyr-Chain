@@ -31,10 +31,10 @@ Implemented today:
 
 Implemented in this iteration:
 
-- `ZEPHYR_ENABLE_STRUCTURED_LOGS=true` now emits newline-delimited JSON logs for consensus diagnostics, peer-sync incidents, and snapshot-restore recovery events with node and validator identity at the top level
-- `GET /v1/status`, `GET /v1/consensus`, and `GET /v1/metrics` now expose `structuredLogsEnabled` so operators can confirm the runtime log mode from the API
-- `GET /v1/metrics` continues to expose machine-readable consensus-action, diagnostic, and peer-runtime rollups, which now pair with structured event logs for live incident pipelines
-- focused tests now cover structured log emission, ledger metric persistence, API metrics aggregation, same-height divergence repair telemetry, peer-sync import-repair telemetry, durable peer-incident persistence across restart, multi-peer summary exposure, and preservation through peer snapshot restore
+- `GET /v1/health` now exposes a derived readiness surface built from validator-set availability, recovery backlog, consensus warnings, peer-sync condition, and recent diagnostics
+- `/health` remains a simple liveness probe, while `/v1/health` returns `200` for ready nodes and `503` when fail checks show blocked recovery or peer-sync availability problems
+- `GET /v1/status`, `GET /v1/consensus`, `GET /v1/metrics`, and `GET /v1/health` now form the current operator surface for runtime status, readiness, observability, and incident triage
+- focused tests now cover clean, warn, and fail health responses in addition to structured log emission, ledger metric persistence, API metrics aggregation, same-height divergence repair telemetry, peer-sync import-repair telemetry, durable peer-incident persistence across restart, multi-peer summary exposure, and preservation through peer snapshot restore
 
 Planned but not implemented yet:
 
@@ -84,6 +84,14 @@ By default the node:
 - uses a `5s` consensus round timeout once automation is enabled
 - runs peer sync only if `ZEPHYR_PEERS` is configured
 - exposes consensus status even before a validator set has been elected
+
+Useful probes:
+
+```powershell
+Invoke-RestMethod http://localhost:8080/health
+curl.exe -i http://localhost:8080/v1/health
+Invoke-RestMethod http://localhost:8080/v1/status
+```
 
 ### 2. Run the wallet
 
@@ -283,7 +291,7 @@ VITE_ZEPHYR_API_BASE=http://localhost:8080
 
 - the current multi-node layer is still HTTP-based under the new transport abstraction, not libp2p networking
 - peer admission and validator pinning can now be enforced over the current HTTP transport, but peer discovery is still static configuration rather than libp2p
-- the round engine now supports timeout-driven proposer rotation, latest-artifact rebroadcast after link recovery, richer `roundEvidence`, per-height `roundHistory`, `blockReadiness`, import-aware `recovery`, durable peer-sync incident history, bounded rejection diagnostics, and local consensus-action WAL replay across restart, but broader recovery tooling is still missing
+- the round engine now supports timeout-driven proposer rotation, latest-artifact rebroadcast after link recovery, richer `roundEvidence`, per-height `roundHistory`, `blockReadiness`, import-aware `recovery`, durable peer-sync incident history, bounded rejection diagnostics, machine-readable `GET /v1/metrics`, derived `GET /v1/health`, and local consensus-action WAL replay across restart, but broader recovery tooling is still missing
 - crash recovery now persists active round metadata plus a bounded local consensus-action WAL, and peer snapshot restore preserves local recovery, diagnostics, and peer-sync incident history, but replay coverage is still centered on local proposal, vote, and import-repair paths rather than the full consensus lifecycle
 - DPoS elections still happen through an API call, not an on-chain staking/governance flow
 - snapshot restore is a state catch-up mechanism, not a trust-minimized proof-based sync protocol
@@ -300,7 +308,7 @@ The production roadmap now lives in [docs/roadmap.md](./docs/roadmap.md).
 Short version:
 
 1. Move the new enforced HTTP peer-admission and validator-binding policy toward authenticated libp2p discovery plus replay-safe transport behavior.
-2. Extend the new `blockReadiness`, `roundHistory`, `roundEvidence`, `recovery`, `diagnostics`, `peerSyncHistory`, `peerSyncSummary`, per-peer `recentIncidents`, `GET /v1/metrics`, and structured event logs into deeper recovery, longer-horizon incident retention, richer exported metrics, and production incident tooling.
+2. Extend the new `blockReadiness`, `roundHistory`, `roundEvidence`, `recovery`, `diagnostics`, `peerSyncHistory`, `peerSyncSummary`, per-peer `recentIncidents`, `GET /v1/metrics`, `GET /v1/health`, and structured event logs into deeper recovery, longer-horizon incident retention, richer exported metrics, and production incident tooling.
 3. Move validator lifecycle changes behind staking, delegation, slashing, and governance state transitions.
 4. Add deterministic WASM execution, native fee metering, and the confidential compute lane.
 5. Add production observability, recovery tooling, and public testnet operations.
