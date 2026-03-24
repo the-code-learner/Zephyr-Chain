@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/zephyr-chain/zephyr-chain/internal/consensus"
+	"github.com/zephyr-chain/zephyr-chain/internal/tx"
 )
 
 var (
@@ -140,11 +141,15 @@ func recordProposalIntoState(state persistedState, proposal consensus.Proposal) 
 	if expected := proposerForHeight(state.ValidatorSnapshot.Validators, proposal.Height); expected != "" && proposal.Proposer != expected {
 		return state, ErrUnexpectedProposer
 	}
-	for _, existing := range state.Proposals {
+	for index, existing := range state.Proposals {
 		if existing.Height != proposal.Height || existing.Round != proposal.Round {
 			continue
 		}
 		if existing.BlockHash == proposal.BlockHash && existing.Proposer == proposal.Proposer {
+			if !equalStrings(existing.TransactionIDs, proposal.TransactionIDs) || !equalTransactions(existing.Transactions, proposal.Transactions) {
+				state.Proposals[index] = cloneProposal(proposal)
+				state = normalizeState(state)
+			}
 			return state, nil
 		}
 		return state, ErrConflictingProposal
@@ -325,6 +330,9 @@ func matchProposalForBlock(proposals []consensus.Proposal, block Block) *consens
 		if !equalStrings(proposal.TransactionIDs, block.TransactionIDs) {
 			continue
 		}
+		if !equalTransactions(proposal.Transactions, block.Transactions) {
+			continue
+		}
 		cloned := cloneProposal(proposal)
 		return &cloned
 	}
@@ -353,6 +361,18 @@ func equalStrings(left []string, right []string) bool {
 	return true
 }
 
+func equalTransactions(left []tx.Envelope, right []tx.Envelope) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for i := range left {
+		if left[i] != right[i] {
+			return false
+		}
+	}
+	return true
+}
+
 func previousHashForHeight(blocks []Block, height uint64) string {
 	if height <= 1 || len(blocks) == 0 {
 		return ""
@@ -361,12 +381,17 @@ func previousHashForHeight(blocks []Block, height uint64) string {
 }
 
 func cloneProposal(proposal consensus.Proposal) consensus.Proposal {
-	return proposal
+	cloned := proposal
+	cloned.TransactionIDs = append([]string(nil), proposal.TransactionIDs...)
+	cloned.Transactions = append([]tx.Envelope(nil), proposal.Transactions...)
+	return cloned
 }
 
 func cloneProposals(proposals []consensus.Proposal) []consensus.Proposal {
 	cloned := make([]consensus.Proposal, len(proposals))
-	copy(cloned, proposals)
+	for i, proposal := range proposals {
+		cloned[i] = cloneProposal(proposal)
+	}
 	return cloned
 }
 

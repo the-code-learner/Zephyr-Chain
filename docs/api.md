@@ -23,6 +23,8 @@ Change it with `ZEPHYR_HTTP_ADDR` when starting the node.
 - `ZEPHYR_MAX_TXS_PER_BLOCK`: maximum committed transactions per block, default `100`
 - `ZEPHYR_ENABLE_BLOCK_PRODUCTION`: enable local block production, default `true`
 - `ZEPHYR_ENABLE_PEER_SYNC`: enable background peer sync, default `true`
+- `ZEPHYR_REQUIRE_PEER_IDENTITY`: when `true`, replicated peer POST requests must include a valid signed transport identity, default `false`
+- `ZEPHYR_PEER_VALIDATORS`: comma-separated `<peer-url>=<validator-address>` bindings used to pin configured peers to expected validators, default empty
 - `ZEPHYR_ENFORCE_PROPOSER_SCHEDULE`: when `true`, only the scheduled proposer may produce the next block once a validator set exists, default `false`
 - `ZEPHYR_REQUIRE_CONSENSUS_CERTIFICATES`: when `true`, local block commit and remote block import require a matching proposal and quorum certificate, default `false`
 
@@ -38,11 +40,22 @@ Change it with `ZEPHYR_HTTP_ADDR` when starting the node.
   "previousHash": "",
   "producedAt": "2026-03-23T15:32:00Z",
   "transactionIds": [
-    "<64-hex-transaction-id>",
     "<64-hex-transaction-id>"
   ],
+  "transactions": [
+    {
+      "from": "zph_sender_a",
+      "to": "zph_receiver",
+      "amount": 5,
+      "nonce": 1,
+      "memo": "tx-1",
+      "payload": "<canonical-transaction-payload>",
+      "publicKey": "<base64-spki-public-key>",
+      "signature": "<base64-signature>"
+    }
+  ],
   "proposer": "zph_validator_a",
-  "payload": "{\"blockHash\":\"<64-hex-block-hash>\",\"height\":1,\"previousHash\":\"\",\"producedAt\":\"2026-03-23T15:32:00Z\",\"proposer\":\"zph_validator_a\",\"round\":0,\"transactionIds\":[\"<64-hex-transaction-id>\",\"<64-hex-transaction-id>\"]}",
+  "payload": "{\"blockHash\":\"<64-hex-block-hash>\",\"height\":1,\"previousHash\":\"\",\"producedAt\":\"2026-03-23T15:32:00Z\",\"proposer\":\"zph_validator_a\",\"round\":0,\"transactionIds\":[\"<64-hex-transaction-id>\"]}",
   "publicKey": "<base64-spki-public-key>",
   "signature": "<base64-signature>",
   "proposedAt": "2026-03-23T15:32:02Z"
@@ -52,7 +65,9 @@ Change it with `ZEPHYR_HTTP_ADDR` when starting the node.
 Current meaning:
 
 - `blockHash` must be the derived hash of `height`, `previousHash`, `producedAt`, and ordered `transactionIds`
+- `transactions` must be present and must match `transactionIds` in the same order
 - the proposer signs that full template commitment, not just a standalone hash string
+- validators can verify the candidate directly from the proposal body without relying on local mempool convergence alone
 
 ### Vote
 
@@ -102,6 +117,8 @@ Current meaning:
 - this proof exists when `ZEPHYR_VALIDATOR_PRIVATE_KEY` is configured
 - the node derives the validator address from that key or rejects startup if it conflicts with `ZEPHYR_VALIDATOR_ADDRESS`
 - peers verify the proof when reading `GET /v1/status`, and validator nodes attach the same proof to replicated POST requests
+- when `ZEPHYR_REQUIRE_PEER_IDENTITY=true`, replicated peer POST requests without a valid proof are rejected with `403`
+- when `ZEPHYR_PEER_VALIDATORS` is configured, the receiving node also checks that the proven validator belongs to its configured peer-binding allowlist
 
 ## Consensus Endpoints
 
@@ -119,7 +136,8 @@ Current behavior:
 - the proposer must match the scheduled proposer for that height
 - `previousHash` must match the current chain tip for that height
 - `blockHash` must match the proposal's `producedAt` plus ordered `transactionIds`
-- the proposal is stored durably and replicated to configured peers
+- `transactions` must be present and must match `transactionIds` in the same order
+- the proposal is stored durably and replicated to admitted peers when strict peer admission is enabled
 - the proposal becomes part of the block-gating path when certificate enforcement is enabled
 
 ### POST /v1/consensus/votes
@@ -147,6 +165,7 @@ Returns the local runtime status for the current node, including consensus summa
 Current behavior:
 
 - when `ZEPHYR_VALIDATOR_PRIVATE_KEY` is configured, the response includes an `identity` object with a signed transport proof for the local validator
+- `peerIdentityRequired` is `true` when strict peer admission or explicit peer-validator binding is enabled
 - if `ZEPHYR_VALIDATOR_ADDRESS` is also configured, startup rejects mismatches between the configured address and the private key-derived address
 
 ### GET /v1/peers
@@ -155,8 +174,10 @@ Returns the latest known view of configured peers.
 
 Current behavior:
 
-- each peer view now includes the remote `validatorAddress` when advertised
+- each peer view includes the remote `validatorAddress` when advertised
+- `expectedValidator`, `admitted`, and `admissionError` show the local admission policy and whether the peer passed it
 - `identityPresent`, `identityVerified`, and `identityError` show whether the peer exposed a signed transport identity and whether local verification succeeded
+- when strict peer admission or peer binding is enabled, background sync and outgoing replication use only admitted peers
 
 ### POST /v1/election
 
@@ -192,8 +213,8 @@ Builds and returns the deterministic next block candidate from the current mempo
 
 Current behavior:
 
-- the response includes the exact `blockHash`, `previousHash`, `producedAt`, and ordered `transactionIds` validators should certify
-- operators can use that data directly when constructing a signed proposal
+- the response includes the exact `blockHash`, `previousHash`, `producedAt`, full `transactions`, and ordered `transactionIds` validators should certify
+- operators can use that data directly when constructing a signed self-contained proposal
 - the response also includes the current consensus summary and latest durable artifacts for operator context
 
 ### POST /v1/dev/produce-block
@@ -202,10 +223,11 @@ Forces immediate block production from the current local mempool.
 
 Behavior:
 
-- with no JSON body, the node uses the current time as the block timestamp
-- you may send `{ "producedAt": "<RFC3339 timestamp>" }` to reproduce a previously fetched block template
+- with no JSON body, the node uses the current time as the block timestamp for ungated local production
+- you may send `{ "producedAt": "<RFC3339 timestamp>" }` to target a specific previously fetched block template or a specific stored certified proposal
 - if proposer-schedule enforcement is enabled, the endpoint returns `409` when the local validator is not the scheduled proposer for the next height
 - if certificate enforcement is enabled, the endpoint returns `409` unless the resulting block exactly matches a stored proposal template and quorum certificate
+- when certificate enforcement is enabled and a matching certified proposal exists, the node can commit from the stored proposal body even if the local mempool no longer contains those transactions
 
 ## Internal Node-To-Node Endpoints
 
@@ -222,8 +244,9 @@ When `ZEPHYR_VALIDATOR_PRIVATE_KEY` is configured, replicated POST requests carr
 
 Current behavior:
 
-- the receiving node still accepts unsigned legacy devnet requests
 - if signed transport-identity headers are present, they must be complete and valid or the request is rejected with `400`
+- when `ZEPHYR_REQUIRE_PEER_IDENTITY=true`, replicated peer POST requests must include a valid signed transport identity or they are rejected with `403`
+- when `ZEPHYR_PEER_VALIDATORS` is configured, replicated peer POST requests are also rejected with `403` unless the proven validator belongs to the configured peer-binding allowlist
 
 ### POST /v1/internal/blocks
 
@@ -234,4 +257,7 @@ If certificate enforcement is enabled on the receiving node, the imported block 
 ### GET /v1/internal/snapshot
 
 Returns the current durable node snapshot used for catch-up restore.
+
+
+
 

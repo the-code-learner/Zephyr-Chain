@@ -18,16 +18,19 @@ As of this iteration, the repository has:
 - durable validator-set snapshots with versioning and restart-safe persistence
 - derived consensus metadata including total voting power, quorum target, and next scheduled proposer
 - signed proposal and vote messages validated with Zephyr addresses plus P-256 signatures
-- proposals that now commit to deterministic template fields: `previousHash`, `producedAt`, ordered `transactionIds`, and the derived `blockHash`
-- a shared hash function between consensus proposals and block production so both sides derive candidate hashes identically
-- signed validator transport-identity proofs derived from `ZEPHYR_VALIDATOR_PRIVATE_KEY` and surfaced through status plus peer verification views
+- proposals that commit to deterministic template fields: `previousHash`, `producedAt`, ordered `transactionIds`, the full `transactions` body, and the derived `blockHash`
 - optional certificate-gated local block commit and remote block import behind `ZEPHYR_REQUIRE_CONSENSUS_CERTIFICATES`
+- certificate-gated local commit that can replay the stored proposal body instead of depending on the local mempool alone
+- signed validator transport-identity proofs derived from `ZEPHYR_VALIDATOR_PRIVATE_KEY` and surfaced through status plus peer verification views
+- optional strict peer admission behind `ZEPHYR_REQUIRE_PEER_IDENTITY`
+- optional peer-to-validator binding behind `ZEPHYR_PEER_VALIDATORS`
+- admitted-peer gating for background sync and outgoing replication on the current HTTP transport
 - a browser wallet that can create accounts, sign locally, and submit transactions
 
 What it still does not have:
 
-- strict peer admission and authenticated peer discovery built on top of the new transport-identity proof
-- proposal dissemination that carries enough candidate data for validators to verify without relying on local mempool mirroring alone
+- authenticated peer discovery and replay-safe transport over libp2p
+- an autonomous proposal round engine built on top of the new self-contained proposal body
 - round timeout and re-proposal handling
 - restart-safe round recovery and operator evidence tooling
 - on-chain staking/governance-driven validator updates
@@ -65,18 +68,20 @@ Status:
 - proposer scheduling is visible and can be enforced locally
 - signed proposals and validator votes are durable artifacts
 - proposals now commit to concrete template fields, not only a loose block hash
+- proposals now carry the full candidate transaction body, not only IDs
 - quorum certificates are derived and persisted when vote power crosses quorum
 - nodes can optionally require a matching proposal and certificate before local block commit or remote block import
-- validator nodes can now prove which validator they represent over the current transport and peers surface verification state for that proof
-- the current proposal/certificate path is still an operator-driven dev flow, not a full round engine
+- certificate-gated local commit can replay the stored proposal body without needing the same candidate in the local mempool
+- validator nodes can now prove which validator they represent over the current transport and nodes can enforce that proof plus per-peer validator binding when configured
+- the current proposal and certificate path is still an operator-driven dev flow, not a full round engine
 
 Next steps:
 
-1. Extend proposal dissemination so validators can verify a candidate from the proposal path itself instead of depending on local mempool convergence and out-of-band template fetches.
-2. Turn the new signed transport-identity proof into explicit peer admission rules and validator-to-peer binding checks.
-3. Add round timeout handling, proposer rotation within a round sequence, and re-proposal flows.
-4. Persist round state, evidence, and operator-facing recovery data for restart-safe recovery.
-5. Add deterministic integration tests for certified happy path, mismatched template fields, invalid identity proof, conflicting proposals, restart during a round, and recovery from partial quorum.
+1. Move self-contained proposal submission from operator-driven API calls into an autonomous round and proposal dissemination engine tied to the proposer schedule.
+2. Add round timeout handling, proposer rotation within a round sequence, vote rebroadcast, and re-proposal flows.
+3. Persist round state, evidence, and write-ahead recovery data for restart-safe recovery.
+4. Make commit and import surfaces expose clearer operator evidence for template mismatch, partial quorum, stale round, and proposal timeout scenarios.
+5. Add deterministic multi-node integration tests for certified happy path, conflicting proposals, timeout and re-proposal, restart during a round, and recovery from partial quorum.
 
 Exit criteria:
 
@@ -90,25 +95,26 @@ Status:
 
 - a transport abstraction now exists
 - the active transport is still static peer URLs over HTTP
-- validator nodes can now attach signed identity proofs to replicated requests and expose the same proof through status
-- peer views can verify and surface that proof today, but admission is not enforced yet
+- validator nodes can attach signed identity proofs to replicated requests and expose the same proof through status
+- peer views can verify that proof, enforce strict peer admission, and pin configured peers to expected validator identities
+- admitted-peer policy already gates current HTTP sync and replication behavior
+- proposal replication now carries the full candidate body over that transport, not just template metadata
 - certified block checks can already run over that abstraction
 - behind nodes can fetch blocks or restore full snapshots
 - sync is convenient, but not trust-minimized or production-safe
 
 Next steps:
 
-1. Replace static peer configuration with authenticated peer discovery over libp2p.
-2. Enforce peer admission rules that pin configured peers to the validator identity they prove.
-3. Add transport-level duplicate suppression, replay-safe message handling, and stricter policy for unsigned legacy peers.
-4. Separate dev snapshot restore from production state sync so operators can choose explicit trust models.
-5. Add checkpointing, snapshot metadata, and verification hooks for state transfer.
-6. Add structured logs, metrics, and health surfaces for validator, sync, and transport operations.
+1. Replace static peer configuration with authenticated peer discovery over libp2p while preserving validator-binding semantics.
+2. Add transport-level duplicate suppression, replay-safe message handling, and explicit message identifiers for consensus artifacts.
+3. Separate dev snapshot restore from production state sync so operators can choose explicit trust models.
+4. Add checkpointing, snapshot metadata, and verification hooks for state transfer.
+5. Add structured logs, metrics, and health surfaces for validator, sync, admission, and transport operations.
 
 Exit criteria:
 
 - nodes can join, recover, and observe the network without relying on ad hoc static replication alone
-- operators can reason about sync health, peer identity, and consensus message flow in production
+- operators can reason about sync health, peer identity, admission policy, and consensus message flow in production
 
 ### Phase 3: Staking, Validator Lifecycle, And Governance Control Plane
 
@@ -174,4 +180,3 @@ Broad direction:
 - upgrade strategy and rollback planning
 - monitoring, alerts, and SLOs for operators
 - staged path from devnet to public testnet to mainnet
-

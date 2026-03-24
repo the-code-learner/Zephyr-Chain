@@ -388,14 +388,18 @@ func (s *Store) ProduceBlockWithOptions(maxTransactions int, producedAt time.Tim
 	defer s.mu.Unlock()
 
 	state := s.snapshotLocked()
-	nextState, block, err := produceBlockFromState(state, maxTransactions, producedAt)
+	var (
+		nextState persistedState
+		block     Block
+		err       error
+	)
+	if requireConsensus {
+		nextState, block, err = produceCertifiedBlockFromState(state, producedAt)
+	} else {
+		nextState, block, err = produceBlockFromState(state, maxTransactions, producedAt)
+	}
 	if err != nil {
 		return Block{}, err
-	}
-	if requireConsensus {
-		if err := validateBlockConsensus(state, block, true); err != nil {
-			return Block{}, err
-		}
 	}
 
 	if err := s.writeState(nextState); err != nil {

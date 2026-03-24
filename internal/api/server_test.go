@@ -211,6 +211,77 @@ func TestHandleBroadcastTransactionRejectsInvalidTransportIdentity(t *testing.T)
 	}
 }
 
+func TestHandleBroadcastTransactionRejectsMissingPeerIdentityWhenRequired(t *testing.T) {
+	server := newTestServer(t, Config{
+		DataDir:                 t.TempDir(),
+		BlockInterval:           0,
+		SyncInterval:            0,
+		MaxTransactionsPerBlock: 10,
+		EnableBlockProduction:   true,
+		EnablePeerSync:          false,
+		RequirePeerIdentity:     true,
+	})
+
+	envelope := signedEnvelope(t, 25, 1, "peer-missing-identity")
+	if _, err := server.ledger.Credit(envelope.From, 100); err != nil {
+		t.Fatalf("credit sender: %v", err)
+	}
+	body, err := json.Marshal(envelope)
+	if err != nil {
+		t.Fatalf("marshal transaction: %v", err)
+	}
+
+	request := httptest.NewRequest(http.MethodPost, "/v1/transactions", bytes.NewReader(body))
+	request.Header.Set(sourceNodeHeader, "peer-node")
+	recorder := httptest.NewRecorder()
+
+	server.Handler().ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("expected status 403, got %d", recorder.Code)
+	}
+}
+
+func TestHandleBroadcastTransactionRejectsUnboundPeerValidator(t *testing.T) {
+	allowedSigner := newConsensusSigner(t)
+	peerSigner := newConsensusSigner(t)
+	server := newTestServer(t, Config{
+		DataDir:                 t.TempDir(),
+		BlockInterval:           0,
+		SyncInterval:            0,
+		MaxTransactionsPerBlock: 10,
+		EnableBlockProduction:   true,
+		EnablePeerSync:          false,
+		RequirePeerIdentity:     true,
+		PeerValidatorBindings: map[string]string{
+			"http://peer.example": allowedSigner.address,
+		},
+	})
+
+	envelope := signedEnvelope(t, 25, 1, "peer-unbound-validator")
+	if _, err := server.ledger.Credit(envelope.From, 100); err != nil {
+		t.Fatalf("credit sender: %v", err)
+	}
+	body, err := json.Marshal(envelope)
+	if err != nil {
+		t.Fatalf("marshal transaction: %v", err)
+	}
+
+	identity := signedTransportIdentity(t, peerSigner, "peer-node", time.Now().UTC())
+	request := httptest.NewRequest(http.MethodPost, "/v1/transactions", bytes.NewReader(body))
+	request.Header.Set(sourceNodeHeader, identity.NodeID)
+	request.Header.Set(sourceValidatorHeader, identity.ValidatorAddress)
+	request.Header.Set(sourceIdentityPayloadHeader, identity.Payload)
+	request.Header.Set(sourcePublicKeyHeader, identity.PublicKey)
+	request.Header.Set(sourceSignatureHeader, identity.Signature)
+	request.Header.Set(sourceSignedAtHeader, identity.SignedAt.UTC().Format(time.RFC3339Nano))
+	recorder := httptest.NewRecorder()
+
+	server.Handler().ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("expected status 403, got %d", recorder.Code)
+	}
+}
+
 func TestHandleProduceBlockCommitsAndExposesLatestBlock(t *testing.T) {
 	server := newTestServer(t, Config{
 		DataDir:                 t.TempDir(),
@@ -419,7 +490,7 @@ func TestHandleConsensusProposalAndVotesExposeArtifacts(t *testing.T) {
 		t.Fatalf("set validators: %v", err)
 	}
 
-	proposal := signedConsensusProposal(t, proposer, 1, 0, "", time.Date(2026, time.March, 23, 13, 0, 0, 0, time.UTC), []string{consensusTestHash("block-1-tx")})
+	proposal := signedConsensusProposal(t, proposer, 1, 0, "", time.Date(2026, time.March, 23, 13, 0, 0, 0, time.UTC), []tx.Envelope{signedEnvelope(t, 5, 1, "block-1-tx")})
 	proposalBody, err := json.Marshal(proposal)
 	if err != nil {
 		t.Fatalf("marshal proposal: %v", err)
@@ -531,7 +602,7 @@ func TestHandleBlockTemplateAndConsensusGatedProduceBlock(t *testing.T) {
 		t.Fatalf("expected gated produce status 409 without certificate, got %d", produceRecorder.Code)
 	}
 
-	proposal := signedConsensusProposal(t, proposer, templateResponse.Block.Height, 0, templateResponse.Block.PreviousHash, templateResponse.Block.ProducedAt, templateResponse.Block.TransactionIDs)
+	proposal := signedConsensusProposal(t, proposer, templateResponse.Block.Height, 0, templateResponse.Block.PreviousHash, templateResponse.Block.ProducedAt, templateResponse.Block.Transactions)
 	proposalBody, err := json.Marshal(proposal)
 	if err != nil {
 		t.Fatalf("marshal proposal: %v", err)
@@ -586,7 +657,89 @@ func TestHandleBlockTemplateAndConsensusGatedProduceBlock(t *testing.T) {
 		t.Fatalf("expected produced block hash %s, got %s", templateResponse.Block.Hash, produceResponse.Block.Hash)
 	}
 }
-func TestPeerSyncRecordsVerifiedTransportIdentity(t *testing.T) {
+func TestHandleConsensusGatedProduceBlockUsesProposalBodyWithoutMempool(t *testing.T) {
+	proposer := newConsensusSigner(t)
+	voter := newConsensusSigner(t)
+	server := newTestServer(t, Config{
+		DataDir:                      t.TempDir(),
+		NodeID:                       "node-a",
+		ValidatorAddress:             proposer.address,
+		BlockInterval:                0,
+		SyncInterval:                 0,
+		MaxTransactionsPerBlock:      10,
+		EnableBlockProduction:        true,
+		EnablePeerSync:               false,
+		EnforceProposerSchedule:      true,
+		RequireConsensusCertificates: true,
+	})
+
+	if _, err := server.ledger.SetValidators([]dpos.Validator{
+		{Rank: 1, Address: proposer.address, VotingPower: 60, SelfStake: 40, DelegatedStake: 20},
+		{Rank: 2, Address: voter.address, VotingPower: 40, SelfStake: 25, DelegatedStake: 15},
+	}, dpos.ElectionConfig{MaxValidators: 2}); err != nil {
+		t.Fatalf("set validators: %v", err)
+	}
+
+	envelope := signedEnvelope(t, 25, 1, "proposal-body-api")
+	if _, err := server.ledger.Credit(envelope.From, 100); err != nil {
+		t.Fatalf("credit sender: %v", err)
+	}
+	producedAt := time.Date(2026, time.March, 24, 9, 45, 0, 0, time.UTC)
+	proposal := signedConsensusProposal(t, proposer, 1, 0, "", producedAt, []tx.Envelope{envelope})
+	proposalBody, err := json.Marshal(proposal)
+	if err != nil {
+		t.Fatalf("marshal proposal: %v", err)
+	}
+	proposalRequest := httptest.NewRequest(http.MethodPost, "/v1/consensus/proposals", bytes.NewReader(proposalBody))
+	proposalRecorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(proposalRecorder, proposalRequest)
+	if proposalRecorder.Code != http.StatusAccepted {
+		t.Fatalf("expected proposal status 202, got %d", proposalRecorder.Code)
+	}
+
+	for _, vote := range []consensus.Vote{
+		signedConsensusVote(t, proposer, 1, 0, proposal.BlockHash),
+		signedConsensusVote(t, voter, 1, 0, proposal.BlockHash),
+	} {
+		voteBody, err := json.Marshal(vote)
+		if err != nil {
+			t.Fatalf("marshal vote: %v", err)
+		}
+		voteRequest := httptest.NewRequest(http.MethodPost, "/v1/consensus/votes", bytes.NewReader(voteBody))
+		voteRecorder := httptest.NewRecorder()
+		server.Handler().ServeHTTP(voteRecorder, voteRequest)
+		if voteRecorder.Code != http.StatusAccepted {
+			t.Fatalf("expected vote status 202, got %d", voteRecorder.Code)
+		}
+	}
+	if server.ledger.MempoolSize() != 0 {
+		t.Fatalf("expected empty mempool before certified produce, got %d", server.ledger.MempoolSize())
+	}
+
+	produceBody, err := json.Marshal(ProduceBlockRequest{ProducedAt: &producedAt})
+	if err != nil {
+		t.Fatalf("marshal produce request: %v", err)
+	}
+	produceRequest := httptest.NewRequest(http.MethodPost, "/v1/dev/produce-block", bytes.NewReader(produceBody))
+	produceRecorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(produceRecorder, produceRequest)
+	if produceRecorder.Code != http.StatusOK {
+		t.Fatalf("expected produce status 200, got %d", produceRecorder.Code)
+	}
+
+	var produceResponse ProduceBlockResponse
+	if err := json.NewDecoder(produceRecorder.Body).Decode(&produceResponse); err != nil {
+		t.Fatalf("decode produce response: %v", err)
+	}
+	if produceResponse.Block.Hash != proposal.BlockHash {
+		t.Fatalf("expected produced block hash %s, got %s", proposal.BlockHash, produceResponse.Block.Hash)
+	}
+	if sender := server.ledger.View(envelope.From); sender.Balance != 75 || sender.Nonce != 1 {
+		t.Fatalf("unexpected sender state after proposal-body produce: %+v", sender)
+	}
+}
+
+func TestPeerSyncRecordsVerifiedAndAdmittedTransportIdentity(t *testing.T) {
 	peerSigner := newConsensusSigner(t)
 	peerServer := newTestServer(t, Config{
 		DataDir:                 t.TempDir(),
@@ -605,16 +758,73 @@ func TestPeerSyncRecordsVerifiedTransportIdentity(t *testing.T) {
 		DataDir:                 t.TempDir(),
 		NodeID:                  "node-a",
 		PeerURLs:                []string{peerHTTP.URL},
+		PeerValidatorBindings:   map[string]string{peerHTTP.URL: peerSigner.address},
 		BlockInterval:           0,
 		SyncInterval:            50 * time.Millisecond,
 		MaxTransactionsPerBlock: 10,
 		EnableBlockProduction:   false,
 		EnablePeerSync:          true,
+		RequirePeerIdentity:     true,
 	})
 
 	waitFor(t, func() bool {
 		peers := mainServer.peerSnapshot()
-		return len(peers) == 1 && peers[0].IdentityVerified
+		return len(peers) == 1 && peers[0].Admitted
+	})
+
+	peers := mainServer.peerSnapshot()
+	if len(peers) != 1 {
+		t.Fatalf("expected 1 peer view, got %d", len(peers))
+	}
+	if !peers[0].IdentityPresent || !peers[0].IdentityVerified || !peers[0].Admitted {
+		t.Fatalf("expected admitted verified transport identity, got %+v", peers[0])
+	}
+	if peers[0].ValidatorAddress != peerSigner.address {
+		t.Fatalf("expected peer validator %s, got %s", peerSigner.address, peers[0].ValidatorAddress)
+	}
+	if peers[0].ExpectedValidator != peerSigner.address {
+		t.Fatalf("expected bound validator %s, got %s", peerSigner.address, peers[0].ExpectedValidator)
+	}
+	if peers[0].IdentityError != "" {
+		t.Fatalf("expected empty identity error, got %q", peers[0].IdentityError)
+	}
+	if peers[0].AdmissionError != "" {
+		t.Fatalf("expected empty admission error, got %q", peers[0].AdmissionError)
+	}
+}
+
+func TestPeerSyncRejectsUnexpectedPeerValidatorBinding(t *testing.T) {
+	peerSigner := newConsensusSigner(t)
+	expectedSigner := newConsensusSigner(t)
+	peerServer := newTestServer(t, Config{
+		DataDir:                 t.TempDir(),
+		NodeID:                  "node-b",
+		ValidatorPrivateKey:     encodedPrivateKey(t, peerSigner.privateKey),
+		BlockInterval:           0,
+		SyncInterval:            0,
+		MaxTransactionsPerBlock: 10,
+		EnableBlockProduction:   false,
+		EnablePeerSync:          false,
+	})
+	peerHTTP := httptest.NewServer(peerServer.Handler())
+	defer peerHTTP.Close()
+
+	mainServer := newTestServer(t, Config{
+		DataDir:                 t.TempDir(),
+		NodeID:                  "node-a",
+		PeerURLs:                []string{peerHTTP.URL},
+		PeerValidatorBindings:   map[string]string{peerHTTP.URL: expectedSigner.address},
+		BlockInterval:           0,
+		SyncInterval:            50 * time.Millisecond,
+		MaxTransactionsPerBlock: 10,
+		EnableBlockProduction:   false,
+		EnablePeerSync:          true,
+		RequirePeerIdentity:     true,
+	})
+
+	waitFor(t, func() bool {
+		peers := mainServer.peerSnapshot()
+		return len(peers) == 1 && peers[0].Reachable && !peers[0].Admitted
 	})
 
 	peers := mainServer.peerSnapshot()
@@ -622,13 +832,77 @@ func TestPeerSyncRecordsVerifiedTransportIdentity(t *testing.T) {
 		t.Fatalf("expected 1 peer view, got %d", len(peers))
 	}
 	if !peers[0].IdentityPresent || !peers[0].IdentityVerified {
-		t.Fatalf("expected verified transport identity, got %+v", peers[0])
+		t.Fatalf("expected verified identity before admission failure, got %+v", peers[0])
 	}
-	if peers[0].ValidatorAddress != peerSigner.address {
-		t.Fatalf("expected peer validator %s, got %s", peerSigner.address, peers[0].ValidatorAddress)
+	if peers[0].ExpectedValidator != expectedSigner.address {
+		t.Fatalf("expected bound validator %s, got %s", expectedSigner.address, peers[0].ExpectedValidator)
 	}
-	if peers[0].IdentityError != "" {
-		t.Fatalf("expected empty identity error, got %q", peers[0].IdentityError)
+	if peers[0].Admitted {
+		t.Fatalf("expected peer admission to fail, got %+v", peers[0])
+	}
+	if !strings.Contains(peers[0].AdmissionError, expectedSigner.address) {
+		t.Fatalf("expected admission error to mention %s, got %q", expectedSigner.address, peers[0].AdmissionError)
+	}
+}
+
+func TestPeerBroadcastSkipsUnadmittedPeer(t *testing.T) {
+	peerSigner := newConsensusSigner(t)
+	unexpectedSigner := newConsensusSigner(t)
+	peerServer := newTestServer(t, Config{
+		DataDir:                 t.TempDir(),
+		NodeID:                  "node-b",
+		ValidatorPrivateKey:     encodedPrivateKey(t, peerSigner.privateKey),
+		BlockInterval:           0,
+		SyncInterval:            0,
+		MaxTransactionsPerBlock: 10,
+		EnableBlockProduction:   false,
+		EnablePeerSync:          false,
+	})
+	peerHTTP := httptest.NewServer(peerServer.Handler())
+	defer peerHTTP.Close()
+
+	mainServer := newTestServer(t, Config{
+		DataDir:                 t.TempDir(),
+		NodeID:                  "node-a",
+		PeerURLs:                []string{peerHTTP.URL},
+		PeerValidatorBindings:   map[string]string{peerHTTP.URL: unexpectedSigner.address},
+		BlockInterval:           0,
+		SyncInterval:            0,
+		MaxTransactionsPerBlock: 10,
+		EnableBlockProduction:   false,
+		EnablePeerSync:          false,
+		RequirePeerIdentity:     true,
+	})
+
+	envelope := signedEnvelope(t, 25, 1, "unadmitted-peer")
+	if _, err := mainServer.ledger.Credit(envelope.From, 100); err != nil {
+		t.Fatalf("credit sender: %v", err)
+	}
+	body, err := json.Marshal(envelope)
+	if err != nil {
+		t.Fatalf("marshal transaction: %v", err)
+	}
+	request := httptest.NewRequest(http.MethodPost, "/v1/transactions", bytes.NewReader(body))
+	recorder := httptest.NewRecorder()
+	mainServer.Handler().ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusAccepted {
+		t.Fatalf("expected broadcast status 202, got %d", recorder.Code)
+	}
+
+	time.Sleep(200 * time.Millisecond)
+	if peerServer.ledger.MempoolSize() != 0 {
+		t.Fatalf("expected unadmitted peer mempool to stay empty, got %d", peerServer.ledger.MempoolSize())
+	}
+	if peerServer.ledger.View(envelope.From).Balance != 0 {
+		t.Fatalf("expected unadmitted peer account to remain untouched, got %+v", peerServer.ledger.View(envelope.From))
+	}
+
+	peers := mainServer.peerSnapshot()
+	if len(peers) != 1 {
+		t.Fatalf("expected 1 peer view, got %d", len(peers))
+	}
+	if peers[0].Admitted {
+		t.Fatalf("expected peer to remain unadmitted, got %+v", peers[0])
 	}
 }
 
@@ -669,7 +943,7 @@ func TestPeerReplicationPropagatesConsensusProposalAndVotes(t *testing.T) {
 		t.Fatalf("set peer validators: %v", err)
 	}
 
-	proposal := signedConsensusProposal(t, proposer, 1, 0, "", time.Date(2026, time.March, 23, 13, 15, 0, 0, time.UTC), []string{consensusTestHash("peer-block-1-tx")})
+	proposal := signedConsensusProposal(t, proposer, 1, 0, "", time.Date(2026, time.March, 23, 13, 15, 0, 0, time.UTC), []tx.Envelope{signedEnvelope(t, 5, 1, "peer-block-1-tx")})
 	proposalBody, err := json.Marshal(proposal)
 	if err != nil {
 		t.Fatalf("marshal proposal: %v", err)
@@ -799,7 +1073,7 @@ func TestPeerReplicationImportsCertifiedBlockWhenConsensusRequired(t *testing.T)
 		t.Fatalf("decode template response: %v", err)
 	}
 
-	proposal := signedConsensusProposal(t, proposer, templateResponse.Block.Height, 0, templateResponse.Block.PreviousHash, templateResponse.Block.ProducedAt, templateResponse.Block.TransactionIDs)
+	proposal := signedConsensusProposal(t, proposer, templateResponse.Block.Height, 0, templateResponse.Block.PreviousHash, templateResponse.Block.ProducedAt, templateResponse.Block.Transactions)
 	proposalBody, err := json.Marshal(proposal)
 	if err != nil {
 		t.Fatalf("marshal proposal: %v", err)
@@ -1151,15 +1425,20 @@ func newConsensusSigner(t *testing.T) consensusSigner {
 	return consensusSigner{privateKey: privateKey, address: address, publicKey: encodedPublicKey}
 }
 
-func signedConsensusProposal(t *testing.T, signer consensusSigner, height uint64, round uint64, previousHash string, producedAt time.Time, transactionIDs []string) consensus.Proposal {
+func signedConsensusProposal(t *testing.T, signer consensusSigner, height uint64, round uint64, previousHash string, producedAt time.Time, transactions []tx.Envelope) consensus.Proposal {
 	t.Helper()
 
+	transactionIDs := make([]string, 0, len(transactions))
+	for _, envelope := range transactions {
+		transactionIDs = append(transactionIDs, tx.ID(envelope))
+	}
 	proposal := consensus.Proposal{
 		Height:         height,
 		Round:          round,
 		PreviousHash:   previousHash,
 		ProducedAt:     producedAt,
 		TransactionIDs: append([]string(nil), transactionIDs...),
+		Transactions:   append([]tx.Envelope(nil), transactions...),
 		Proposer:       signer.address,
 		PublicKey:      signer.publicKey,
 	}

@@ -12,19 +12,22 @@ import (
 )
 
 type PeerView struct {
-	URL              string     `json:"url"`
-	NodeID           string     `json:"nodeId,omitempty"`
-	ValidatorAddress string     `json:"validatorAddress,omitempty"`
-	Height           uint64     `json:"height"`
-	LatestBlockHash  string     `json:"latestBlockHash,omitempty"`
-	MempoolSize      int        `json:"mempoolSize"`
-	BlockProduction  bool       `json:"blockProduction"`
-	IdentityPresent  bool       `json:"identityPresent"`
-	IdentityVerified bool       `json:"identityVerified"`
-	IdentityError    string     `json:"identityError,omitempty"`
-	LastSeenAt       *time.Time `json:"lastSeenAt,omitempty"`
-	Reachable        bool       `json:"reachable"`
-	Error            string     `json:"error,omitempty"`
+	URL               string     `json:"url"`
+	NodeID            string     `json:"nodeId,omitempty"`
+	ValidatorAddress  string     `json:"validatorAddress,omitempty"`
+	ExpectedValidator string     `json:"expectedValidator,omitempty"`
+	Height            uint64     `json:"height"`
+	LatestBlockHash   string     `json:"latestBlockHash,omitempty"`
+	MempoolSize       int        `json:"mempoolSize"`
+	BlockProduction   bool       `json:"blockProduction"`
+	IdentityPresent   bool       `json:"identityPresent"`
+	IdentityVerified  bool       `json:"identityVerified"`
+	IdentityError     string     `json:"identityError,omitempty"`
+	Admitted          bool       `json:"admitted"`
+	AdmissionError    string     `json:"admissionError,omitempty"`
+	LastSeenAt        *time.Time `json:"lastSeenAt,omitempty"`
+	Reachable         bool       `json:"reachable"`
+	Error             string     `json:"error,omitempty"`
 }
 
 type PeersResponse struct {
@@ -58,32 +61,20 @@ func (s *Server) syncPeers() {
 		}
 
 		now := time.Now().UTC()
-		identityVerified, identityError := verifyPeerTransportIdentity(status, now)
-		view := PeerView{
-			URL:              peerURL,
-			NodeID:           status.NodeID,
-			ValidatorAddress: status.ValidatorAddress,
-			Height:           status.Status.Height,
-			LatestBlockHash:  status.Status.LatestBlockHash,
-			MempoolSize:      status.Status.MempoolSize,
-			BlockProduction:  status.BlockProduction,
-			IdentityPresent:  status.Identity != nil,
-			IdentityVerified: identityVerified,
-			IdentityError:    identityError,
-			LastSeenAt:       &now,
-			Reachable:        true,
-		}
-		localStatus := s.ledger.Status()
-		needsSync := status.Status.Height > localStatus.Height
-		if status.Status.Height == localStatus.Height {
-			needsSync = status.Status.MempoolSize > localStatus.MempoolSize ||
-				(status.Status.Height > 0 && status.Status.LatestBlockHash != localStatus.LatestBlockHash)
-		}
+		view := s.buildPeerView(peerURL, status, now)
+		if view.Admitted {
+			localStatus := s.ledger.Status()
+			needsSync := status.Status.Height > localStatus.Height
+			if status.Status.Height == localStatus.Height {
+				needsSync = status.Status.MempoolSize > localStatus.MempoolSize ||
+					(status.Status.Height > 0 && status.Status.LatestBlockHash != localStatus.LatestBlockHash)
+			}
 
-		if needsSync {
-			if err := s.syncFromPeer(peerURL, localStatus.Height, status.Status.Height); err != nil {
-				view.Error = err.Error()
-				recordPeerLog(fmt.Sprintf("peer-sync %s", peerURL), err)
+			if needsSync {
+				if err := s.syncFromPeer(peerURL, localStatus.Height, status.Status.Height); err != nil {
+					view.Error = err.Error()
+					recordPeerLog(fmt.Sprintf("peer-sync %s", peerURL), err)
+				}
 			}
 		}
 
@@ -128,7 +119,7 @@ func (s *Server) restoreSnapshotFromPeer(peerURL string) error {
 }
 
 func (s *Server) broadcastTransaction(envelope tx.Envelope) {
-	for _, peerURL := range s.config.PeerURLs {
+	for _, peerURL := range s.admittedPeerURLs() {
 		if err := s.transport.PostTransaction(peerURL, envelope); err != nil {
 			recordPeerLog(fmt.Sprintf("broadcast-transaction %s", peerURL), err)
 		}
@@ -136,7 +127,7 @@ func (s *Server) broadcastTransaction(envelope tx.Envelope) {
 }
 
 func (s *Server) broadcastBlock(block ledger.Block) {
-	for _, peerURL := range s.config.PeerURLs {
+	for _, peerURL := range s.admittedPeerURLs() {
 		if err := s.transport.PostBlock(peerURL, block); err != nil {
 			recordPeerLog(fmt.Sprintf("broadcast-block %s", peerURL), err)
 		}
@@ -144,7 +135,7 @@ func (s *Server) broadcastBlock(block ledger.Block) {
 }
 
 func (s *Server) broadcastFaucet(request FaucetRequest) {
-	for _, peerURL := range s.config.PeerURLs {
+	for _, peerURL := range s.admittedPeerURLs() {
 		if err := s.transport.PostFaucet(peerURL, request); err != nil {
 			recordPeerLog(fmt.Sprintf("broadcast-faucet %s", peerURL), err)
 		}
@@ -152,7 +143,7 @@ func (s *Server) broadcastFaucet(request FaucetRequest) {
 }
 
 func (s *Server) broadcastProposal(proposal consensus.Proposal) {
-	for _, peerURL := range s.config.PeerURLs {
+	for _, peerURL := range s.admittedPeerURLs() {
 		if err := s.transport.PostProposal(peerURL, proposal); err != nil {
 			recordPeerLog(fmt.Sprintf("broadcast-proposal %s", peerURL), err)
 		}
@@ -160,7 +151,7 @@ func (s *Server) broadcastProposal(proposal consensus.Proposal) {
 }
 
 func (s *Server) broadcastVote(vote consensus.Vote) {
-	for _, peerURL := range s.config.PeerURLs {
+	for _, peerURL := range s.admittedPeerURLs() {
 		if err := s.transport.PostVote(peerURL, vote); err != nil {
 			recordPeerLog(fmt.Sprintf("broadcast-vote %s", peerURL), err)
 		}
@@ -195,7 +186,7 @@ func (s *Server) peerSnapshot() []PeerView {
 			peers = append(peers, view)
 			continue
 		}
-		peers = append(peers, PeerView{URL: peerURL})
+		peers = append(peers, PeerView{URL: peerURL, ExpectedValidator: s.expectedPeerValidator(peerURL)})
 	}
 	return peers
 }

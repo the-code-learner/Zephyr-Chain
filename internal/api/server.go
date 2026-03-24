@@ -39,11 +39,13 @@ type Config struct {
 	ValidatorAddress             string
 	ValidatorPrivateKey          string
 	PeerURLs                     []string
+	PeerValidatorBindings        map[string]string
 	BlockInterval                time.Duration
 	SyncInterval                 time.Duration
 	MaxTransactionsPerBlock      int
 	EnableBlockProduction        bool
 	EnablePeerSync               bool
+	RequirePeerIdentity          bool
 	EnforceProposerSchedule      bool
 	RequireConsensusCertificates bool
 }
@@ -54,11 +56,13 @@ func DefaultConfig() Config {
 		NodeID:                       "node-local",
 		ValidatorAddress:             "",
 		PeerURLs:                     []string{},
+		PeerValidatorBindings:        nil,
 		BlockInterval:                15 * time.Second,
 		SyncInterval:                 5 * time.Second,
 		MaxTransactionsPerBlock:      100,
 		EnableBlockProduction:        true,
 		EnablePeerSync:               true,
+		RequirePeerIdentity:          false,
 		EnforceProposerSchedule:      false,
 		RequireConsensusCertificates: false,
 	}
@@ -107,6 +111,7 @@ type StatusResponse struct {
 	PeerCount                     int                  `json:"peerCount"`
 	BlockProduction               bool                 `json:"blockProduction"`
 	PeerSyncEnabled               bool                 `json:"peerSyncEnabled"`
+	PeerIdentityRequired          bool                 `json:"peerIdentityRequired"`
 	ProposerScheduleEnforced      bool                 `json:"proposerScheduleEnforced"`
 	ConsensusCertificatesRequired bool                 `json:"consensusCertificatesRequired"`
 	Identity                      *TransportIdentity   `json:"identity,omitempty"`
@@ -254,6 +259,7 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		PeerCount:                     len(s.config.PeerURLs),
 		BlockProduction:               s.config.EnableBlockProduction,
 		PeerSyncEnabled:               s.config.EnablePeerSync,
+		PeerIdentityRequired:          s.peerIdentityRequired(),
 		ProposerScheduleEnforced:      s.config.EnforceProposerSchedule,
 		ConsensusCertificatesRequired: s.config.RequireConsensusCertificates,
 		Status:                        s.ledger.Status(),
@@ -342,7 +348,7 @@ func (s *Server) handleBroadcastTransaction(w http.ResponseWriter, r *http.Reque
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return
 	}
-	if err := validateRequestTransportIdentity(r); err != nil {
+	if err := s.validatePeerRequest(r); err != nil {
 		writeJSON(w, statusForError(err), map[string]string{"error": err.Error()})
 		return
 	}
@@ -444,7 +450,7 @@ func (s *Server) handleFaucet(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return
 	}
-	if err := validateRequestTransportIdentity(r); err != nil {
+	if err := s.validatePeerRequest(r); err != nil {
 		writeJSON(w, statusForError(err), map[string]string{"error": err.Error()})
 		return
 	}
@@ -523,7 +529,7 @@ func (s *Server) handleImportBlock(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return
 	}
-	if err := validateRequestTransportIdentity(r); err != nil {
+	if err := s.validatePeerRequest(r); err != nil {
 		writeJSON(w, statusForError(err), map[string]string{"error": err.Error()})
 		return
 	}
@@ -629,6 +635,7 @@ func normalizeConfig(config Config) Config {
 	config.ValidatorAddress = strings.TrimSpace(config.ValidatorAddress)
 	config.ValidatorPrivateKey = strings.TrimSpace(config.ValidatorPrivateKey)
 	config.PeerURLs = normalizePeerURLs(config.PeerURLs)
+	config.PeerValidatorBindings = normalizePeerValidatorBindings(config.PeerValidatorBindings)
 	if config.MaxTransactionsPerBlock <= 0 {
 		config.MaxTransactionsPerBlock = 100
 	}
@@ -666,6 +673,9 @@ func statusForError(err error) int {
 		errors.Is(err, consensus.ErrInvalidHeight),
 		errors.Is(err, consensus.ErrInvalidProducedAt),
 		errors.Is(err, consensus.ErrInvalidTransactionID),
+		errors.Is(err, consensus.ErrMissingTransactions),
+		errors.Is(err, consensus.ErrInvalidProposalTransaction),
+		errors.Is(err, consensus.ErrTransactionMismatch),
 		errors.Is(err, consensus.ErrHashMismatch),
 		errors.Is(err, errMissingTransportIdentityFields),
 		errors.Is(err, errInvalidTransportIdentityPayload),
@@ -676,6 +686,9 @@ func statusForError(err error) int {
 		errors.Is(err, errTransportIdentityNodeMismatch),
 		errors.Is(err, errTransportIdentityValidatorMismatch):
 		return http.StatusBadRequest
+	case errors.Is(err, errPeerIdentityRequired),
+		errors.Is(err, errPeerValidatorNotAllowed):
+		return http.StatusForbidden
 	case errors.Is(err, ledger.ErrDuplicateTransaction),
 		errors.Is(err, ledger.ErrInvalidNonce),
 		errors.Is(err, ledger.ErrInsufficientBalance),
