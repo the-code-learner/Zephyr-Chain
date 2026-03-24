@@ -2787,6 +2787,199 @@ func TestStatusExposesPeerSyncSummaryAcrossPeers(t *testing.T) {
 	}
 }
 
+func TestMetricsExposeConsensusAndPeerObservabilityAggregates(t *testing.T) {
+	server := newTestServer(t, Config{
+		DataDir:                      t.TempDir(),
+		NodeID:                       "metrics-node",
+		ValidatorAddress:             "zph_validator_metrics",
+		PeerURLs:                     []string{"http://peer-a.example", "http://peer-b.example", "http://peer-c.example"},
+		BlockInterval:                0,
+		SyncInterval:                 0,
+		MaxTransactionsPerBlock:      10,
+		EnableBlockProduction:        false,
+		EnablePeerSync:               true,
+		RequirePeerIdentity:          true,
+		EnforceProposerSchedule:      true,
+		RequireConsensusCertificates: true,
+	})
+
+	proposalHash := consensusTestHash("metrics-proposal")
+	voteHash := consensusTestHash("metrics-vote")
+	proposalRecordedAt := time.Date(2026, time.March, 24, 21, 0, 0, 0, time.UTC)
+	replayedAt := proposalRecordedAt.Add(30 * time.Second)
+	voteRecordedAt := proposalRecordedAt.Add(1 * time.Minute)
+	roundAdvanceRecordedAt := proposalRecordedAt.Add(2 * time.Minute)
+	if err := server.ledger.RecordConsensusAction(ledger.ConsensusAction{
+		Type:       ledger.ConsensusActionProposal,
+		Height:     2,
+		Round:      0,
+		BlockHash:  proposalHash,
+		Validator:  "zph_validator_metrics",
+		RecordedAt: proposalRecordedAt,
+	}); err != nil {
+		t.Fatalf("record proposal action: %v", err)
+	}
+	if err := server.ledger.MarkConsensusActionReplayed(ledger.ConsensusActionProposal, 2, 0, proposalHash, "zph_validator_metrics", replayedAt); err != nil {
+		t.Fatalf("mark proposal replayed: %v", err)
+	}
+	if err := server.ledger.RecordConsensusAction(ledger.ConsensusAction{
+		Type:       ledger.ConsensusActionVote,
+		Height:     2,
+		Round:      0,
+		BlockHash:  voteHash,
+		Validator:  "zph_validator_peer",
+		RecordedAt: voteRecordedAt,
+	}); err != nil {
+		t.Fatalf("record vote action: %v", err)
+	}
+	if err := server.ledger.RecordConsensusAction(ledger.ConsensusAction{
+		Type:       ledger.ConsensusActionRoundAdvance,
+		Height:     2,
+		Round:      1,
+		Validator:  "zph_validator_metrics",
+		RecordedAt: roundAdvanceRecordedAt,
+		Status:     ledger.ConsensusActionCompleted,
+		Note:       "advanced after timeout",
+	}); err != nil {
+		t.Fatalf("record round-advance action: %v", err)
+	}
+
+	firstDiagnosticAt := proposalRecordedAt.Add(3 * time.Minute)
+	secondDiagnosticAt := proposalRecordedAt.Add(4 * time.Minute)
+	if err := server.ledger.RecordConsensusDiagnostic(ledger.ConsensusDiagnostic{
+		Kind:       "vote_rejected",
+		Code:       "stale_round",
+		Message:    "vote round is older than the current active round",
+		Height:     2,
+		Round:      0,
+		BlockHash:  voteHash,
+		Validator:  "zph_validator_peer",
+		Source:     "api",
+		ObservedAt: firstDiagnosticAt,
+	}); err != nil {
+		t.Fatalf("record first diagnostic: %v", err)
+	}
+	if err := server.ledger.RecordConsensusDiagnostic(ledger.ConsensusDiagnostic{
+		Kind:       "block_import_rejected",
+		Code:       "proposal_required",
+		Message:    "consensus proposal is required before block import",
+		Height:     2,
+		Round:      0,
+		BlockHash:  proposalHash,
+		Validator:  "zph_validator_metrics",
+		Source:     "peer_sync",
+		ObservedAt: secondDiagnosticAt,
+	}); err != nil {
+		t.Fatalf("record second diagnostic: %v", err)
+	}
+
+	firstPeerSeenAt := proposalRecordedAt.Add(5 * time.Minute)
+	secondPeerSeenAt := proposalRecordedAt.Add(6 * time.Minute)
+	blockedAt := proposalRecordedAt.Add(7 * time.Minute)
+	unadmittedAt := proposalRecordedAt.Add(8 * time.Minute)
+	server.recordPeerView(PeerView{
+		URL:        "http://peer-a.example",
+		Height:     1,
+		Admitted:   true,
+		Reachable:  false,
+		SyncState:  "unreachable",
+		LastSeenAt: &firstPeerSeenAt,
+		Error:      "dial tcp timeout",
+	})
+	server.recordPeerView(PeerView{
+		URL:        "http://peer-a.example",
+		Height:     1,
+		Admitted:   true,
+		Reachable:  false,
+		SyncState:  "unreachable",
+		LastSeenAt: &secondPeerSeenAt,
+		Error:      "dial tcp timeout",
+	})
+	server.recordPeerView(PeerView{
+		URL:                        "http://peer-b.example",
+		Height:                     2,
+		Admitted:                   true,
+		Reachable:                  true,
+		SyncState:                  "import_blocked",
+		LastImportErrorCode:        "proposal_required",
+		LastImportErrorMessage:     "consensus proposal is required before block import",
+		LastImportFailureAt:        &blockedAt,
+		LastImportFailureHeight:    2,
+		LastImportFailureBlockHash: proposalHash,
+	})
+	server.recordPeerView(PeerView{
+		URL:            "http://peer-c.example",
+		Height:         2,
+		Admitted:       false,
+		Reachable:      true,
+		SyncState:      "unadmitted",
+		AdmissionError: "validator binding mismatch",
+		LastSeenAt:     &unadmittedAt,
+	})
+
+	request := httptest.NewRequest(http.MethodGet, "/v1/metrics", nil)
+	recorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected metrics status 200, got %d", recorder.Code)
+	}
+
+	var response MetricsResponse
+	if err := json.NewDecoder(recorder.Body).Decode(&response); err != nil {
+		t.Fatalf("decode metrics response: %v", err)
+	}
+	if response.GeneratedAt.IsZero() {
+		t.Fatal("expected generatedAt in metrics response")
+	}
+	if response.NodeID != "metrics-node" || response.ValidatorAddress != "zph_validator_metrics" {
+		t.Fatalf("unexpected metrics identity %+v", response)
+	}
+	if response.PeerCount != 3 || response.BlockProduction || !response.PeerSyncEnabled || !response.PeerIdentityRequired || !response.ProposerScheduleEnforced || !response.ConsensusCertificatesRequired {
+		t.Fatalf("unexpected metrics config flags %+v", response)
+	}
+	if response.ConsensusActions.TotalCount != 3 || response.ConsensusActions.PendingCount != 2 || response.ConsensusActions.TotalReplayAttempts != 1 {
+		t.Fatalf("unexpected consensus action metrics %+v", response.ConsensusActions)
+	}
+	if response.ConsensusActions.LatestCompletedAt == nil || !response.ConsensusActions.LatestCompletedAt.Equal(roundAdvanceRecordedAt) {
+		t.Fatalf("unexpected consensus action completion time %+v", response.ConsensusActions)
+	}
+	actionTypes := make(map[string]int)
+	for _, bucket := range response.ConsensusActions.ByType {
+		actionTypes[bucket.Label] = bucket.Count
+	}
+	if actionTypes[ledger.ConsensusActionProposal] != 1 || actionTypes[ledger.ConsensusActionVote] != 1 || actionTypes[ledger.ConsensusActionRoundAdvance] != 1 {
+		t.Fatalf("unexpected consensus action type buckets %+v", response.ConsensusActions.ByType)
+	}
+	if response.Diagnostics.TotalCount != 2 || response.Diagnostics.LatestObservedAt == nil || !response.Diagnostics.LatestObservedAt.Equal(secondDiagnosticAt) {
+		t.Fatalf("unexpected diagnostic metrics %+v", response.Diagnostics)
+	}
+	diagnosticCodes := make(map[string]int)
+	for _, bucket := range response.Diagnostics.ByCode {
+		diagnosticCodes[bucket.Label] = bucket.Count
+	}
+	if diagnosticCodes["stale_round"] != 1 || diagnosticCodes["proposal_required"] != 1 {
+		t.Fatalf("unexpected diagnostic code buckets %+v", response.Diagnostics.ByCode)
+	}
+	if response.PeerSyncSummary.IncidentCount != 3 || response.PeerSyncSummary.AffectedPeerCount != 3 || response.PeerSyncSummary.TotalOccurrences != 4 {
+		t.Fatalf("unexpected peer sync summary %+v", response.PeerSyncSummary)
+	}
+	if response.PeerSyncSummary.LatestObservedAt == nil || !response.PeerSyncSummary.LatestObservedAt.Equal(unadmittedAt) {
+		t.Fatalf("unexpected peer sync summary time %+v", response.PeerSyncSummary)
+	}
+	if len(response.PeerSyncSummary.States) == 0 || response.PeerSyncSummary.States[0].State != "unreachable" || response.PeerSyncSummary.States[0].TotalOccurrences != 2 {
+		t.Fatalf("unexpected peer sync state summaries %+v", response.PeerSyncSummary.States)
+	}
+	if response.PeerRuntime.ConfiguredPeerCount != 3 || response.PeerRuntime.ReachablePeerCount != 2 || response.PeerRuntime.UnreachablePeerCount != 1 || response.PeerRuntime.AdmittedPeerCount != 2 || response.PeerRuntime.UnadmittedPeerCount != 1 {
+		t.Fatalf("unexpected peer runtime metrics %+v", response.PeerRuntime)
+	}
+	syncStates := make(map[string]int)
+	for _, bucket := range response.PeerRuntime.BySyncState {
+		syncStates[bucket.Label] = bucket.Count
+	}
+	if syncStates["unreachable"] != 1 || syncStates["import_blocked"] != 1 || syncStates["unadmitted"] != 1 {
+		t.Fatalf("unexpected peer runtime sync-state buckets %+v", response.PeerRuntime.BySyncState)
+	}
+}
 func TestHandleImportBlockRejectsAndExposesPendingImportRecovery(t *testing.T) {
 	proposer := newConsensusSigner(t)
 	voter := newConsensusSigner(t)

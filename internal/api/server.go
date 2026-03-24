@@ -185,6 +185,26 @@ type SnapshotResponse struct {
 	Snapshot ledger.Snapshot `json:"snapshot"`
 }
 
+type MetricsResponse struct {
+	GeneratedAt                   time.Time                             `json:"generatedAt"`
+	NodeID                        string                                `json:"nodeId"`
+	ValidatorAddress              string                                `json:"validatorAddress,omitempty"`
+	PeerCount                     int                                   `json:"peerCount"`
+	BlockProduction               bool                                  `json:"blockProduction"`
+	ConsensusAutomationEnabled    bool                                  `json:"consensusAutomationEnabled"`
+	PeerSyncEnabled               bool                                  `json:"peerSyncEnabled"`
+	PeerIdentityRequired          bool                                  `json:"peerIdentityRequired"`
+	ProposerScheduleEnforced      bool                                  `json:"proposerScheduleEnforced"`
+	ConsensusCertificatesRequired bool                                  `json:"consensusCertificatesRequired"`
+	Status                        ledger.StatusView                     `json:"status"`
+	Consensus                     ledger.ConsensusView                  `json:"consensus"`
+	Recovery                      ledger.ConsensusRecoveryView          `json:"recovery"`
+	ConsensusActions              ledger.ConsensusActionMetricsView     `json:"consensusActions"`
+	Diagnostics                   ledger.ConsensusDiagnosticMetricsView `json:"diagnostics"`
+	PeerSyncSummary               ledger.PeerSyncSummaryView            `json:"peerSyncSummary"`
+	PeerRuntime                   PeerRuntimeMetricsView                `json:"peerRuntime"`
+}
+
 type Server struct {
 	mux            *http.ServeMux
 	ledger         *ledger.Store
@@ -256,6 +276,7 @@ func (s *Server) Close() {
 func (s *Server) routes() {
 	s.mux.HandleFunc("/health", s.handleHealth)
 	s.mux.HandleFunc("/v1/status", s.handleStatus)
+	s.mux.HandleFunc("/v1/metrics", s.handleMetrics)
 	s.mux.HandleFunc("/v1/peers", s.handlePeers)
 	s.mux.HandleFunc("/v1/consensus", s.handleConsensus)
 	s.mux.HandleFunc("/v1/consensus/proposals", s.handleConsensusProposal)
@@ -325,6 +346,36 @@ func (s *Server) handlePeers(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, PeersResponse{Peers: s.peerSnapshot()})
+}
+
+func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+
+	now := time.Now().UTC()
+	consensusView := s.ledger.Consensus()
+	peerViews := s.peerSnapshot()
+	writeJSON(w, http.StatusOK, MetricsResponse{
+		GeneratedAt:                   now,
+		NodeID:                        s.nodeID,
+		ValidatorAddress:              s.config.ValidatorAddress,
+		PeerCount:                     len(s.config.PeerURLs),
+		BlockProduction:               s.config.EnableBlockProduction,
+		ConsensusAutomationEnabled:    s.config.EnableConsensusAutomation,
+		PeerSyncEnabled:               s.config.EnablePeerSync,
+		PeerIdentityRequired:          s.peerIdentityRequired(),
+		ProposerScheduleEnforced:      s.config.EnforceProposerSchedule,
+		ConsensusCertificatesRequired: s.config.RequireConsensusCertificates,
+		Status:                        s.ledger.Status(),
+		Consensus:                     consensusView,
+		Recovery:                      s.ledger.ConsensusRecovery(),
+		ConsensusActions:              s.ledger.ConsensusActionMetrics(),
+		Diagnostics:                   s.ledger.ConsensusDiagnosticMetrics(),
+		PeerSyncSummary:               s.ledger.PeerSyncSummary(),
+		PeerRuntime:                   buildPeerRuntimeMetrics(peerViews),
+	})
 }
 
 func (s *Server) handleConsensus(w http.ResponseWriter, r *http.Request) {

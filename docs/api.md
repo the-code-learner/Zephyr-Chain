@@ -233,7 +233,7 @@ Current behavior:
 
 ### PeerSyncSummaryView
 
-`peerSyncSummary` is a bounded derived cross-peer incident summary exposed by `GET /v1/status`, `GET /v1/consensus`, and `GET /v1/dev/block-template`.
+`peerSyncSummary` is a bounded derived cross-peer incident summary exposed by `GET /v1/status`, `GET /v1/consensus`, `GET /v1/dev/block-template`, and `GET /v1/metrics`.
 
 Current fields include:
 
@@ -324,8 +324,22 @@ Current behavior:
 - `diagnostics` exposes recent rejected proposal, vote, commit, and import events
 - `peerSyncHistory` exposes a durable recent history of cross-peer sync incidents, including repeated failures merged by occurrence count
 - `peerSyncSummary` exposes affected-peer totals, dominant states, and the latest incident summary across peers
+- `GET /v1/metrics` offers a machine-readable roll-up of that durable summary plus live peer runtime counts
 - when `ZEPHYR_VALIDATOR_PRIVATE_KEY` is configured, the response includes an `identity` object with a signed transport proof for the local validator
 - `peerIdentityRequired` is `true` when strict peer admission or explicit peer-validator binding is enabled
+
+### GET /v1/metrics
+
+Returns a machine-readable observability snapshot built from durable ledger state plus the latest live peer runtime views.
+
+Current behavior:
+
+- the top-level response includes `generatedAt`, node identity, runtime flags, and embedded `status`, `consensus`, and `recovery` summaries
+- `consensusActions` rolls up the durable local WAL and recovery actions into `totalCount`, `pendingCount`, `totalReplayAttempts`, latest record or completion times, and `byType` or `byStatus` buckets
+- `diagnostics` rolls up the bounded rejection history into `totalCount`, `latestObservedAt`, and `byKind`, `byCode`, or `bySource` buckets
+- `peerSyncSummary` reuses the durable cross-peer incident summary also exposed by status, consensus, and block-template responses
+- `peerRuntime` reflects the current configured peer set and live `syncState` distribution, including reachable or admitted counts versus unreachable or unadmitted counts
+- unlike `peerSyncSummary`, `peerRuntime` is derived from the latest in-memory peer view and may reset on process restart until peers are seen again
 
 ### GET /v1/peers
 
@@ -435,6 +449,8 @@ If proposals exist for that height but the imported block does not match any sto
 Returns the current durable node snapshot used for catch-up restore.
 
 When another node applies this snapshot through peer sync, it preserves its own local recovery, diagnostic, peer-sync incident history, and derived peer-sync summary context instead of replacing that operator context with the peer's local WAL or diagnostics.
+
+
 
 
 
