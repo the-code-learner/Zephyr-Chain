@@ -2912,6 +2912,16 @@ func TestHandleNodeHealthFailsWhenRecoveryAndPeersAreBlocked(t *testing.T) {
 	if check, ok := healthCheckByName(response.Checks, "peer_sync"); !ok || check.Status != healthCheckFail {
 		t.Fatalf("expected failing peer_sync check, got %+v", response.Checks)
 	}
+
+	metricsRequest := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+	metricsRecorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(metricsRecorder, metricsRequest)
+	if metricsRecorder.Code != http.StatusOK {
+		t.Fatalf("expected prometheus metrics status 200, got %d", metricsRecorder.Code)
+	}
+	requirePrometheusLine(t, metricsRecorder.Body.String(), "zephyr_node_ready 0")
+	requirePrometheusLine(t, metricsRecorder.Body.String(), "zephyr_health_check_status{check=\"recovery\",status=\"fail\"} 1")
+	requirePrometheusLine(t, metricsRecorder.Body.String(), "zephyr_health_check_status{check=\"peer_sync\",status=\"fail\"} 1")
 }
 func TestMetricsExposeConsensusAndPeerObservabilityAggregates(t *testing.T) {
 	server := newTestServer(t, Config{
@@ -3105,6 +3115,91 @@ func TestMetricsExposeConsensusAndPeerObservabilityAggregates(t *testing.T) {
 	if syncStates["unreachable"] != 1 || syncStates["import_blocked"] != 1 || syncStates["unadmitted"] != 1 {
 		t.Fatalf("unexpected peer runtime sync-state buckets %+v", response.PeerRuntime.BySyncState)
 	}
+}
+
+func TestPrometheusMetricsExportOperatorSignals(t *testing.T) {
+	server := newTestServer(t, Config{
+		DataDir:                 t.TempDir(),
+		NodeID:                  "prometheus-node",
+		PeerURLs:                []string{"http://peer-a.example", "http://peer-b.example"},
+		BlockInterval:           0,
+		SyncInterval:            0,
+		MaxTransactionsPerBlock: 10,
+		EnableBlockProduction:   false,
+		EnablePeerSync:          true,
+	})
+
+	recordedAt := time.Date(2026, time.March, 24, 23, 0, 0, 0, time.UTC)
+	if err := server.ledger.RecordConsensusAction(ledger.ConsensusAction{
+		Type:        ledger.ConsensusActionProposal,
+		Height:      2,
+		Round:       0,
+		BlockHash:   consensusTestHash("prometheus-proposal"),
+		Validator:   "zph_validator_prometheus",
+		RecordedAt:  recordedAt,
+		Status:      ledger.ConsensusActionCompleted,
+		CompletedAt: &recordedAt,
+	}); err != nil {
+		t.Fatalf("record prometheus proposal action: %v", err)
+	}
+	if err := server.ledger.RecordConsensusDiagnostic(ledger.ConsensusDiagnostic{
+		Kind:       "proposal_rejected",
+		Code:       "template_mismatch",
+		Message:    "proposal does not match local block template",
+		Height:     2,
+		Round:      0,
+		BlockHash:  consensusTestHash("prometheus-proposal"),
+		Validator:  "zph_validator_prometheus",
+		Source:     "api",
+		ObservedAt: recordedAt.Add(1 * time.Minute),
+	}); err != nil {
+		t.Fatalf("record prometheus diagnostic: %v", err)
+	}
+
+	unreachableAt := recordedAt.Add(2 * time.Minute)
+	blockedAt := recordedAt.Add(3 * time.Minute)
+	server.recordPeerView(PeerView{
+		URL:        "http://peer-a.example",
+		Height:     1,
+		Admitted:   true,
+		Reachable:  false,
+		SyncState:  "unreachable",
+		LastSeenAt: &unreachableAt,
+		Error:      "dial tcp timeout",
+	})
+	server.recordPeerView(PeerView{
+		URL:                        "http://peer-b.example",
+		Height:                     2,
+		Admitted:                   true,
+		Reachable:                  true,
+		SyncState:                  "import_blocked",
+		LastImportErrorCode:        "proposal_required",
+		LastImportErrorMessage:     "consensus proposal is required before block import",
+		LastImportFailureAt:        &blockedAt,
+		LastImportFailureHeight:    2,
+		LastImportFailureBlockHash: consensusTestHash("prometheus-proposal"),
+	})
+
+	request := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+	recorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected prometheus metrics status 200, got %d", recorder.Code)
+	}
+	if recorder.Header().Get("Content-Type") != prometheusContentType {
+		t.Fatalf("expected prometheus content type %q, got %q", prometheusContentType, recorder.Header().Get("Content-Type"))
+	}
+
+	body := recorder.Body.String()
+	requirePrometheusLine(t, body, "# HELP zephyr_node_ready Whether the node is currently ready according to /v1/health.")
+	requirePrometheusLine(t, body, "zephyr_node_ready 1")
+	requirePrometheusLine(t, body, "zephyr_health_status{status=\"warn\"} 1")
+	requirePrometheusLine(t, body, "zephyr_health_check_status{check=\"diagnostics\",status=\"warn\"} 1")
+	requirePrometheusLine(t, body, "zephyr_consensus_action_by_type_count{type=\"proposal\"} 1")
+	requirePrometheusLine(t, body, "zephyr_consensus_diagnostic_by_code_count{code=\"template_mismatch\"} 1")
+	requirePrometheusLine(t, body, "zephyr_peer_runtime_by_sync_state_count{state=\"unreachable\"} 1")
+	requirePrometheusLine(t, body, "zephyr_peer_runtime_by_sync_state_count{state=\"import_blocked\"} 1")
+	requirePrometheusLine(t, body, "zephyr_peer_sync_occurrence_count 2")
 }
 func TestStructuredLogsEmitConsensusPeerAndRecoveryEvents(t *testing.T) {
 	var logBuffer bytes.Buffer
@@ -3493,6 +3588,15 @@ func healthCheckByName(checks []HealthCheck, name string) (HealthCheck, bool) {
 	}
 	return HealthCheck{}, false
 }
+
+func requirePrometheusLine(t *testing.T, body string, line string) {
+	t.Helper()
+
+	if !strings.Contains(body, line+"\n") && !strings.HasSuffix(body, line) {
+		t.Fatalf("expected prometheus output to contain line %q, got:\n%s", line, body)
+	}
+}
+
 func decodeStructuredLogEntries(t *testing.T, raw string) []map[string]any {
 	t.Helper()
 

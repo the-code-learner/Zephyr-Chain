@@ -29,6 +29,7 @@ Invoke-RestMethod http://localhost:8080/health
 curl.exe -i http://localhost:8080/v1/health
 Invoke-RestMethod http://localhost:8080/v1/status
 Invoke-RestMethod http://localhost:8080/v1/consensus
+curl.exe http://localhost:8080/metrics
 ```
 
 ## Inspect Node Readiness
@@ -39,6 +40,7 @@ Invoke-RestMethod http://localhost:8080/v1/consensus
 curl.exe -i http://localhost:8080/health
 curl.exe -i http://localhost:8080/v1/health
 Invoke-RestMethod http://localhost:8080/v1/metrics
+curl.exe http://localhost:8080/metrics
 ```
 
 What to expect:
@@ -46,7 +48,8 @@ What to expect:
 - `/health` returns `200` as long as the API loop is alive
 - `/v1/health` returns `200` when only `pass` or `warn` checks exist and `503` when at least one `fail` check is active
 - `checks` currently cover `api`, `validator_set`, `recovery`, `consensus`, `peer_sync`, and `diagnostics`
-- use `/v1/health` together with `/v1/metrics`, `GET /v1/status`, and structured logs when you need both a quick readiness gate and deeper incident context
+- `/metrics` exports those same health conclusions as Prometheus-style gauges such as `zephyr_node_ready` and `zephyr_health_check_status`, while `/v1/metrics` keeps the structured JSON view
+- use `/v1/health` together with `/metrics`, `/v1/metrics`, `GET /v1/status`, and structured logs when you need both a quick readiness gate and deeper incident context
 
 ## Run A Two-Node Devnet
 
@@ -288,9 +291,10 @@ Expected behavior:
 - inspect `recovery` in those same responses to see whether the node still has pending replayable local proposal or vote actions, blocked peer-import heights, or a recent snapshot restore after a restart or dropped peer link
 - inspect `diagnostics` in those same responses to see whether recent failures were caused by stale rounds, unexpected proposers, missing proposals, template mismatch, missing certificates, or other rejected consensus actions
 - inspect `GET /v1/metrics` when you want machine-readable totals for pending replay, diagnostic code frequency, and live peer sync-state distribution during the incident
+- inspect `GET /metrics` when you want those same health, recovery, and peer signals in Prometheus-compatible text for scrape-based dashboards or alerts
 - enable `ZEPHYR_ENABLE_STRUCTURED_LOGS=true` when you want those same incident transitions as newline-delimited JSON in the node logs
 - inspect `curl.exe -i http://localhost:8080/v1/health` to separate a live node from a ready one; `503` usually means recovery backlog or peer-sync availability has escalated into a hard failure, while `warn` highlights degraded but still serving conditions
-- remember the current engine now supports timeout-driven proposer rotation, latest-artifact rebroadcast after peer recovery, restart-safe local proposal or vote replay, pending import recovery, snapshot-restore history, durable peer-incident history, cross-peer `peerSyncSummary`, machine-readable `/v1/metrics`, derived `/v1/health`, structured event logs, per-height round history, block readiness inspection, and bounded rejection diagnostics, but broader recovery coverage plus richer export adapters are still limited
+- remember the current engine now supports timeout-driven proposer rotation, latest-artifact rebroadcast after peer recovery, restart-safe local proposal or vote replay, pending import recovery, snapshot-restore history, durable peer-incident history, cross-peer `peerSyncSummary`, machine-readable `/v1/metrics`, Prometheus-style `/metrics`, derived `/v1/health`, structured event logs, per-height round history, block readiness inspection, and bounded rejection diagnostics, but broader recovery coverage plus richer export adapters are still limited
 
 ### Peer Sync Falls Back To Snapshot Restore
 

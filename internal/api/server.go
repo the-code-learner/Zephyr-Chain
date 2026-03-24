@@ -283,6 +283,7 @@ func (s *Server) Close() {
 }
 
 func (s *Server) routes() {
+	s.mux.HandleFunc("/metrics", s.handlePrometheusMetrics)
 	s.mux.HandleFunc("/health", s.handleHealth)
 	s.mux.HandleFunc("/v1/health", s.handleNodeHealth)
 	s.mux.HandleFunc("/v1/status", s.handleStatus)
