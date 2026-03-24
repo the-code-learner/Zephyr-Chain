@@ -48,6 +48,13 @@ func main() {
 		}
 		config.BlockInterval = parsed
 	}
+	if interval := os.Getenv("ZEPHYR_CONSENSUS_INTERVAL"); interval != "" {
+		parsed, err := time.ParseDuration(interval)
+		if err != nil {
+			log.Fatalf("invalid ZEPHYR_CONSENSUS_INTERVAL %q: %v", interval, err)
+		}
+		config.ConsensusInterval = parsed
+	}
 	if syncInterval := os.Getenv("ZEPHYR_SYNC_INTERVAL"); syncInterval != "" {
 		parsed, err := time.ParseDuration(syncInterval)
 		if err != nil {
@@ -68,6 +75,13 @@ func main() {
 			log.Fatalf("invalid ZEPHYR_ENABLE_BLOCK_PRODUCTION %q", enabled)
 		}
 		config.EnableBlockProduction = parsed
+	}
+	if enabled := os.Getenv("ZEPHYR_ENABLE_CONSENSUS_AUTOMATION"); enabled != "" {
+		parsed, err := strconv.ParseBool(enabled)
+		if err != nil {
+			log.Fatalf("invalid ZEPHYR_ENABLE_CONSENSUS_AUTOMATION %q", enabled)
+		}
+		config.EnableConsensusAutomation = parsed
 	}
 	if enabled := os.Getenv("ZEPHYR_ENABLE_PEER_SYNC"); enabled != "" {
 		parsed, err := strconv.ParseBool(enabled)
@@ -105,12 +119,14 @@ func main() {
 	defer server.Close()
 
 	log.Printf(
-		"zephyr node %s listening on %s (validator: %s, data dir: %s, block interval: %s, peer sync: %t, peer identity required: %t, peer bindings: %d, proposer schedule enforced: %t, consensus certificates required: %t, peers: %d)",
+		"zephyr node %s listening on %s (validator: %s, data dir: %s, block interval: %s, consensus automation: %t, consensus interval: %s, peer sync: %t, peer identity required: %t, peer bindings: %d, proposer schedule enforced: %t, consensus certificates required: %t, peers: %d)",
 		config.NodeID,
 		addr,
 		config.ValidatorAddress,
 		config.DataDir,
 		config.BlockInterval,
+		config.EnableConsensusAutomation,
+		config.ConsensusInterval,
 		config.EnablePeerSync,
 		config.RequirePeerIdentity || len(config.PeerValidatorBindings) > 0,
 		len(config.PeerValidatorBindings),

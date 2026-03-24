@@ -25,14 +25,15 @@ As of this iteration, the repository has:
 - optional strict peer admission behind `ZEPHYR_REQUIRE_PEER_IDENTITY`
 - optional peer-to-validator binding behind `ZEPHYR_PEER_VALIDATORS`
 - admitted-peer gating for background sync and outgoing replication on the current HTTP transport
+- a first automation slice behind `ZEPHYR_ENABLE_CONSENSUS_AUTOMATION` and `ZEPHYR_CONSENSUS_INTERVAL`
+- scheduled proposer self-proposal, active-validator auto-vote, and proposer-side certified auto-commit for the current round-0 flow
 - a browser wallet that can create accounts, sign locally, and submit transactions
 
 What it still does not have:
 
 - authenticated peer discovery and replay-safe transport over libp2p
-- an autonomous proposal round engine built on top of the new self-contained proposal body
-- round timeout and re-proposal handling
-- restart-safe round recovery and operator evidence tooling
+- timeout, rebroadcast, re-proposal, and proposer-rotation logic on top of the first automation slice
+- restart-safe round recovery, write-ahead logging, and richer operator evidence tooling
 - on-chain staking/governance-driven validator updates
 - WASM contracts, fee metering, or compute markets
 - production operations tooling
@@ -73,21 +74,22 @@ Status:
 - nodes can optionally require a matching proposal and certificate before local block commit or remote block import
 - certificate-gated local commit can replay the stored proposal body without needing the same candidate in the local mempool
 - validator nodes can now prove which validator they represent over the current transport and nodes can enforce that proof plus per-peer validator binding when configured
-- the current proposal and certificate path is still an operator-driven dev flow, not a full round engine
+- a first autonomous round-0 engine now exists: the scheduled proposer can self-propose, active validators can auto-vote, and the proposer can auto-commit after quorum when certificate enforcement is enabled
+- the current automation path still lacks timeout, re-proposal, proposer-rotation, and restart-recovery behavior
 
 Next steps:
 
-1. Move self-contained proposal submission from operator-driven API calls into an autonomous round and proposal dissemination engine tied to the proposer schedule.
-2. Add round timeout handling, proposer rotation within a round sequence, vote rebroadcast, and re-proposal flows.
+1. Add round timeout handling, vote rebroadcast, and re-proposal behavior so automation can recover when the first proposal or vote wave stalls.
+2. Add proposer rotation or explicit round-change behavior after timeout instead of assuming a single round-0 happy path.
 3. Persist round state, evidence, and write-ahead recovery data for restart-safe recovery.
-4. Make commit and import surfaces expose clearer operator evidence for template mismatch, partial quorum, stale round, and proposal timeout scenarios.
+4. Make commit and import surfaces expose clearer operator evidence for template mismatch, partial quorum, stale round, timeout, and re-proposal scenarios.
 5. Add deterministic multi-node integration tests for certified happy path, conflicting proposals, timeout and re-proposal, restart during a round, and recovery from partial quorum.
 
 Exit criteria:
 
 - a block is considered committed because validators agreed on a well-defined proposal, not because one local node wrote it first
 - nodes can restart and resume without silently losing consensus-critical state
-- operators can distinguish proposal failure, quorum failure, template mismatch, and transport failure from observable state
+- operators can distinguish proposal failure, quorum failure, template mismatch, timeout, and transport failure from observable state
 
 ### Phase 2: Networking And State Sync Hardening
 
@@ -98,8 +100,8 @@ Status:
 - validator nodes can attach signed identity proofs to replicated requests and expose the same proof through status
 - peer views can verify that proof, enforce strict peer admission, and pin configured peers to expected validator identities
 - admitted-peer policy already gates current HTTP sync and replication behavior
-- proposal replication now carries the full candidate body over that transport, not just template metadata
-- certified block checks can already run over that abstraction
+- proposal, vote, and certified-block replication already ride over that abstraction
+- the first automation slice already uses that transport for proposal and vote dissemination
 - behind nodes can fetch blocks or restore full snapshots
 - sync is convenient, but not trust-minimized or production-safe
 
@@ -109,7 +111,7 @@ Next steps:
 2. Add transport-level duplicate suppression, replay-safe message handling, and explicit message identifiers for consensus artifacts.
 3. Separate dev snapshot restore from production state sync so operators can choose explicit trust models.
 4. Add checkpointing, snapshot metadata, and verification hooks for state transfer.
-5. Add structured logs, metrics, and health surfaces for validator, sync, admission, and transport operations.
+5. Add structured logs, metrics, and health surfaces for validator, sync, admission, transport, and automation operations.
 
 Exit criteria:
 

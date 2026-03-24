@@ -28,9 +28,10 @@ const (
 )
 
 var (
-	errBlockProductionDisabled  = errors.New("block production is disabled on this node")
-	errValidatorAddressRequired = errors.New("validator address is required when proposer schedule enforcement is enabled")
-	errNotScheduledProposer     = errors.New("local validator is not scheduled to propose the next block")
+	errBlockProductionDisabled             = errors.New("block production is disabled on this node")
+	errValidatorAddressRequired            = errors.New("validator address is required when proposer schedule enforcement is enabled")
+	errNotScheduledProposer                = errors.New("local validator is not scheduled to propose the next block")
+	errConsensusAutomationRequiresIdentity = errors.New("validator private key is required when consensus automation is enabled")
 )
 
 type Config struct {
@@ -41,9 +42,11 @@ type Config struct {
 	PeerURLs                     []string
 	PeerValidatorBindings        map[string]string
 	BlockInterval                time.Duration
+	ConsensusInterval            time.Duration
 	SyncInterval                 time.Duration
 	MaxTransactionsPerBlock      int
 	EnableBlockProduction        bool
+	EnableConsensusAutomation    bool
 	EnablePeerSync               bool
 	RequirePeerIdentity          bool
 	EnforceProposerSchedule      bool
@@ -58,9 +61,11 @@ func DefaultConfig() Config {
 		PeerURLs:                     []string{},
 		PeerValidatorBindings:        nil,
 		BlockInterval:                15 * time.Second,
+		ConsensusInterval:            1 * time.Second,
 		SyncInterval:                 5 * time.Second,
 		MaxTransactionsPerBlock:      100,
 		EnableBlockProduction:        true,
+		EnableConsensusAutomation:    false,
 		EnablePeerSync:               true,
 		RequirePeerIdentity:          false,
 		EnforceProposerSchedule:      false,
@@ -110,6 +115,7 @@ type StatusResponse struct {
 	ValidatorAddress              string               `json:"validatorAddress,omitempty"`
 	PeerCount                     int                  `json:"peerCount"`
 	BlockProduction               bool                 `json:"blockProduction"`
+	ConsensusAutomationEnabled    bool                 `json:"consensusAutomationEnabled"`
 	PeerSyncEnabled               bool                 `json:"peerSyncEnabled"`
 	PeerIdentityRequired          bool                 `json:"peerIdentityRequired"`
 	ProposerScheduleEnforced      bool                 `json:"proposerScheduleEnforced"`
@@ -122,6 +128,7 @@ type StatusResponse struct {
 type ConsensusResponse struct {
 	NodeID                        string                        `json:"nodeId"`
 	ValidatorAddress              string                        `json:"validatorAddress,omitempty"`
+	ConsensusAutomationEnabled    bool                          `json:"consensusAutomationEnabled"`
 	ProposerScheduleEnforced      bool                          `json:"proposerScheduleEnforced"`
 	ConsensusCertificatesRequired bool                          `json:"consensusCertificatesRequired"`
 	ValidatorSet                  ledger.ValidatorSnapshot      `json:"validatorSet"`
@@ -184,6 +191,9 @@ func NewServerWithConfig(config Config) (*Server, error) {
 	identitySigner, config, err := newTransportIdentitySigner(config)
 	if err != nil {
 		return nil, err
+	}
+	if config.EnableConsensusAutomation && identitySigner == nil {
+		return nil, errConsensusAutomationRequiresIdentity
 	}
 
 	store, err := ledger.NewStore(config.DataDir)
@@ -258,6 +268,7 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		ValidatorAddress:              s.config.ValidatorAddress,
 		PeerCount:                     len(s.config.PeerURLs),
 		BlockProduction:               s.config.EnableBlockProduction,
+		ConsensusAutomationEnabled:    s.config.EnableConsensusAutomation,
 		PeerSyncEnabled:               s.config.EnablePeerSync,
 		PeerIdentityRequired:          s.peerIdentityRequired(),
 		ProposerScheduleEnforced:      s.config.EnforceProposerSchedule,
@@ -293,6 +304,7 @@ func (s *Server) handleConsensus(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, ConsensusResponse{
 		NodeID:                        s.nodeID,
 		ValidatorAddress:              s.config.ValidatorAddress,
+		ConsensusAutomationEnabled:    s.config.EnableConsensusAutomation,
 		ProposerScheduleEnforced:      s.config.EnforceProposerSchedule,
 		ConsensusCertificatesRequired: s.config.RequireConsensusCertificates,
 		ValidatorSet:                  s.ledger.ValidatorSet(),
@@ -582,6 +594,9 @@ func (s *Server) produceLocalBlock(producedAt time.Time) (ledger.Block, error) {
 }
 
 func (s *Server) startBackgroundLoops() {
+	if s.config.EnableConsensusAutomation && s.config.ConsensusInterval > 0 {
+		s.startConsensusAutomation()
+	}
 	if s.config.EnableBlockProduction && s.config.BlockInterval > 0 {
 		s.startBlockProducer()
 	}
@@ -641,6 +656,9 @@ func normalizeConfig(config Config) Config {
 	}
 	if config.BlockInterval < 0 {
 		config.BlockInterval = 0
+	}
+	if config.ConsensusInterval < 0 {
+		config.ConsensusInterval = 0
 	}
 	if config.SyncInterval < 0 {
 		config.SyncInterval = 0

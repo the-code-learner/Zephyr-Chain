@@ -5,20 +5,20 @@
 The current MVP is a five-part local development system:
 
 - a Go node API that validates transactions, persists chain state, produces blocks, and replicates state to configured peers
-- a durable ledger that stores accounts, mempool entries, committed blocks, validator snapshots, proposals, votes, and restart-safe metadata on disk
+- a durable ledger that stores accounts, mempool entries, committed blocks, validator snapshots, proposals, votes, certificates, and restart-safe metadata on disk
 - a DPoS election module that ranks validators deterministically from candidate and vote inputs
-- a consensus message layer that validates signed proposals and votes and derives quorum certificates
+- a consensus message and automation layer that validates signed proposals and votes, derives quorum certificates, and drives the first autonomous round-0 flow
 - a Vue wallet that runs in the browser and acts as a light client
 
 The current data flow is:
 
-`wallet UI -> wallet signing logic -> node HTTP API -> durable mempool -> block template -> self-contained proposal/vote/certificate artifacts -> gated or ungated block commit -> durable block/account state -> transport-backed peer replication`
+`wallet UI -> wallet signing logic -> node HTTP API -> durable mempool -> block template -> self-contained proposal/vote/certificate artifacts -> manual or automated certified commit -> durable block/account state -> transport-backed peer replication`
 
 The current consensus-artifact flow is:
 
 `validator election -> durable validator snapshot -> block template -> signed self-contained proposal -> signed votes -> quorum certificate -> optional gated block commit/import`
 
-This is still a development-stage system. It now has an enforceable certified commit/import path with richer proposal commitments plus signed validator transport identity proofs, but it is not yet a complete validator finality protocol.
+This is still a development-stage system. It now has an enforceable certified commit/import path, signed validator transport identity proofs, and a first automation slice for proposer and voter behavior, but it is not yet a complete validator finality protocol.
 
 ## Components
 
@@ -43,6 +43,7 @@ The API layer now handles:
 - deterministic next-block preview through `GET /v1/dev/block-template`
 - manual local block production through `POST /v1/dev/produce-block`
 - internal node sync through `POST /v1/internal/blocks` and `GET /v1/internal/snapshot`
+- background block production, peer sync, and the first consensus automation loop when those features are enabled
 
 ### Peer Transport Layer
 
@@ -81,11 +82,11 @@ The store currently persists:
 
 On startup, the node reloads this state and rebuilds pending balance and nonce reservations from the persisted mempool. Validator and consensus artifacts also survive restart and snapshot restore.
 
-The current ledger can also derive a deterministic next block candidate from the current mempool plus chain tip. That candidate is what operators propose and certify in the present dev flow, and once the proposal is stored the node can later replay that same candidate from proposal storage without depending on the mempool alone.
+The current ledger can also derive a deterministic next block candidate from the current mempool plus chain tip. That candidate is what operators propose and certify in the manual flow, and once the proposal is stored the node can later replay that same candidate from proposal storage without depending on the mempool alone.
 
-### Consensus Message Layer
+### Consensus Message And Automation Layer
 
-The `internal/consensus` package introduces signed consensus messages.
+The `internal/consensus` package introduces signed consensus messages, while `internal/api` now contains the first automation loop that drives proposer and voter behavior on the current devnet path.
 
 Current message types:
 
@@ -106,20 +107,23 @@ Current validation rules:
 
 When a vote set for a block hash reaches the `>2/3` voting-power threshold, the node persists a quorum certificate artifact.
 
-If `ZEPHYR_REQUIRE_CONSENSUS_CERTIFICATES=true`, the node uses those artifacts to gate both local block commit and remote block import. The gate now checks the exact proposal template fields through the shared block hash path, not just an opaque hash string.
+If `ZEPHYR_REQUIRE_CONSENSUS_CERTIFICATES=true`, the node uses those artifacts to gate both local block commit and remote block import. The gate checks the exact proposal template fields through the shared block hash path, not just an opaque hash string.
+
+If `ZEPHYR_ENABLE_CONSENSUS_AUTOMATION=true`, the current automation loop can:
+
+- let the scheduled proposer build the next block template and self-submit a round-0 proposal
+- let active validators self-submit a round-0 vote for the latest known proposal
+- let the scheduled proposer auto-commit once a matching quorum certificate exists and certificate enforcement is enabled
 
 If `ZEPHYR_VALIDATOR_PRIVATE_KEY` is configured, the API layer also derives a signed transport identity for the local validator and verifies peer proofs exposed through `GET /v1/status`. When `ZEPHYR_REQUIRE_PEER_IDENTITY` or `ZEPHYR_PEER_VALIDATORS` is configured, replicated peer POST requests must satisfy that admission policy before they are accepted.
 
 ## Current Production Gap
 
-The repository has moved from consensus-preparation-only into certificate-gated commit/import with concrete template commitments, but it still falls short of production finality in several important ways:
+The repository has moved from consensus-preparation-only into certificate-gated commit/import with concrete template commitments and a first automated proposer-voter loop, but it still falls short of production finality in several important ways:
 
 - validator nodes can now prove identity and enforce peer admission over the current transport, but peer discovery is still static HTTP configuration rather than authenticated libp2p
-- proposals are now self-contained, but proposal broadcast and voting are still operator-driven rather than a full autonomous round engine
-- there is no timeout, round-change, or crash-recovery protocol yet
-- the current operator flow is still manual or externally driven rather than a fully autonomous validator engine
+- automation currently assumes a round-0 happy path and does not yet implement timeout handling, vote rebroadcast, proposer rotation, or re-proposal
+- there is no persisted round write-ahead log or restart-safe recovery protocol for in-flight consensus state
+- the current operator and observability surface is still too thin for production incident handling
 
 That is why the project has moved beyond replicated prototype, but it is still not a production blockchain.
-
-
-

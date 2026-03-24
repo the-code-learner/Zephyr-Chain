@@ -173,6 +173,20 @@ func TestNewServerWithConfigRejectsMismatchedValidatorIdentity(t *testing.T) {
 	}
 }
 
+func TestNewServerWithConfigRejectsConsensusAutomationWithoutValidatorKey(t *testing.T) {
+	_, err := NewServerWithConfig(Config{
+		DataDir:                   t.TempDir(),
+		NodeID:                    "node-a",
+		EnableConsensusAutomation: true,
+		ConsensusInterval:         10 * time.Millisecond,
+		EnableBlockProduction:     false,
+		EnablePeerSync:            false,
+	})
+	if !errors.Is(err, errConsensusAutomationRequiresIdentity) {
+		t.Fatalf("expected consensus automation identity error, got %v", err)
+	}
+}
+
 func TestHandleBroadcastTransactionRejectsInvalidTransportIdentity(t *testing.T) {
 	server := newTestServer(t, Config{
 		DataDir:                 t.TempDir(),
@@ -739,6 +753,147 @@ func TestHandleConsensusGatedProduceBlockUsesProposalBodyWithoutMempool(t *testi
 	}
 }
 
+func TestConsensusAutomationSelfProposesVotesAndCommitsCertifiedBlock(t *testing.T) {
+	validator := newConsensusSigner(t)
+	server := newTestServer(t, Config{
+		DataDir:                      t.TempDir(),
+		NodeID:                       "node-a",
+		ValidatorPrivateKey:          encodedPrivateKey(t, validator.privateKey),
+		BlockInterval:                0,
+		ConsensusInterval:            20 * time.Millisecond,
+		SyncInterval:                 0,
+		MaxTransactionsPerBlock:      10,
+		EnableBlockProduction:        true,
+		EnableConsensusAutomation:    true,
+		EnablePeerSync:               false,
+		EnforceProposerSchedule:      true,
+		RequireConsensusCertificates: true,
+	})
+
+	if _, err := server.ledger.SetValidators([]dpos.Validator{
+		{Rank: 1, Address: validator.address, VotingPower: 100, SelfStake: 100},
+	}, dpos.ElectionConfig{MaxValidators: 1}); err != nil {
+		t.Fatalf("set validators: %v", err)
+	}
+
+	envelope := signedEnvelope(t, 25, 1, "auto-single")
+	if _, err := server.ledger.Credit(envelope.From, 100); err != nil {
+		t.Fatalf("credit sender: %v", err)
+	}
+	if _, err := server.ledger.Accept(envelope); err != nil {
+		t.Fatalf("accept tx: %v", err)
+	}
+
+	waitFor(t, func() bool {
+		return server.ledger.Status().Height == 1
+	})
+
+	artifacts := server.ledger.ConsensusArtifacts()
+	if artifacts.LatestProposal == nil {
+		t.Fatal("expected automated proposal to be recorded")
+	}
+	if artifacts.LatestCertificate == nil {
+		t.Fatal("expected automated certificate to be recorded")
+	}
+	if artifacts.VoteCount != 1 {
+		t.Fatalf("expected one automated vote, got %+v", artifacts)
+	}
+	if artifacts.LatestProposal.BlockHash != artifacts.LatestCertificate.BlockHash {
+		t.Fatalf("expected certificate for proposal block %s, got %+v", artifacts.LatestProposal.BlockHash, artifacts.LatestCertificate)
+	}
+	if sender := server.ledger.View(envelope.From); sender.Balance != 75 || sender.Nonce != 1 {
+		t.Fatalf("unexpected sender state after automated commit: %+v", sender)
+	}
+}
+
+func TestConsensusAutomationReplicatesProposalVotesAndCommitAcrossValidators(t *testing.T) {
+	proposer := newConsensusSigner(t)
+	voter := newConsensusSigner(t)
+
+	proposerServer := newTestServer(t, Config{
+		DataDir:                      t.TempDir(),
+		NodeID:                       "node-a",
+		ValidatorPrivateKey:          encodedPrivateKey(t, proposer.privateKey),
+		BlockInterval:                0,
+		ConsensusInterval:            20 * time.Millisecond,
+		SyncInterval:                 0,
+		MaxTransactionsPerBlock:      10,
+		EnableBlockProduction:        true,
+		EnableConsensusAutomation:    true,
+		EnablePeerSync:               false,
+		EnforceProposerSchedule:      true,
+		RequireConsensusCertificates: true,
+	})
+	proposerHTTP := httptest.NewServer(proposerServer.Handler())
+	defer proposerHTTP.Close()
+
+	voterServer := newTestServer(t, Config{
+		DataDir:                      t.TempDir(),
+		NodeID:                       "node-b",
+		ValidatorPrivateKey:          encodedPrivateKey(t, voter.privateKey),
+		PeerURLs:                     []string{proposerHTTP.URL},
+		BlockInterval:                0,
+		ConsensusInterval:            20 * time.Millisecond,
+		SyncInterval:                 0,
+		MaxTransactionsPerBlock:      10,
+		EnableBlockProduction:        false,
+		EnableConsensusAutomation:    true,
+		EnablePeerSync:               false,
+		RequireConsensusCertificates: true,
+	})
+	voterHTTP := httptest.NewServer(voterServer.Handler())
+	defer voterHTTP.Close()
+
+	proposerServer.config.PeerURLs = []string{voterHTTP.URL}
+
+	validators := []dpos.Validator{
+		{Rank: 1, Address: proposer.address, VotingPower: 60, SelfStake: 40, DelegatedStake: 20},
+		{Rank: 2, Address: voter.address, VotingPower: 40, SelfStake: 25, DelegatedStake: 15},
+	}
+	if _, err := proposerServer.ledger.SetValidators(validators, dpos.ElectionConfig{MaxValidators: 2}); err != nil {
+		t.Fatalf("set proposer validators: %v", err)
+	}
+	if _, err := voterServer.ledger.SetValidators(validators, dpos.ElectionConfig{MaxValidators: 2}); err != nil {
+		t.Fatalf("set voter validators: %v", err)
+	}
+
+	envelope := signedEnvelope(t, 25, 1, "auto-multi")
+	if _, err := proposerServer.ledger.Credit(envelope.From, 100); err != nil {
+		t.Fatalf("credit proposer sender: %v", err)
+	}
+	if _, err := voterServer.ledger.Credit(envelope.From, 100); err != nil {
+		t.Fatalf("credit voter sender: %v", err)
+	}
+	if _, err := proposerServer.ledger.Accept(envelope); err != nil {
+		t.Fatalf("accept tx: %v", err)
+	}
+
+	waitFor(t, func() bool {
+		return proposerServer.ledger.Status().Height == 1 && voterServer.ledger.Status().Height == 1
+	})
+
+	proposerArtifacts := proposerServer.ledger.ConsensusArtifacts()
+	if proposerArtifacts.LatestCertificate == nil {
+		t.Fatal("expected proposer certificate after automated quorum")
+	}
+	if proposerArtifacts.VoteCount != 2 {
+		t.Fatalf("expected proposer to observe two votes, got %+v", proposerArtifacts)
+	}
+	voterArtifacts := voterServer.ledger.ConsensusArtifacts()
+	if voterArtifacts.LatestCertificate == nil {
+		t.Fatal("expected voter certificate after replicated votes")
+	}
+	if voterArtifacts.LatestProposal == nil {
+		t.Fatal("expected voter to receive automated proposal")
+	}
+	if proposerArtifacts.LatestCertificate.BlockHash != voterArtifacts.LatestCertificate.BlockHash {
+		t.Fatalf("expected matching certificates across validators, got proposer=%+v voter=%+v", proposerArtifacts.LatestCertificate, voterArtifacts.LatestCertificate)
+	}
+	if sender := voterServer.ledger.View(envelope.From); sender.Balance != 75 || sender.Nonce != 1 {
+		t.Fatalf("unexpected voter sender state after automated replication: %+v", sender)
+	}
+}
+
 func TestPeerSyncRecordsVerifiedAndAdmittedTransportIdentity(t *testing.T) {
 	peerSigner := newConsensusSigner(t)
 	peerServer := newTestServer(t, Config{
@@ -1084,6 +1239,11 @@ func TestPeerReplicationImportsCertifiedBlockWhenConsensusRequired(t *testing.T)
 	if proposalRecorder.Code != http.StatusAccepted {
 		t.Fatalf("expected proposal status 202, got %d", proposalRecorder.Code)
 	}
+
+	waitFor(t, func() bool {
+		artifacts := peerServer.ledger.ConsensusArtifacts()
+		return artifacts.LatestProposal != nil && artifacts.LatestProposal.BlockHash == templateResponse.Block.Hash
+	})
 
 	for _, vote := range []consensus.Vote{
 		signedConsensusVote(t, proposer, templateResponse.Block.Height, 0, templateResponse.Block.Hash),
