@@ -127,6 +127,26 @@ func (s *Server) buildAlertsResponse(now time.Time) AlertsResponse {
 			ObservedAt: latestPeerObservedAt(peers, peerSummary),
 		})
 	}
+	if state, ok := peerSyncStateSummary(peerSummary, "import_blocked"); ok {
+		appendAlert(&response, Alert{
+			Code:       "peer_import_blocked",
+			Severity:   alertSeverityWarning,
+			Component:  "peer_sync",
+			Summary:    "peer import is blocked on one or more peers",
+			Detail:     buildPeerStateAlertDetail(state, "errorCode", representativePeerSyncErrorCode(peerSummary, "import_blocked")),
+			ObservedAt: cloneAlertTime(state.LatestObservedAt),
+		})
+	}
+	if state, ok := peerSyncStateSummary(peerSummary, "unadmitted"); ok {
+		appendAlert(&response, Alert{
+			Code:       "peer_admission_blocked",
+			Severity:   alertSeverityWarning,
+			Component:  "peer_sync",
+			Summary:    "peer admission is rejecting one or more configured peers",
+			Detail:     buildPeerStateAlertDetail(state, "reason", representativePeerSyncReason(peerSummary, "unadmitted")),
+			ObservedAt: cloneAlertTime(state.LatestObservedAt),
+		})
+	}
 
 	if check, ok := findHealthCheck(health.Checks, "diagnostics"); ok && check.Status == healthCheckWarn {
 		appendAlert(&response, Alert{
@@ -186,6 +206,72 @@ func buildConsensusAlertDetail(roundEvidence RoundEvidence, blockReadiness Block
 		parts = append(parts, "block:"+warning)
 	}
 	return strings.Join(parts, ", ")
+}
+
+func peerSyncStateSummary(summary ledger.PeerSyncSummaryView, state string) (ledger.PeerSyncStateSummary, bool) {
+	state = strings.TrimSpace(state)
+	for _, bucket := range summary.States {
+		if bucket.State == state {
+			return bucket, true
+		}
+	}
+	return ledger.PeerSyncStateSummary{}, false
+}
+
+func buildPeerStateAlertDetail(state ledger.PeerSyncStateSummary, labelName string, labelValue string) string {
+	parts := []string{
+		"incidents=" + strconv.Itoa(state.IncidentCount),
+		"affectedPeers=" + strconv.Itoa(state.AffectedPeerCount),
+		"occurrences=" + strconv.Itoa(state.TotalOccurrences),
+	}
+	labelName = strings.TrimSpace(labelName)
+	labelValue = strings.TrimSpace(labelValue)
+	if labelName != "" && labelValue != "" {
+		parts = append(parts, labelName+"="+labelValue)
+	}
+	return strings.Join(parts, ", ")
+}
+
+func representativePeerSyncErrorCode(summary ledger.PeerSyncSummaryView, state string) string {
+	if peer, ok := latestPeerSummaryForState(summary, state); ok {
+		value := strings.TrimSpace(peer.LatestErrorCode)
+		if value != "" && value != "unknown" {
+			return value
+		}
+	}
+	for _, bucket := range summary.ErrorCodes {
+		value := strings.TrimSpace(bucket.ErrorCode)
+		if value != "" && value != "unknown" {
+			return value
+		}
+	}
+	return ""
+}
+
+func representativePeerSyncReason(summary ledger.PeerSyncSummaryView, state string) string {
+	if peer, ok := latestPeerSummaryForState(summary, state); ok {
+		value := strings.TrimSpace(peer.LatestReason)
+		if value != "" && value != "unknown" {
+			return value
+		}
+	}
+	for _, bucket := range summary.Reasons {
+		value := strings.TrimSpace(bucket.Reason)
+		if value != "" && value != "unknown" {
+			return value
+		}
+	}
+	return ""
+}
+
+func latestPeerSummaryForState(summary ledger.PeerSyncSummaryView, state string) (ledger.PeerSyncPeerSummary, bool) {
+	state = strings.TrimSpace(state)
+	for _, peer := range summary.Peers {
+		if strings.TrimSpace(peer.LatestState) == state {
+			return peer, true
+		}
+	}
+	return ledger.PeerSyncPeerSummary{}, false
 }
 
 func latestPendingActionObservedAt(recovery ledger.ConsensusRecoveryView) *time.Time {

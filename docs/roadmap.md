@@ -39,7 +39,7 @@ As of this iteration, the repository has:
 - optional structured JSON event logs for consensus diagnostics, peer-sync incidents, and snapshot-restore recovery behind `ZEPHYR_ENABLE_STRUCTURED_LOGS`
 - an operator-facing `GET /v1/health` readiness surface that derives pass, warn, and fail checks from validator-set availability, recovery backlog, consensus warnings, peer runtime, and recent diagnostics
 - a Prometheus-style `GET /metrics` export adapter that projects the same readiness, consensus, diagnostic, recovery, and peer signals into scrape-friendly text metrics
-- an operator-facing `GET /v1/alerts` surface that turns the current readiness, recovery, diagnostics, and peer-sync state into derived warning and critical alerts
+- an operator-facing `GET /v1/alerts` surface that turns the current readiness, recovery, diagnostics, and peer-sync state into derived warning and critical alerts, including targeted peer import and admission warnings from retained peer incidents
 - an operator-facing `GET /v1/slo` surface that projects those same signals into SLO-oriented objective states for readiness, consensus continuity, and peer-sync continuity
 - recommended alert-rule bundle exports through JSON `GET /v1/alert-rules` and Prometheus-oriented `GET /v1/alert-rules/prometheus`
 - recommended recording-rule bundle exports through JSON `GET /v1/recording-rules` and Prometheus-oriented `GET /v1/recording-rules/prometheus`
@@ -97,7 +97,7 @@ Status:
 - valid higher-round proposals and votes can move a node onto the newer round instead of being rejected just because the local timer had not fired yet
 - a first timeout-driven engine now exists: the scheduled proposer can self-propose, active validators can auto-vote, timeout can rotate the proposer, the next proposer can reuse the latest stored candidate body, and the proposer can auto-commit after quorum when certificate enforcement is enabled
 - proposal and vote broadcasts on the automation path are now sent in-order to avoid vote-before-proposal races on the happy path
-- the current automation path now has delayed-link proposal and vote recovery, richer round evidence, per-height round history, block readiness, import-aware recovery state, durable peer-sync history, derived peer-sync summary, bounded rejection diagnostics, a machine-readable `GET /v1/metrics` surface, Prometheus `GET /metrics`, operator-facing `GET /v1/health`, derived `GET /v1/alerts`, derived `GET /v1/slo`, recommended `GET /v1/alert-rules`, exported `GET /v1/alert-rules/prometheus`, recommended `GET /v1/recording-rules`, exported `GET /v1/recording-rules/prometheus`, recommended `GET /v1/dashboards`, exported `GET /v1/dashboards/grafana`, structured JSON event logs, and a restart-safe local proposal or vote WAL plus snapshot-repair history, but it still lacks broader recovery coverage and longer-horizon incident retention
+- the current automation path now has delayed-link proposal and vote recovery, richer round evidence, per-height round history, block readiness, import-aware recovery state, durable peer-sync history, derived peer-sync summary, bounded rejection diagnostics, a machine-readable `GET /v1/metrics` surface, Prometheus `GET /metrics`, operator-facing `GET /v1/health`, derived `GET /v1/alerts` with peer import and admission diagnostics, derived `GET /v1/slo`, recommended `GET /v1/alert-rules`, exported `GET /v1/alert-rules/prometheus`, recommended `GET /v1/recording-rules`, exported `GET /v1/recording-rules/prometheus`, recommended `GET /v1/dashboards`, exported `GET /v1/dashboards/grafana`, structured JSON event logs, and a restart-safe local proposal or vote WAL plus snapshot-repair history, but it still lacks broader recovery coverage and longer-horizon incident retention
 
 Next steps:
 
@@ -126,7 +126,7 @@ Status:
 - a first machine-readable `GET /v1/metrics` surface already exposes current transport and consensus observability as JSON for operator tooling and future export adapters
 - `GET /metrics` now exposes those same operator signals through a Prometheus-style text exporter for standard scraping stacks
 - `GET /v1/health` now condenses those same runtime signals into a pass, warn, or fail readiness surface for operators and automation
-- `GET /v1/alerts` now exposes derived warning and critical alerts for polling dashboards, operators, and automation
+- `GET /v1/alerts` now exposes derived warning and critical alerts for polling dashboards, operators, and automation, including targeted peer import and admission diagnostics
 - `GET /v1/slo` now exposes SLO-oriented objective summaries on top of those same signals for dashboards, operators, and automation
 - `GET /v1/alert-rules` and `GET /v1/alert-rules/prometheus` now turn those same metrics and objectives into recommended monitoring bundles for JSON and Prometheus-oriented workflows
 - `GET /v1/recording-rules` and `GET /v1/recording-rules/prometheus` now turn those same metrics and objectives into recommended dashboard and aggregation rollups for JSON and Prometheus-oriented workflows
@@ -213,6 +213,9 @@ Broad direction:
 - upgrade strategy and rollback planning
 - monitoring, alerts, and SLOs for operators
 - staged path from devnet to public testnet to mainnet
+
+
+
 
 
 

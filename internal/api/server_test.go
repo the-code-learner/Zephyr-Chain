@@ -3018,6 +3018,92 @@ func TestHandleAlertsExposeDerivedOperatorAlerts(t *testing.T) {
 		t.Fatalf("expected diagnostics warning alert with observedAt, got %+v", response.Alerts)
 	}
 }
+
+func TestHandleAlertsExposePeerImportAndAdmissionWarnings(t *testing.T) {
+	server := newTestServer(t, Config{
+		DataDir:                 t.TempDir(),
+		NodeID:                  "alerts-peer-detail",
+		PeerURLs:                []string{"http://peer-a.example", "http://peer-b.example", "http://peer-c.example"},
+		BlockInterval:           0,
+		SyncInterval:            0,
+		MaxTransactionsPerBlock: 10,
+		EnableBlockProduction:   false,
+		EnablePeerSync:          true,
+	})
+
+	now := time.Date(2026, time.March, 24, 23, 30, 0, 0, time.UTC)
+	blockedAt := now.Add(1 * time.Minute)
+	unadmittedAt := now.Add(2 * time.Minute)
+	server.recordPeerView(PeerView{
+		URL:        "http://peer-a.example",
+		Height:     4,
+		Admitted:   true,
+		Reachable:  true,
+		SyncState:  "aligned",
+		LastSeenAt: &now,
+	})
+	server.recordPeerView(PeerView{
+		URL:                        "http://peer-b.example",
+		Height:                     5,
+		Admitted:                   true,
+		Reachable:                  true,
+		SyncState:                  "import_blocked",
+		LastImportErrorCode:        "proposal_required",
+		LastImportErrorMessage:     "consensus proposal is required before block import",
+		LastImportFailureAt:        &blockedAt,
+		LastImportFailureHeight:    5,
+		LastImportFailureBlockHash: consensusTestHash("alerts-peer-import"),
+	})
+	server.recordPeerView(PeerView{
+		URL:            "http://peer-c.example",
+		Height:         5,
+		Admitted:       false,
+		Reachable:      true,
+		SyncState:      "unadmitted",
+		AdmissionError: "validator binding mismatch",
+		LastSeenAt:     &unadmittedAt,
+	})
+
+	request := httptest.NewRequest(http.MethodGet, "/v1/alerts", nil)
+	recorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected alerts status 200, got %d", recorder.Code)
+	}
+
+	var response AlertsResponse
+	if err := json.NewDecoder(recorder.Body).Decode(&response); err != nil {
+		t.Fatalf("decode alerts response: %v", err)
+	}
+	if !response.Ready || response.Status != healthStatusWarn {
+		t.Fatalf("expected warning alert response, got %+v", response)
+	}
+	if response.AlertCount != 3 || response.CriticalCount != 0 || response.WarningCount != 3 {
+		t.Fatalf("unexpected peer detail alert counts %+v", response)
+	}
+	if alert, ok := alertByCode(response.Alerts, "peer_sync_degraded"); !ok || alert.Severity != alertSeverityWarning {
+		t.Fatalf("expected peer_sync_degraded warning, got %+v", response.Alerts)
+	}
+	if alert, ok := alertByCode(response.Alerts, "peer_import_blocked"); !ok || alert.Severity != alertSeverityWarning || alert.ObservedAt == nil || !alert.ObservedAt.Equal(blockedAt) || !strings.Contains(alert.Detail, "errorCode=proposal_required") {
+		t.Fatalf("expected peer_import_blocked warning with detail, got %+v", response.Alerts)
+	}
+	if alert, ok := alertByCode(response.Alerts, "peer_admission_blocked"); !ok || alert.Severity != alertSeverityWarning || alert.ObservedAt == nil || !alert.ObservedAt.Equal(unadmittedAt) || !strings.Contains(alert.Detail, "reason=validator binding mismatch") {
+		t.Fatalf("expected peer_admission_blocked warning with detail, got %+v", response.Alerts)
+	}
+
+	metricsRequest := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+	metricsRecorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(metricsRecorder, metricsRequest)
+	if metricsRecorder.Code != http.StatusOK {
+		t.Fatalf("expected prometheus metrics status 200, got %d", metricsRecorder.Code)
+	}
+	body := metricsRecorder.Body.String()
+	requirePrometheusLine(t, body, "zephyr_alert_count 3")
+	requirePrometheusLine(t, body, "zephyr_alert_count_by_severity{severity=\"warning\"} 3")
+	requirePrometheusLine(t, body, "zephyr_alert_active{code=\"peer_import_blocked\",severity=\"warning\",component=\"peer_sync\"} 1")
+	requirePrometheusLine(t, body, "zephyr_alert_active{code=\"peer_admission_blocked\",severity=\"warning\",component=\"peer_sync\"} 1")
+}
+
 func TestHandleSLOSummarizesDerivedObjectives(t *testing.T) {
 	server := newTestServer(t, Config{
 		DataDir:                      t.TempDir(),
@@ -3124,7 +3210,7 @@ func TestHandleAlertRulesExposeRecommendedBundles(t *testing.T) {
 	if response.NodeID != "alert-rules-node" || response.PeerSyncEnabled {
 		t.Fatalf("unexpected alert-rules identity/config %+v", response)
 	}
-	if response.RuleCount != 8 || response.EnabledRuleCount != 5 || response.DisabledRuleCount != 3 {
+	if response.RuleCount != 10 || response.EnabledRuleCount != 5 || response.DisabledRuleCount != 5 {
 		t.Fatalf("unexpected alert-rule counts %+v", response)
 	}
 	if rule, ok := alertRuleByName(response.Groups, "ZephyrNodeNotReady"); !ok || !rule.Enabled || rule.Expression != "zephyr_node_ready == 0" {
@@ -3132,6 +3218,9 @@ func TestHandleAlertRulesExposeRecommendedBundles(t *testing.T) {
 	}
 	if rule, ok := alertRuleByName(response.Groups, "ZephyrPeerSyncContinuityBreached"); !ok || rule.Enabled || !strings.Contains(rule.DisabledReason, "disabled") {
 		t.Fatalf("expected disabled peer-sync breach rule, got %+v", response.Groups)
+	}
+	if rule, ok := alertRuleByName(response.Groups, "ZephyrPeerImportBlocked"); !ok || rule.Enabled || !strings.Contains(rule.DisabledReason, "disabled") {
+		t.Fatalf("expected disabled peer import rule, got %+v", response.Groups)
 	}
 }
 
@@ -3172,6 +3261,15 @@ func TestHandlePrometheusAlertRulesExportsEnabledRulesOnly(t *testing.T) {
 	}
 	if !strings.Contains(body, "      - alert: ZephyrConsensusRecoveryBacklog\n") {
 		t.Fatalf("expected consensus recovery alert in prometheus alert rules, got:\n%s", body)
+	}
+	if !strings.Contains(body, "      - alert: ZephyrPeerImportBlocked\n") {
+		t.Fatalf("expected peer import blocked alert in prometheus alert rules, got:\n%s", body)
+	}
+	if !strings.Contains(body, "        expr: 'zephyr_alert_active{code=\"peer_import_blocked\",severity=\"warning\",component=\"peer_sync\"} == 1'\n") {
+		t.Fatalf("expected peer import blocked expression in prometheus alert rules, got:\n%s", body)
+	}
+	if !strings.Contains(body, "      - alert: ZephyrPeerAdmissionBlocked\n") {
+		t.Fatalf("expected peer admission blocked alert in prometheus alert rules, got:\n%s", body)
 	}
 }
 func TestHandleRecordingRulesExposeRecommendedBundles(t *testing.T) {
@@ -3646,9 +3744,10 @@ func TestPrometheusMetricsExportOperatorSignals(t *testing.T) {
 	requirePrometheusLine(t, body, "zephyr_node_ready 1")
 	requirePrometheusLine(t, body, "zephyr_health_status{status=\"warn\"} 1")
 	requirePrometheusLine(t, body, "zephyr_health_check_status{check=\"diagnostics\",status=\"warn\"} 1")
-	requirePrometheusLine(t, body, "zephyr_alert_count 2")
-	requirePrometheusLine(t, body, "zephyr_alert_count_by_severity{severity=\"warning\"} 2")
+	requirePrometheusLine(t, body, "zephyr_alert_count 3")
+	requirePrometheusLine(t, body, "zephyr_alert_count_by_severity{severity=\"warning\"} 3")
 	requirePrometheusLine(t, body, "zephyr_alert_active{code=\"peer_sync_degraded\",severity=\"warning\",component=\"peer_sync\"} 1")
+	requirePrometheusLine(t, body, "zephyr_alert_active{code=\"peer_import_blocked\",severity=\"warning\",component=\"peer_sync\"} 1")
 	requirePrometheusLine(t, body, "zephyr_alert_active{code=\"recent_consensus_diagnostics\",severity=\"warning\",component=\"consensus\"} 1")
 	requirePrometheusLine(t, body, "zephyr_slo_objective_count 3")
 	requirePrometheusLine(t, body, "zephyr_slo_status_count{status=\"at_risk\"} 3")

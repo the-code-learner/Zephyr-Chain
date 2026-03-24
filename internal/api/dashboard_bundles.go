@@ -515,7 +515,7 @@ func (s *Server) buildDashboards() []Dashboard {
 					[]string{"zephyr_peer_sync_state_occurrence_count"},
 					[]string{"/metrics", "/v1/peers", "/v1/status"},
 					nil,
-					nil,
+					[]string{"peer_import_blocked", "peer_admission_blocked"},
 					nil,
 				),
 				newDashboardPanel(
@@ -529,7 +529,7 @@ func (s *Server) buildDashboards() []Dashboard {
 					[]string{"zephyr_peer_sync_error_code_occurrence_count"},
 					[]string{"/metrics", "/v1/peers", "/v1/status"},
 					nil,
-					nil,
+					[]string{"peer_import_blocked"},
 					nil,
 				),
 				newDashboardPanel(
