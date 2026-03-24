@@ -73,6 +73,8 @@ type ValidatorSnapshot struct {
 type ConsensusView struct {
 	CurrentHeight         uint64     `json:"currentHeight"`
 	NextHeight            uint64     `json:"nextHeight"`
+	CurrentRound          uint64     `json:"currentRound"`
+	CurrentRoundStartedAt *time.Time `json:"currentRoundStartedAt,omitempty"`
 	ValidatorSetVersion   uint64     `json:"validatorSetVersion"`
 	ValidatorSetUpdatedAt *time.Time `json:"validatorSetUpdatedAt,omitempty"`
 	ValidatorCount        int        `json:"validatorCount"`
@@ -88,6 +90,7 @@ type Snapshot struct {
 	CommittedTransactionIDs []string                `json:"committedTransactionIds"`
 	AppliedFundingIDs       []string                `json:"appliedFundingIds"`
 	ValidatorSnapshot       ValidatorSnapshot       `json:"validatorSnapshot"`
+	RoundState              ConsensusRoundState     `json:"roundState"`
 	Proposals               []consensus.Proposal    `json:"proposals"`
 	Votes                   []VoteRecord            `json:"votes"`
 	CommitCertificates      []CommitCertificate     `json:"commitCertificates"`
@@ -106,6 +109,7 @@ type persistedState struct {
 	CommittedTransactionIDs []string                `json:"committedTransactionIds"`
 	AppliedFundingIDs       []string                `json:"appliedFundingIds"`
 	ValidatorSnapshot       ValidatorSnapshot       `json:"validatorSnapshot"`
+	RoundState              ConsensusRoundState     `json:"roundState"`
 	Proposals               []consensus.Proposal    `json:"proposals"`
 	Votes                   []VoteRecord            `json:"votes"`
 	CommitCertificates      []CommitCertificate     `json:"commitCertificates"`
@@ -122,6 +126,7 @@ type Store struct {
 	committedTransactions map[string]struct{}
 	appliedFundingIDs     map[string]struct{}
 	validatorSnapshot     ValidatorSnapshot
+	roundState            ConsensusRoundState
 	proposals             []consensus.Proposal
 	votes                 []VoteRecord
 	commitCertificates    []CommitCertificate
@@ -146,6 +151,7 @@ func NewStore(dataDir string) (*Store, error) {
 		committedTransactions: make(map[string]struct{}),
 		appliedFundingIDs:     make(map[string]struct{}),
 		validatorSnapshot:     normalizeValidatorSnapshot(ValidatorSnapshot{}),
+		roundState:            ConsensusRoundState{Height: 1},
 		proposals:             make([]consensus.Proposal, 0),
 		votes:                 make([]VoteRecord, 0),
 		commitCertificates:    make([]CommitCertificate, 0),
@@ -270,6 +276,7 @@ func (s *Store) SetValidators(validators []dpos.Validator, config dpos.ElectionC
 		Version:        state.ValidatorSnapshot.Version + 1,
 		UpdatedAt:      &now,
 	})
+	state.RoundState = ConsensusRoundState{Height: uint64(len(state.Blocks) + 1)}
 	state.Proposals = make([]consensus.Proposal, 0)
 	state.Votes = make([]VoteRecord, 0)
 	state.CommitCertificates = make([]CommitCertificate, 0)
@@ -286,7 +293,7 @@ func (s *Store) Consensus() ConsensusView {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	return consensusFromState(s.blocks, s.validatorSnapshot)
+	return consensusFromState(s.snapshotLocked())
 }
 
 func (s *Store) Snapshot() Snapshot {
@@ -482,6 +489,7 @@ func (s *Store) snapshotLocked() persistedState {
 		CommittedTransactionIDs: committedIDs,
 		AppliedFundingIDs:       appliedFundingIDs,
 		ValidatorSnapshot:       cloneValidatorSnapshot(s.validatorSnapshot),
+		RoundState:              cloneConsensusRoundState(s.roundState),
 		Proposals:               cloneProposals(s.proposals),
 		Votes:                   cloneVoteRecords(s.votes),
 		CommitCertificates:      cloneCommitCertificates(s.commitCertificates),
@@ -494,6 +502,7 @@ func (s *Store) applyStateLocked(state persistedState) {
 	s.mempool = cloneMempool(state.Mempool)
 	s.blocks = cloneBlocks(state.Blocks)
 	s.validatorSnapshot = cloneValidatorSnapshot(state.ValidatorSnapshot)
+	s.roundState = cloneConsensusRoundState(state.RoundState)
 	s.proposals = cloneProposals(state.Proposals)
 	s.votes = cloneVoteRecords(state.Votes)
 	s.commitCertificates = cloneCommitCertificates(state.CommitCertificates)
@@ -703,7 +712,7 @@ func validateBlockConsensus(state persistedState, block Block, requireCertificat
 	if proposal.PreviousHash != block.PreviousHash {
 		return ErrConsensusPreviousHash
 	}
-	if expected := proposerForHeight(state.ValidatorSnapshot.Validators, block.Height); expected != "" && proposal.Proposer != expected {
+	if expected := proposerForHeightRound(state.ValidatorSnapshot.Validators, block.Height, proposal.Round); expected != "" && proposal.Proposer != expected {
 		return ErrUnexpectedProposer
 	}
 	if requireCertificate && matchCertificateForBlock(state.CommitCertificates, block) == nil {
@@ -738,6 +747,7 @@ func normalizeState(state persistedState) persistedState {
 		state.CommitCertificates = make([]CommitCertificate, 0)
 	}
 	state.ValidatorSnapshot = normalizeValidatorSnapshot(state.ValidatorSnapshot)
+	state.RoundState = normalizeConsensusRoundState(state.RoundState, state.Blocks)
 	state.CommittedTransactionIDs = uniqueSortedStrings(state.CommittedTransactionIDs)
 	state.AppliedFundingIDs = uniqueSortedStrings(state.AppliedFundingIDs)
 	return state
@@ -752,6 +762,7 @@ func snapshotFromPersisted(state persistedState) Snapshot {
 		CommittedTransactionIDs: append([]string(nil), state.CommittedTransactionIDs...),
 		AppliedFundingIDs:       append([]string(nil), state.AppliedFundingIDs...),
 		ValidatorSnapshot:       cloneValidatorSnapshot(state.ValidatorSnapshot),
+		RoundState:              cloneConsensusRoundState(state.RoundState),
 		Proposals:               cloneProposals(state.Proposals),
 		Votes:                   cloneVoteRecords(state.Votes),
 		CommitCertificates:      cloneCommitCertificates(state.CommitCertificates),
@@ -766,15 +777,17 @@ func persistedFromSnapshot(snapshot Snapshot) persistedState {
 		CommittedTransactionIDs: append([]string(nil), snapshot.CommittedTransactionIDs...),
 		AppliedFundingIDs:       append([]string(nil), snapshot.AppliedFundingIDs...),
 		ValidatorSnapshot:       cloneValidatorSnapshot(snapshot.ValidatorSnapshot),
+		RoundState:              cloneConsensusRoundState(snapshot.RoundState),
 		Proposals:               cloneProposals(snapshot.Proposals),
 		Votes:                   cloneVoteRecords(snapshot.Votes),
 		CommitCertificates:      cloneCommitCertificates(snapshot.CommitCertificates),
 	})
 }
 
-func consensusFromState(blocks []Block, snapshot ValidatorSnapshot) ConsensusView {
-	snapshot = normalizeValidatorSnapshot(snapshot)
-	currentHeight := uint64(len(blocks))
+func consensusFromState(state persistedState) ConsensusView {
+	state = normalizeState(state)
+	snapshot := state.ValidatorSnapshot
+	currentHeight := uint64(len(state.Blocks))
 	nextHeight := currentHeight + 1
 	totalVotingPower := uint64(0)
 	for _, validator := range snapshot.Validators {
@@ -784,12 +797,14 @@ func consensusFromState(blocks []Block, snapshot ValidatorSnapshot) ConsensusVie
 	return ConsensusView{
 		CurrentHeight:         currentHeight,
 		NextHeight:            nextHeight,
+		CurrentRound:          state.RoundState.Round,
+		CurrentRoundStartedAt: cloneNonZeroTimePointer(state.RoundState.StartedAt),
 		ValidatorSetVersion:   snapshot.Version,
 		ValidatorSetUpdatedAt: cloneTimePointer(snapshot.UpdatedAt),
 		ValidatorCount:        len(snapshot.Validators),
 		TotalVotingPower:      totalVotingPower,
 		QuorumVotingPower:     quorumVotingPower(totalVotingPower),
-		NextProposer:          proposerForHeight(snapshot.Validators, nextHeight),
+		NextProposer:          proposerForHeightRound(snapshot.Validators, nextHeight, state.RoundState.Round),
 	}
 }
 
@@ -820,11 +835,7 @@ func cloneValidators(validators []dpos.Validator) []dpos.Validator {
 }
 
 func proposerForHeight(validators []dpos.Validator, height uint64) string {
-	if len(validators) == 0 || height == 0 {
-		return ""
-	}
-	index := int((height - 1) % uint64(len(validators)))
-	return validators[index].Address
+	return proposerForHeightRound(validators, height, 0)
 }
 
 func quorumVotingPower(totalVotingPower uint64) uint64 {
@@ -839,6 +850,14 @@ func cloneTimePointer(value *time.Time) *time.Time {
 		return nil
 	}
 	cloned := *value
+	return &cloned
+}
+
+func cloneNonZeroTimePointer(value time.Time) *time.Time {
+	if value.IsZero() {
+		return nil
+	}
+	cloned := value
 	return &cloned
 }
 

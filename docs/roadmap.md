@@ -13,10 +13,10 @@ Build Zephyr into a production-capable network with:
 
 As of this iteration, the repository has:
 
-- durable ledger state for accounts, mempool, committed blocks, snapshots, validator snapshots, proposals, votes, and quorum certificates
+- durable ledger state for accounts, mempool, committed blocks, snapshots, validator snapshots, active round state, proposals, votes, and quorum certificates
 - an explicit peer transport abstraction with the current implementation running over HTTP devnet replication
 - durable validator-set snapshots with versioning and restart-safe persistence
-- derived consensus metadata including total voting power, quorum target, and next scheduled proposer
+- derived consensus metadata including total voting power, quorum target, active round, round start time, and the currently scheduled proposer
 - signed proposal and vote messages validated with Zephyr addresses plus P-256 signatures
 - proposals that commit to deterministic template fields: `previousHash`, `producedAt`, ordered `transactionIds`, the full `transactions` body, and the derived `blockHash`
 - optional certificate-gated local block commit and remote block import behind `ZEPHYR_REQUIRE_CONSENSUS_CERTIFICATES`
@@ -25,15 +25,16 @@ As of this iteration, the repository has:
 - optional strict peer admission behind `ZEPHYR_REQUIRE_PEER_IDENTITY`
 - optional peer-to-validator binding behind `ZEPHYR_PEER_VALIDATORS`
 - admitted-peer gating for background sync and outgoing replication on the current HTTP transport
-- a first automation slice behind `ZEPHYR_ENABLE_CONSENSUS_AUTOMATION` and `ZEPHYR_CONSENSUS_INTERVAL`
-- scheduled proposer self-proposal, active-validator auto-vote, and proposer-side certified auto-commit for the current round-0 flow
+- a first timeout-driven automation slice behind `ZEPHYR_ENABLE_CONSENSUS_AUTOMATION`, `ZEPHYR_CONSENSUS_INTERVAL`, and `ZEPHYR_CONSENSUS_ROUND_TIMEOUT`
+- scheduled proposer self-proposal, active-validator auto-vote, timeout-driven round advance, proposer rotation, stored-candidate reproposal, and proposer-side certified auto-commit on the current devnet path
+- in-order automated proposal and vote dissemination on the validator path to avoid the vote-before-proposal race
 - a browser wallet that can create accounts, sign locally, and submit transactions
 
 What it still does not have:
 
 - authenticated peer discovery and replay-safe transport over libp2p
-- timeout, rebroadcast, re-proposal, and proposer-rotation logic on top of the first automation slice
-- restart-safe round recovery, write-ahead logging, and richer operator evidence tooling
+- vote rebroadcast and stronger round-change evidence on top of the first timeout-driven round engine
+- restart-safe write-ahead recovery and replay of in-flight consensus actions
 - on-chain staking/governance-driven validator updates
 - WASM contracts, fee metering, or compute markets
 - production operations tooling
@@ -74,14 +75,17 @@ Status:
 - nodes can optionally require a matching proposal and certificate before local block commit or remote block import
 - certificate-gated local commit can replay the stored proposal body without needing the same candidate in the local mempool
 - validator nodes can now prove which validator they represent over the current transport and nodes can enforce that proof plus per-peer validator binding when configured
-- a first autonomous round-0 engine now exists: the scheduled proposer can self-propose, active validators can auto-vote, and the proposer can auto-commit after quorum when certificate enforcement is enabled
-- the current automation path still lacks timeout, re-proposal, proposer-rotation, and restart-recovery behavior
+- active round height, round number, and round start time are now durable consensus state
+- valid higher-round proposals and votes can move a node onto the newer round instead of being rejected just because the local timer had not fired yet
+- a first timeout-driven engine now exists: the scheduled proposer can self-propose, active validators can auto-vote, timeout can rotate the proposer, the next proposer can reuse the latest stored candidate body, and the proposer can auto-commit after quorum when certificate enforcement is enabled
+- proposal and vote broadcasts on the automation path are now sent in-order to avoid vote-before-proposal races on the happy path
+- the current automation path still lacks vote rebroadcast, stronger round-change evidence, and WAL-style replay of in-flight actions
 
 Next steps:
 
-1. Add round timeout handling, vote rebroadcast, and re-proposal behavior so automation can recover when the first proposal or vote wave stalls.
-2. Add proposer rotation or explicit round-change behavior after timeout instead of assuming a single round-0 happy path.
-3. Persist round state, evidence, and write-ahead recovery data for restart-safe recovery.
+1. Add vote rebroadcast so validators can recover more cleanly from dropped proposal or vote messages.
+2. Add stronger round-change evidence and operator surfaces for timeout, stale round, conflicting proposer, and partial quorum scenarios.
+3. Persist write-ahead recovery data for in-flight consensus actions so restart can resume without silent message loss.
 4. Make commit and import surfaces expose clearer operator evidence for template mismatch, partial quorum, stale round, timeout, and re-proposal scenarios.
 5. Add deterministic multi-node integration tests for certified happy path, conflicting proposals, timeout and re-proposal, restart during a round, and recovery from partial quorum.
 
@@ -101,7 +105,7 @@ Status:
 - peer views can verify that proof, enforce strict peer admission, and pin configured peers to expected validator identities
 - admitted-peer policy already gates current HTTP sync and replication behavior
 - proposal, vote, and certified-block replication already ride over that abstraction
-- the first automation slice already uses that transport for proposal and vote dissemination
+- the timeout-driven automation slice already uses that transport for proposal and vote dissemination
 - behind nodes can fetch blocks or restore full snapshots
 - sync is convenient, but not trust-minimized or production-safe
 

@@ -138,7 +138,12 @@ func recordProposalIntoState(state persistedState, proposal consensus.Proposal) 
 	if _, ok := validatorVotingPower(state.ValidatorSnapshot, proposal.Proposer); !ok {
 		return state, ErrValidatorNotActive
 	}
-	if expected := proposerForHeight(state.ValidatorSnapshot.Validators, proposal.Height); expected != "" && proposal.Proposer != expected {
+	var err error
+	state, err = alignRoundStateWithProposal(state, proposal)
+	if err != nil {
+		return state, err
+	}
+	if expected := proposerForHeightRound(state.ValidatorSnapshot.Validators, proposal.Height, proposal.Round); expected != "" && proposal.Proposer != expected {
 		return state, ErrUnexpectedProposer
 	}
 	for index, existing := range state.Proposals {
@@ -173,6 +178,11 @@ func recordVoteIntoState(state persistedState, vote consensus.Vote) (persistedSt
 	}
 	if vote.Height != uint64(len(state.Blocks))+1 {
 		return state, VoteTally{}, nil, ErrConsensusHeightMismatch
+	}
+	var err error
+	state, err = alignRoundStateWithVote(state, vote)
+	if err != nil {
+		return state, VoteTally{}, nil, err
 	}
 	votingPower, ok := validatorVotingPower(state.ValidatorSnapshot, vote.Voter)
 	if !ok {
@@ -304,6 +314,34 @@ func votersForBlock(votes []VoteRecord, height uint64, round uint64, blockHash s
 	}
 	sort.Strings(voters)
 	return voters
+}
+
+func alignRoundStateWithProposal(state persistedState, proposal consensus.Proposal) (persistedState, error) {
+	currentRound := state.RoundState.Round
+	switch {
+	case proposal.Round < currentRound:
+		return state, ErrConsensusRoundMismatch
+	case proposal.Round > currentRound:
+		state.RoundState.Round = proposal.Round
+		state.RoundState.StartedAt = proposal.ProposedAt.UTC()
+	case state.RoundState.StartedAt.IsZero():
+		state.RoundState.StartedAt = proposal.ProposedAt.UTC()
+	}
+	return state, nil
+}
+
+func alignRoundStateWithVote(state persistedState, vote consensus.Vote) (persistedState, error) {
+	currentRound := state.RoundState.Round
+	switch {
+	case vote.Round < currentRound:
+		return state, ErrConsensusRoundMismatch
+	case vote.Round > currentRound:
+		state.RoundState.Round = vote.Round
+		state.RoundState.StartedAt = vote.VotedAt.UTC()
+	case state.RoundState.StartedAt.IsZero():
+		state.RoundState.StartedAt = vote.VotedAt.UTC()
+	}
+	return state, nil
 }
 
 func findCertificate(certificates []CommitCertificate, height uint64, round uint64, blockHash string) *CommitCertificate {

@@ -43,6 +43,7 @@ type Config struct {
 	PeerValidatorBindings        map[string]string
 	BlockInterval                time.Duration
 	ConsensusInterval            time.Duration
+	ConsensusRoundTimeout        time.Duration
 	SyncInterval                 time.Duration
 	MaxTransactionsPerBlock      int
 	EnableBlockProduction        bool
@@ -62,6 +63,7 @@ func DefaultConfig() Config {
 		PeerValidatorBindings:        nil,
 		BlockInterval:                15 * time.Second,
 		ConsensusInterval:            1 * time.Second,
+		ConsensusRoundTimeout:        5 * time.Second,
 		SyncInterval:                 5 * time.Second,
 		MaxTransactionsPerBlock:      100,
 		EnableBlockProduction:        true,
@@ -660,6 +662,9 @@ func normalizeConfig(config Config) Config {
 	if config.ConsensusInterval < 0 {
 		config.ConsensusInterval = 0
 	}
+	if config.ConsensusRoundTimeout < 0 {
+		config.ConsensusRoundTimeout = 0
+	}
 	if config.SyncInterval < 0 {
 		config.SyncInterval = 0
 	}
@@ -717,6 +722,7 @@ func statusForError(err error) int {
 		errors.Is(err, ledger.ErrValidatorNotActive),
 		errors.Is(err, ledger.ErrUnexpectedProposer),
 		errors.Is(err, ledger.ErrConsensusHeightMismatch),
+		errors.Is(err, ledger.ErrConsensusRoundMismatch),
 		errors.Is(err, ledger.ErrConsensusPreviousHash),
 		errors.Is(err, ledger.ErrConsensusProposalRequired),
 		errors.Is(err, ledger.ErrConsensusCertificateRequired),

@@ -894,6 +894,136 @@ func TestConsensusAutomationReplicatesProposalVotesAndCommitAcrossValidators(t *
 	}
 }
 
+func TestConsensusAutomationReproposesStoredCandidateAfterRoundTimeout(t *testing.T) {
+	roundZeroProposer := newConsensusSigner(t)
+	roundOneProposer := newConsensusSigner(t)
+	server := newTestServer(t, Config{
+		DataDir:                   t.TempDir(),
+		NodeID:                    "node-b",
+		ValidatorPrivateKey:       encodedPrivateKey(t, roundOneProposer.privateKey),
+		BlockInterval:             0,
+		ConsensusInterval:         20 * time.Millisecond,
+		ConsensusRoundTimeout:     100 * time.Millisecond,
+		SyncInterval:              0,
+		MaxTransactionsPerBlock:   10,
+		EnableBlockProduction:     true,
+		EnableConsensusAutomation: true,
+		EnablePeerSync:            false,
+	})
+
+	if _, err := server.ledger.SetValidators([]dpos.Validator{
+		{Rank: 1, Address: roundZeroProposer.address, VotingPower: 60, SelfStake: 40, DelegatedStake: 20},
+		{Rank: 2, Address: roundOneProposer.address, VotingPower: 40, SelfStake: 25, DelegatedStake: 15},
+	}, dpos.ElectionConfig{MaxValidators: 2}); err != nil {
+		t.Fatalf("set validators: %v", err)
+	}
+
+	producedAt := time.Date(2026, time.March, 24, 13, 0, 0, 0, time.UTC)
+	roundZeroProposal := signedConsensusProposal(t, roundZeroProposer, 1, 0, "", producedAt, []tx.Envelope{signedEnvelope(t, 25, 1, "round-zero-candidate")})
+	if err := server.ledger.RecordProposal(roundZeroProposal); err != nil {
+		t.Fatalf("record round-zero proposal: %v", err)
+	}
+
+	waitFor(t, func() bool {
+		proposal, exists := server.ledger.ProposalAt(1, 1)
+		return exists && proposal.Proposer == roundOneProposer.address
+	})
+
+	reproposal, exists := server.ledger.ProposalAt(1, 1)
+	if !exists {
+		t.Fatal("expected round-one reproposal to be recorded")
+	}
+	if reproposal.BlockHash != roundZeroProposal.BlockHash {
+		t.Fatalf("expected reproposal block hash %s, got %s", roundZeroProposal.BlockHash, reproposal.BlockHash)
+	}
+	if reproposal.PreviousHash != roundZeroProposal.PreviousHash || !reproposal.ProducedAt.Equal(roundZeroProposal.ProducedAt) {
+		t.Fatalf("expected reproposal to reuse stored candidate, got %+v", reproposal)
+	}
+}
+
+func TestConsensusAutomationAdvancesRoundAndRotatesProposerAfterTimeout(t *testing.T) {
+	roundZeroProposer := newConsensusSigner(t)
+	roundOneProposer := newConsensusSigner(t)
+
+	roundZeroServer := newTestServer(t, Config{
+		DataDir:                      t.TempDir(),
+		NodeID:                       "node-a",
+		ValidatorPrivateKey:          encodedPrivateKey(t, roundZeroProposer.privateKey),
+		BlockInterval:                0,
+		ConsensusInterval:            20 * time.Millisecond,
+		ConsensusRoundTimeout:        150 * time.Millisecond,
+		SyncInterval:                 0,
+		MaxTransactionsPerBlock:      10,
+		EnableBlockProduction:        false,
+		EnableConsensusAutomation:    true,
+		EnablePeerSync:               false,
+		RequireConsensusCertificates: true,
+	})
+	roundZeroHTTP := httptest.NewServer(roundZeroServer.Handler())
+	defer roundZeroHTTP.Close()
+
+	roundOneServer := newTestServer(t, Config{
+		DataDir:                      t.TempDir(),
+		NodeID:                       "node-b",
+		ValidatorPrivateKey:          encodedPrivateKey(t, roundOneProposer.privateKey),
+		PeerURLs:                     []string{roundZeroHTTP.URL},
+		BlockInterval:                0,
+		ConsensusInterval:            20 * time.Millisecond,
+		ConsensusRoundTimeout:        150 * time.Millisecond,
+		SyncInterval:                 0,
+		MaxTransactionsPerBlock:      10,
+		EnableBlockProduction:        true,
+		EnableConsensusAutomation:    true,
+		EnablePeerSync:               false,
+		EnforceProposerSchedule:      true,
+		RequireConsensusCertificates: true,
+	})
+	roundOneHTTP := httptest.NewServer(roundOneServer.Handler())
+	defer roundOneHTTP.Close()
+
+	roundZeroServer.config.PeerURLs = []string{roundOneHTTP.URL}
+
+	validators := []dpos.Validator{
+		{Rank: 1, Address: roundZeroProposer.address, VotingPower: 60, SelfStake: 40, DelegatedStake: 20},
+		{Rank: 2, Address: roundOneProposer.address, VotingPower: 40, SelfStake: 25, DelegatedStake: 15},
+	}
+	if _, err := roundZeroServer.ledger.SetValidators(validators, dpos.ElectionConfig{MaxValidators: 2}); err != nil {
+		t.Fatalf("set round-zero validators: %v", err)
+	}
+	if _, err := roundOneServer.ledger.SetValidators(validators, dpos.ElectionConfig{MaxValidators: 2}); err != nil {
+		t.Fatalf("set round-one validators: %v", err)
+	}
+
+	envelope := signedEnvelope(t, 25, 1, "timeout-rotation")
+	if _, err := roundZeroServer.ledger.Credit(envelope.From, 100); err != nil {
+		t.Fatalf("credit round-zero sender: %v", err)
+	}
+	if _, err := roundOneServer.ledger.Credit(envelope.From, 100); err != nil {
+		t.Fatalf("credit round-one sender: %v", err)
+	}
+	if _, err := roundOneServer.ledger.Accept(envelope); err != nil {
+		t.Fatalf("accept tx: %v", err)
+	}
+
+	waitFor(t, func() bool {
+		return roundZeroServer.ledger.Status().Height == 1 && roundOneServer.ledger.Status().Height == 1
+	})
+
+	roundOneArtifacts := roundOneServer.ledger.ConsensusArtifacts()
+	if roundOneArtifacts.LatestProposal == nil || roundOneArtifacts.LatestProposal.Round != 1 {
+		t.Fatalf("expected round-one proposal after timeout rotation, got %+v", roundOneArtifacts.LatestProposal)
+	}
+	if roundOneArtifacts.LatestCertificate == nil || roundOneArtifacts.LatestCertificate.Round != 1 {
+		t.Fatalf("expected round-one certificate after timeout rotation, got %+v", roundOneArtifacts.LatestCertificate)
+	}
+	roundZeroArtifacts := roundZeroServer.ledger.ConsensusArtifacts()
+	if roundZeroArtifacts.LatestCertificate == nil || roundZeroArtifacts.LatestCertificate.Round != 1 {
+		t.Fatalf("expected replica round-one certificate after timeout rotation, got %+v", roundZeroArtifacts.LatestCertificate)
+	}
+	if sender := roundZeroServer.ledger.View(envelope.From); sender.Balance != 75 || sender.Nonce != 1 {
+		t.Fatalf("unexpected round-zero sender state after timeout rotation: %+v", sender)
+	}
+}
 func TestPeerSyncRecordsVerifiedAndAdmittedTransportIdentity(t *testing.T) {
 	peerSigner := newConsensusSigner(t)
 	peerServer := newTestServer(t, Config{

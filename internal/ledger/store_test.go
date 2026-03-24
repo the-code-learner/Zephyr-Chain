@@ -494,6 +494,75 @@ func TestStoreRecordProposalRejectsMissingTransactions(t *testing.T) {
 	}
 }
 
+func TestStoreAdvanceRoundRotatesScheduledProposerAndPersists(t *testing.T) {
+	store := newTestStore(t)
+	first := newConsensusSigner(t)
+	second := newConsensusSigner(t)
+	if _, err := store.SetValidators([]dpos.Validator{
+		{Rank: 1, Address: first.address, VotingPower: 60, SelfStake: 40, DelegatedStake: 20},
+		{Rank: 2, Address: second.address, VotingPower: 40, SelfStake: 25, DelegatedStake: 15},
+	}, dpos.ElectionConfig{MaxValidators: 2}); err != nil {
+		t.Fatalf("set validators: %v", err)
+	}
+
+	startedAt := time.Date(2026, time.March, 24, 12, 0, 0, 0, time.UTC)
+	roundState, err := store.EnsureRoundStarted(startedAt)
+	if err != nil {
+		t.Fatalf("ensure round started: %v", err)
+	}
+	if roundState.Round != 0 || !roundState.StartedAt.Equal(startedAt) {
+		t.Fatalf("unexpected initial round state: %+v", roundState)
+	}
+	if consensus := store.Consensus(); consensus.CurrentRound != 0 || consensus.NextProposer != first.address {
+		t.Fatalf("unexpected initial consensus view: %+v", consensus)
+	}
+
+	advancedAt := startedAt.Add(5 * time.Second)
+	roundState, err = store.AdvanceRound(advancedAt)
+	if err != nil {
+		t.Fatalf("advance round: %v", err)
+	}
+	if roundState.Round != 1 || !roundState.StartedAt.Equal(advancedAt) {
+		t.Fatalf("unexpected advanced round state: %+v", roundState)
+	}
+	if consensus := store.Consensus(); consensus.CurrentRound != 1 || consensus.NextProposer != second.address {
+		t.Fatalf("unexpected rotated consensus view: %+v", consensus)
+	}
+
+	reopened, err := NewStore(store.DataDir())
+	if err != nil {
+		t.Fatalf("reopen store: %v", err)
+	}
+	if consensus := reopened.Consensus(); consensus.CurrentRound != 1 || consensus.NextProposer != second.address {
+		t.Fatalf("unexpected reopened consensus view: %+v", consensus)
+	}
+}
+
+func TestStoreRecordProposalAcceptsHigherRoundAndRejectsStaleRound(t *testing.T) {
+	store := newTestStore(t)
+	first := newConsensusSigner(t)
+	second := newConsensusSigner(t)
+	if _, err := store.SetValidators([]dpos.Validator{
+		{Rank: 1, Address: first.address, VotingPower: 60, SelfStake: 40, DelegatedStake: 20},
+		{Rank: 2, Address: second.address, VotingPower: 40, SelfStake: 25, DelegatedStake: 15},
+	}, dpos.ElectionConfig{MaxValidators: 2}); err != nil {
+		t.Fatalf("set validators: %v", err)
+	}
+
+	producedAt := time.Date(2026, time.March, 24, 12, 30, 0, 0, time.UTC)
+	roundOneProposal := signedProposalWithSigner(t, second, 1, 1, "", producedAt, []tx.Envelope{signedEnvelope(t, 5, 1, "round-one-proposal")})
+	if err := store.RecordProposal(roundOneProposal); err != nil {
+		t.Fatalf("record round-one proposal: %v", err)
+	}
+	if consensus := store.Consensus(); consensus.CurrentRound != 1 || consensus.NextProposer != second.address {
+		t.Fatalf("unexpected consensus view after round-one proposal: %+v", consensus)
+	}
+
+	staleProposal := signedProposalWithSigner(t, first, 1, 0, "", producedAt.Add(-time.Second), []tx.Envelope{signedEnvelope(t, 5, 1, "stale-round-proposal")})
+	if err := store.RecordProposal(staleProposal); !errors.Is(err, ErrConsensusRoundMismatch) {
+		t.Fatalf("expected stale round mismatch error, got %v", err)
+	}
+}
 func TestStoreProduceBlockWithConsensusRequiresProposalAndCertificate(t *testing.T) {
 	store := newTestStore(t)
 	proposer := newConsensusSigner(t)
