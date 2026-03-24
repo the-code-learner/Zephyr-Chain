@@ -3092,6 +3092,82 @@ func TestHandleSLOSummarizesDerivedObjectives(t *testing.T) {
 	}
 }
 
+func TestHandleAlertRulesExposeRecommendedBundles(t *testing.T) {
+	server := newTestServer(t, Config{
+		DataDir:                 t.TempDir(),
+		NodeID:                  "alert-rules-node",
+		PeerURLs:                []string{"http://peer-a.example"},
+		BlockInterval:           0,
+		SyncInterval:            0,
+		MaxTransactionsPerBlock: 10,
+		EnableBlockProduction:   false,
+		EnablePeerSync:          false,
+	})
+
+	request := httptest.NewRequest(http.MethodGet, "/v1/alert-rules", nil)
+	recorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected alert-rules status 200, got %d", recorder.Code)
+	}
+
+	var response AlertRuleBundleResponse
+	if err := json.NewDecoder(recorder.Body).Decode(&response); err != nil {
+		t.Fatalf("decode alert-rules response: %v", err)
+	}
+	if response.NodeID != "alert-rules-node" || response.PeerSyncEnabled {
+		t.Fatalf("unexpected alert-rules identity/config %+v", response)
+	}
+	if response.RuleCount != 8 || response.EnabledRuleCount != 5 || response.DisabledRuleCount != 3 {
+		t.Fatalf("unexpected alert-rule counts %+v", response)
+	}
+	if rule, ok := alertRuleByName(response.Groups, "ZephyrNodeNotReady"); !ok || !rule.Enabled || rule.Expression != "zephyr_node_ready == 0" {
+		t.Fatalf("expected enabled ZephyrNodeNotReady rule, got %+v", response.Groups)
+	}
+	if rule, ok := alertRuleByName(response.Groups, "ZephyrPeerSyncContinuityBreached"); !ok || rule.Enabled || !strings.Contains(rule.DisabledReason, "disabled") {
+		t.Fatalf("expected disabled peer-sync breach rule, got %+v", response.Groups)
+	}
+}
+
+func TestHandlePrometheusAlertRulesExportsEnabledRulesOnly(t *testing.T) {
+	server := newTestServer(t, Config{
+		DataDir:                 t.TempDir(),
+		NodeID:                  "alert-rules-export-node",
+		PeerURLs:                []string{"http://peer-a.example"},
+		BlockInterval:           0,
+		SyncInterval:            0,
+		MaxTransactionsPerBlock: 10,
+		EnableBlockProduction:   false,
+		EnablePeerSync:          true,
+	})
+
+	request := httptest.NewRequest(http.MethodGet, "/v1/alert-rules/prometheus", nil)
+	recorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected prometheus alert-rules status 200, got %d", recorder.Code)
+	}
+	if recorder.Header().Get("Content-Type") != prometheusAlertRuleContentType {
+		t.Fatalf("expected alert-rule content type %q, got %q", prometheusAlertRuleContentType, recorder.Header().Get("Content-Type"))
+	}
+
+	body := recorder.Body.String()
+	if !strings.Contains(body, "groups:\n") {
+		t.Fatalf("expected groups header in prometheus alert rules, got:\n%s", body)
+	}
+	if !strings.Contains(body, "  - name: zephyr.peer_sync\n") {
+		t.Fatalf("expected peer_sync rule group in prometheus alert rules, got:\n%s", body)
+	}
+	if !strings.Contains(body, "      - alert: ZephyrPeerSyncContinuityBreached\n") {
+		t.Fatalf("expected peer sync continuity alert in prometheus alert rules, got:\n%s", body)
+	}
+	if !strings.Contains(body, "        expr: 'zephyr_slo_objective_status{objective=\"peer_sync_continuity\",status=\"breached\"} == 1'\n") {
+		t.Fatalf("expected peer sync breach expression in prometheus alert rules, got:\n%s", body)
+	}
+	if !strings.Contains(body, "      - alert: ZephyrConsensusRecoveryBacklog\n") {
+		t.Fatalf("expected consensus recovery alert in prometheus alert rules, got:\n%s", body)
+	}
+}
 func TestMetricsExposeConsensusAndPeerObservabilityAggregates(t *testing.T) {
 	server := newTestServer(t, Config{
 		DataDir:                      t.TempDir(),
@@ -3774,6 +3850,17 @@ func alertByCode(alerts []Alert, code string) (Alert, bool) {
 		}
 	}
 	return Alert{}, false
+}
+
+func alertRuleByName(groups []AlertRuleGroup, name string) (AlertRule, bool) {
+	for _, group := range groups {
+		for _, rule := range group.Rules {
+			if rule.Name == name {
+				return rule, true
+			}
+		}
+	}
+	return AlertRule{}, false
 }
 
 func sloObjectiveByName(objectives []SLOObjective, name string) (SLOObjective, bool) {

@@ -20,6 +20,33 @@ The current consensus-artifact flow is:
 
 This is still a development-stage system. It now has an enforceable certified commit/import path, signed validator transport identity proofs, durable round state, and a first timeout-driven automation slice, but it is not yet a complete validator finality protocol.
 
+Current observability and export flow:
+
+```mermaid
+flowchart LR
+    State[Ledger + peer runtime + consensus state]
+    Health[/v1/health/]
+    Alerts[/v1/alerts/]
+    SLO[/v1/slo/]
+    Metrics[/v1/metrics/]
+    Prom[/metrics/]
+    RulesJSON[/v1/alert-rules/]
+    RulesProm[/v1/alert-rules/prometheus/]
+    Logs[Structured logs]
+    State --> Health
+    State --> Alerts
+    State --> Metrics
+    State --> Logs
+    Health --> SLO
+    Alerts --> SLO
+    Alerts --> RulesJSON
+    SLO --> RulesJSON
+    Metrics --> Prom
+    Metrics --> RulesJSON
+    RulesJSON --> RulesProm
+```
+
+
 ## Components
 
 ### Node API
@@ -33,6 +60,7 @@ The API layer now handles:
 - derived readiness through `GET /v1/health`
 - derived alerts through `GET /v1/alerts`
 - derived SLO summaries through `GET /v1/slo`
+- recommended alert-rule bundles through `GET /v1/alert-rules` and `GET /v1/alert-rules/prometheus`
 - runtime status through `GET /v1/status`
 - machine-readable observability through `GET /v1/metrics`
 - peer visibility through `GET /v1/peers`, including admission, identity, live sync/repair telemetry, durable per-peer incident history, and derived per-peer incident counters
@@ -146,7 +174,7 @@ The repository has moved from consensus-preparation-only into certificate-gated 
 
 - validator nodes can now prove identity and enforce peer admission over the current transport, but peer discovery is still static HTTP configuration rather than authenticated libp2p
 - automation can now rotate proposers on timeout, rebroadcast the latest local proposal or vote after link recovery, and replay persisted local proposal or vote actions after restart
-- the current operator surface is materially better through round warnings, per-height round history, block readiness, replay and import backlog visibility, durable peer-sync history, derived cross-peer summary, JSON metrics, Prometheus `/metrics`, `/v1/health`, `/v1/alerts`, `/v1/slo`, structured event logs, snapshot-restore history, leading tallies, and bounded rejection diagnostics, but it is still too thin for full production incident handling across transport, peer-import, longer-horizon retention, richer export, and broader recovery scenarios
+- the current operator surface is materially better through round warnings, per-height round history, block readiness, replay and import backlog visibility, durable peer-sync history, derived cross-peer summary, JSON metrics, Prometheus `/metrics`, `/v1/health`, `/v1/alerts`, `/v1/slo`, `/v1/alert-rules`, `/v1/alert-rules/prometheus`, structured event logs, snapshot-restore history, leading tallies, and bounded rejection diagnostics, but it is still too thin for full production incident handling across transport, peer-import, longer-horizon retention, richer export, and broader recovery scenarios
 - broader consensus recovery coverage is still needed beyond the current local proposal/vote WAL plus import-repair and snapshot-recovery path
 
 That is why the project has moved beyond replicated prototype, but it is still not a production blockchain.

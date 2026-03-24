@@ -31,15 +31,15 @@ Implemented today:
 
 Implemented in this iteration:
 
-- `GET /v1/slo` now exposes SLO-oriented objective summaries for node readiness, consensus continuity, and peer-sync continuity using the same health and alert evidence already exposed elsewhere
-- `/metrics` now exports those objective summaries through `zephyr_slo_objective_count`, `zephyr_slo_status_count`, and `zephyr_slo_objective_status`
-- `/paper/` now includes a manuscript observability note so the paper framing for health, alerts, SLOs, metrics, and structured logs stays aligned with the codebase
-- focused tests now cover derived SLO responses plus SLO metrics in both degraded and failing scrape scenarios
+- `GET /v1/alert-rules` now exposes recommended monitoring bundles grouped by readiness, consensus, and peer sync, including disabled rules when the current runtime configuration makes them inapplicable
+- `GET /v1/alert-rules/prometheus` now exports the enabled subset as Prometheus-rule YAML built on top of the existing health, alert, and SLO metrics
+- the architecture and paper docs now include Mermaid diagrams for the observability and export path so the operator and manuscript views stay aligned with the codebase
+- focused tests now cover both the JSON alert-rule bundle and the Prometheus alert-rule export
 
 Planned but not implemented yet:
 
 - authenticated peer discovery and replay-safe transport over libp2p on top of the new HTTP admission and binding policy
-- broader consensus recovery coverage plus richer export adapters and alert tooling beyond the current local proposal, vote, peer-import, snapshot-recovery, JSON metrics, Prometheus text export, derived readiness, alerts, SLO summaries, structured event logs, durable peer-sync history, and derived peer-sync summary surfaces
+- broader consensus recovery coverage plus richer dashboards, recording rules, and export adapters beyond the current local proposal, vote, peer-import, snapshot-recovery, JSON metrics, Prometheus text export, alert-rule bundles, derived readiness, alerts, SLO summaries, structured event logs, durable peer-sync history, and derived peer-sync summary surfaces
 - on-chain staking and governance-driven validator updates instead of ad hoc election API writes
 - deterministic WASM smart-contract runtime with native fee metering
 - confidential compute marketplace for encrypted off-chain jobs paid in native tokens
@@ -93,8 +93,10 @@ Invoke-RestMethod http://localhost:8080/health
 curl.exe -i http://localhost:8080/v1/health
 Invoke-RestMethod http://localhost:8080/v1/alerts
 Invoke-RestMethod http://localhost:8080/v1/slo
+Invoke-RestMethod http://localhost:8080/v1/alert-rules
 Invoke-RestMethod http://localhost:8080/v1/status
 curl.exe http://localhost:8080/metrics
+curl.exe http://localhost:8080/v1/alert-rules/prometheus
 ```
 
 ### 2. Run the wallet
@@ -295,7 +297,7 @@ VITE_ZEPHYR_API_BASE=http://localhost:8080
 
 - the current multi-node layer is still HTTP-based under the new transport abstraction, not libp2p networking
 - peer admission and validator pinning can now be enforced over the current HTTP transport, but peer discovery is still static configuration rather than libp2p
-- the round engine now supports timeout-driven proposer rotation, latest-artifact rebroadcast after link recovery, richer `roundEvidence`, per-height `roundHistory`, `blockReadiness`, import-aware `recovery`, durable peer-sync incident history, bounded rejection diagnostics, machine-readable `GET /v1/metrics`, Prometheus-style `GET /metrics`, derived `GET /v1/health`, derived `GET /v1/alerts`, derived `GET /v1/slo`, and local consensus-action WAL replay across restart, but broader recovery tooling is still missing
+- the round engine now supports timeout-driven proposer rotation, latest-artifact rebroadcast after link recovery, richer `roundEvidence`, per-height `roundHistory`, `blockReadiness`, import-aware `recovery`, durable peer-sync incident history, bounded rejection diagnostics, machine-readable `GET /v1/metrics`, Prometheus-style `GET /metrics`, derived `GET /v1/health`, derived `GET /v1/alerts`, derived `GET /v1/slo`, recommended `GET /v1/alert-rules`, exported `GET /v1/alert-rules/prometheus`, and local consensus-action WAL replay across restart, but broader recovery tooling is still missing
 - crash recovery now persists active round metadata plus a bounded local consensus-action WAL, and peer snapshot restore preserves local recovery, diagnostics, and peer-sync incident history, but replay coverage is still centered on local proposal, vote, and import-repair paths rather than the full consensus lifecycle
 - DPoS elections still happen through an API call, not an on-chain staking/governance flow
 - snapshot restore is a state catch-up mechanism, not a trust-minimized proof-based sync protocol
@@ -312,7 +314,7 @@ The production roadmap now lives in [docs/roadmap.md](./docs/roadmap.md).
 Short version:
 
 1. Move the new enforced HTTP peer-admission and validator-binding policy toward authenticated libp2p discovery plus replay-safe transport behavior.
-2. Extend the new `blockReadiness`, `roundHistory`, `roundEvidence`, `recovery`, `diagnostics`, `peerSyncHistory`, `peerSyncSummary`, per-peer `recentIncidents`, `GET /v1/metrics`, `GET /metrics`, `GET /v1/health`, `GET /v1/alerts`, `GET /v1/slo`, and structured event logs into deeper recovery, longer-horizon incident retention, richer exported metrics, alert-rule bundles, and production incident tooling.
+2. Extend the new `blockReadiness`, `roundHistory`, `roundEvidence`, `recovery`, `diagnostics`, `peerSyncHistory`, `peerSyncSummary`, per-peer `recentIncidents`, `GET /v1/metrics`, `GET /metrics`, `GET /v1/health`, `GET /v1/alerts`, `GET /v1/slo`, `GET /v1/alert-rules`, `GET /v1/alert-rules/prometheus`, and structured event logs into deeper recovery, longer-horizon incident retention, richer exported metrics, dashboard and recording-rule bundles, and production incident tooling.
 3. Move validator lifecycle changes behind staking, delegation, slashing, and governance state transitions.
 4. Add deterministic WASM execution, native fee metering, and the confidential compute lane.
 5. Add production observability, recovery tooling, and public testnet operations.
