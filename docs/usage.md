@@ -63,7 +63,7 @@ What to expect:
 - Node A accepts wallet transactions and can produce blocks
 - Node B polls peer status on `ZEPHYR_SYNC_INTERVAL`
 - transactions, faucet credits, proposals, votes, and blocks are replicated over the current transport implementation
-- if validator private keys are configured, `GET /v1/status` exposes a signed identity proof and `GET /v1/peers` shows verification plus admission state for configured peers
+- if validator private keys are configured, `GET /v1/status` exposes a signed identity proof and `GET /v1/peers` shows verification, admission state, and per-peer sync telemetry for configured peers
 - if Node B starts late or misses a block import, it can recover from Node A's snapshot
 
 ## Inspect Validator Scheduling
@@ -115,7 +115,7 @@ go run ./cmd/node
 What to expect:
 
 - `GET /v1/status` reports `peerIdentityRequired=true`
-- `GET /v1/peers` shows `expectedValidator`, `admitted`, and `admissionError` for each configured peer
+- `GET /v1/peers` shows `expectedValidator`, `admitted`, `admissionError`, `syncState`, `heightDelta`, and the latest per-peer import or snapshot-repair metadata for each configured peer
 - background sync and outgoing replication use only admitted peers under this policy
 - replicated peer POST requests without a valid identity, or from validators outside the configured binding allowlist, are rejected with `403`
 
@@ -254,18 +254,20 @@ Expected behavior:
 
 ### Peer Sync Falls Back To Snapshot Restore
 
+- inspect `GET /v1/peers` first; `syncState=snapshot_restored` tells you a peer-specific repair happened and `lastSnapshotRestoreReason` now distinguishes `peer_diverged`, `import_repair`, and `fetch_fallback`
+- inspect `lastImportErrorCode`, `lastImportFailureHeight`, and `lastImportFailureBlockHash` on that peer view when the repair was triggered by a rejected block import
 - inspect `diagnostics` in `GET /v1/status` or `GET /v1/consensus`; if the latest `block_import_rejected` entry has `source=peer_sync`, the node hit a block-import problem during background sync before falling back to snapshot restore
 - inspect `recovery.pendingImportCount` and `recovery.pendingImportHeights` to see whether the node is still blocked on a peer-import path or whether that backlog has already been cleared
 - inspect `recovery.lastSnapshotRestoreAt`, `recovery.lastSnapshotRestoreHeight`, and `recovery.lastSnapshotRestoreBlockHash` to confirm that snapshot repair actually ran and which chain tip it restored
 - inspect `recovery.recentActions` for a completed `block_import` action followed by a completed `snapshot_restore` action when you are debugging catch-up or divergence repair
-- remember that peer snapshot restore now preserves the local node's own recovery and diagnostic history, so post-incident inspection stays on the repairing node instead of inheriting the peer''s local WAL context
+- remember that peer snapshot restore now preserves the local node's own recovery and diagnostic history, so post-incident inspection stays on the repairing node instead of inheriting the peer's local WAL context
 
 ### Peer Identity Verification Or Admission Fails
 
 - confirm the peer validator node is started with `ZEPHYR_VALIDATOR_PRIVATE_KEY`
 - confirm the private key is a base64-encoded PKCS#8 P-256 key
 - confirm `GET /v1/status` on the remote node includes an `identity` object
-- confirm `GET /v1/peers` shows the expected `validatorAddress`, then read `identityError` or `admissionError` for the exact failure
+- confirm `GET /v1/peers` shows the expected `validatorAddress`, then read `identityError`, `admissionError`, and `syncState` for the exact failure mode
 - if you enable `ZEPHYR_REQUIRE_PEER_IDENTITY`, peer-originated replicated POST requests without a valid identity are rejected with `403`
 - if you configure `ZEPHYR_PEER_VALIDATORS`, confirm the bound `<peer-url>=<validator-address>` pair matches what the peer proves in `GET /v1/status`
 
@@ -297,6 +299,7 @@ Expected behavior:
 13. Inspect the resulting block, vote tallies, and certificate on both nodes.
 14. Optionally restart a node and confirm the validator snapshot, round state, consensus artifacts, and `recovery` state survived.
 15. If the restarted node had a pending local proposal or vote, confirm the action is replayed and later marked completed once the block finalizes.
+
 
 
 

@@ -93,6 +93,9 @@ func (s *Server) buildPeerView(peerURL string, status StatusResponse, now time.T
 		validatorAddress = status.Identity.ValidatorAddress
 	}
 
+	localStatus := s.ledger.Status()
+	syncState, heightDelta, _ := derivePeerSyncState(localStatus, status.Status)
+
 	return PeerView{
 		URL:               peerURL,
 		NodeID:            status.NodeID,
@@ -107,20 +110,32 @@ func (s *Server) buildPeerView(peerURL string, status StatusResponse, now time.T
 		ExpectedValidator: expectedValidator,
 		Admitted:          admitted,
 		AdmissionError:    admissionError,
+		HeightDelta:       heightDelta,
+		SyncState:         syncState,
 		LastSeenAt:        &now,
 		Reachable:         true,
 	}
 }
 
 func (s *Server) fetchPeerAdmissionView(peerURL string) (PeerView, bool) {
+	previous, _ := s.peerView(peerURL)
 	status, err := s.fetchPeerStatus(peerURL)
 	if err != nil {
-		view := PeerView{URL: peerURL, Reachable: false, Error: err.Error()}
+		view := mergePeerSyncHistory(PeerView{
+			URL:               peerURL,
+			ExpectedValidator: s.expectedPeerValidator(peerURL),
+			Reachable:         false,
+			SyncState:         "unreachable",
+			Error:             err.Error(),
+		}, previous)
 		s.recordPeerView(view)
 		return view, false
 	}
 
-	view := s.buildPeerView(peerURL, status, time.Now().UTC())
+	view := mergePeerSyncHistory(s.buildPeerView(peerURL, status, time.Now().UTC()), previous)
+	if !view.Admitted {
+		view.SyncState = "unadmitted"
+	}
 	s.recordPeerView(view)
 	return view, view.Admitted
 }
