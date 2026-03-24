@@ -851,7 +851,7 @@ func TestStoreConsensusRecoveryPersistsAcrossRestartAndCompletesOnCommit(t *test
 	}
 
 	recovery := reopened.ConsensusRecovery()
-	if !recovery.NeedsReplay || recovery.PendingActionCount != 2 {
+	if !recovery.NeedsReplay || !recovery.NeedsRecovery || recovery.PendingActionCount != 2 || recovery.PendingReplayCount != 2 || recovery.PendingImportCount != 0 {
 		t.Fatalf("expected two pending consensus actions after restart, got %+v", recovery)
 	}
 
@@ -860,7 +860,7 @@ func TestStoreConsensusRecoveryPersistsAcrossRestartAndCompletesOnCommit(t *test
 	}
 
 	recovery = reopened.ConsensusRecovery()
-	if recovery.NeedsReplay || recovery.PendingActionCount != 0 {
+	if recovery.NeedsReplay || recovery.NeedsRecovery || recovery.PendingActionCount != 0 || recovery.PendingReplayCount != 0 || recovery.PendingImportCount != 0 {
 		t.Fatalf("expected no pending consensus actions after commit, got %+v", recovery)
 	}
 
@@ -875,6 +875,77 @@ func TestStoreConsensusRecoveryPersistsAcrossRestartAndCompletesOnCommit(t *test
 	}
 }
 
+func TestStoreRestoreFromPeerSnapshotPreservesLocalRecoveryAndDiagnostics(t *testing.T) {
+	producer := newTestStore(t)
+	envelope := signedEnvelope(t, 25, 1, "peer-snapshot-recovery")
+	if _, err := producer.Credit(envelope.From, 100); err != nil {
+		t.Fatalf("credit producer sender: %v", err)
+	}
+	if _, err := producer.Accept(envelope); err != nil {
+		t.Fatalf("accept producer transaction: %v", err)
+	}
+	block, err := producer.ProduceBlock(10)
+	if err != nil {
+		t.Fatalf("produce producer block: %v", err)
+	}
+
+	replica := newTestStore(t)
+	if err := replica.RecordConsensusAction(ConsensusAction{
+		Type:      ConsensusActionBlockImport,
+		Height:    block.Height,
+		BlockHash: block.Hash,
+		Note:      "waiting for peer block import after proposal_required",
+	}); err != nil {
+		t.Fatalf("record pending import action: %v", err)
+	}
+	if err := replica.RecordConsensusDiagnostic(ConsensusDiagnostic{
+		Kind:       "block_import_rejected",
+		Code:       "proposal_required",
+		Message:    ErrConsensusProposalRequired.Error(),
+		Height:     block.Height,
+		BlockHash:  block.Hash,
+		Source:     "peer_sync",
+		ObservedAt: time.Date(2026, time.March, 24, 17, 0, 0, 0, time.UTC),
+	}); err != nil {
+		t.Fatalf("record diagnostic: %v", err)
+	}
+
+	restoredAt := time.Date(2026, time.March, 24, 17, 5, 0, 0, time.UTC)
+	if err := replica.RestoreFromPeerSnapshot(producer.Snapshot(), restoredAt); err != nil {
+		t.Fatalf("restore from peer snapshot: %v", err)
+	}
+
+	latest, ok := replica.LatestBlock()
+	if !ok || latest.Hash != block.Hash {
+		t.Fatalf("expected restored latest block %s, got %+v", block.Hash, latest)
+	}
+	if replica.View(envelope.From).Balance != 75 {
+		t.Fatalf("expected restored sender balance 75, got %d", replica.View(envelope.From).Balance)
+	}
+
+	recovery := replica.ConsensusRecovery()
+	if recovery.NeedsReplay || recovery.NeedsRecovery || recovery.PendingActionCount != 0 || recovery.PendingReplayCount != 0 || recovery.PendingImportCount != 0 {
+		t.Fatalf("expected completed recovery state after peer snapshot restore, got %+v", recovery)
+	}
+	completedImport := false
+	for _, action := range recovery.RecentActions {
+		if action.Type == ConsensusActionBlockImport && action.Status == ConsensusActionCompleted {
+			completedImport = true
+			break
+		}
+	}
+	if !completedImport {
+		t.Fatalf("expected completed block import recovery action after peer snapshot restore, got %+v", recovery.RecentActions)
+	}
+
+	diagnostics := replica.ConsensusDiagnostics()
+	if len(diagnostics.Recent) == 0 {
+		t.Fatal("expected preserved diagnostics after peer snapshot restore")
+	}
+	if diagnostics.Recent[0].Kind != "block_import_rejected" || diagnostics.Recent[0].Code != "proposal_required" || diagnostics.Recent[0].Source != "peer_sync" {
+		t.Fatalf("unexpected diagnostics after peer snapshot restore: %+v", diagnostics.Recent)
+	}
+}
 func newTestStore(t *testing.T) *Store {
 	t.Helper()
 

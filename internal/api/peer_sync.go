@@ -89,6 +89,7 @@ func (s *Server) syncFromPeer(peerURL string, localHeight uint64, remoteHeight u
 			return s.restoreSnapshotFromPeer(peerURL)
 		}
 		if err := s.ledger.ImportBlockWithOptions(block, s.config.RequireConsensusCertificates); err != nil {
+			s.recordBlockImportFailure("peer_sync", block, err, peerURL)
 			return s.restoreSnapshotFromPeer(peerURL)
 		}
 	}
@@ -115,7 +116,12 @@ func (s *Server) restoreSnapshotFromPeer(peerURL string) error {
 	if uint64(len(snapshot.Blocks)) < s.ledger.Status().Height {
 		return nil
 	}
-	return s.ledger.Restore(snapshot)
+	now := time.Now().UTC()
+	if err := s.ledger.RestoreFromPeerSnapshot(snapshot, now); err != nil {
+		return err
+	}
+	s.recordSnapshotRestore(peerURL, snapshot, now)
+	return nil
 }
 
 func (s *Server) broadcastTransaction(envelope tx.Envelope) {

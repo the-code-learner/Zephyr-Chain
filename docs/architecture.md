@@ -5,7 +5,7 @@
 The current MVP is a five-part local development system:
 
 - a Go node API that validates transactions, persists chain state, produces blocks, and replicates state to configured peers
-- a durable ledger that stores accounts, mempool entries, committed blocks, validator snapshots, active round state, proposals, votes, certificates, local consensus-action WAL state, bounded consensus diagnostics, and restart-safe metadata on disk
+- a durable ledger that stores accounts, mempool entries, committed blocks, validator snapshots, active round state, proposals, votes, certificates, local consensus-action WAL state, import-recovery and snapshot-restore history, bounded consensus diagnostics, and restart-safe metadata on disk
 - a DPoS election module that ranks validators deterministically from candidate and vote inputs
 - a consensus message and automation layer that validates signed proposals and votes, derives quorum certificates, tracks the active round, and drives the first timeout-driven automation flow
 - a Vue wallet that runs in the browser and acts as a light client
@@ -79,11 +79,12 @@ The store currently persists:
 - durable signed proposals
 - durable signed validator votes with frozen voting power at record time
 - durable quorum certificates built from vote power
-- bounded recent consensus diagnostics for rejected proposal, vote, commit, and import paths
+- bounded recent consensus diagnostics for rejected proposal, vote, commit, and import paths, including peer-sync import failures
 - derived per-height round history for proposal, vote, and certificate state across rounds
 - derived block-readiness inspection for pending-height template, certificate, commit, and import readiness
+- derived recovery summaries for pending replay, pending import backlog, and the latest local snapshot restore
 
-On startup, the node reloads this state and rebuilds pending balance and nonce reservations from the persisted mempool. Validator state, active round state, consensus artifacts, the local consensus-action WAL, and recent consensus diagnostics also survive restart and snapshot restore.
+On startup, the node reloads this state and rebuilds pending balance and nonce reservations from the persisted mempool. Validator state, active round state, consensus artifacts, the local consensus-action WAL, and recent consensus diagnostics also survive restart. When the node applies a peer snapshot for catch-up, it now preserves its own local recovery and diagnostics instead of replacing that operator context with the peer's local WAL state.
 
 The current ledger can derive a deterministic next block candidate from the current mempool plus chain tip. That candidate is what operators propose and certify in the manual flow, and once a proposal is stored the node can later replay that same candidate from proposal storage without depending on the mempool alone.
 
@@ -127,7 +128,7 @@ If `ZEPHYR_ENABLE_CONSENSUS_AUTOMATION=true`, the current automation loop can:
 - send automated proposals before automated votes so peers do not observe vote-before-proposal races on the happy path
 - rebroadcast the latest stored local proposal and latest stored local vote for the pending height until the matching certificate exists
 - persist locally authored proposals and votes into a bounded restart-safe consensus-action WAL with replay-attempt metadata
-- expose round-evidence state, per-height round history, block readiness, deadlines, leading tallies, quorum remaining, warning flags, local vote presence, certificate presence, local recovery state, and recent rejection diagnostics through the status, consensus, and block-template APIs
+- expose round-evidence state, per-height round history, block readiness, deadlines, leading tallies, quorum remaining, warning flags, local vote presence, certificate presence, local recovery state, pending import backlog, recent snapshot-restore metadata, and recent rejection diagnostics through the status, consensus, and block-template APIs
 
 If `ZEPHYR_VALIDATOR_PRIVATE_KEY` is configured, the API layer also derives a signed transport identity for the local validator and verifies peer proofs exposed through `GET /v1/status`. When `ZEPHYR_REQUIRE_PEER_IDENTITY` or `ZEPHYR_PEER_VALIDATORS` is configured, replicated peer POST requests must satisfy that admission policy before they are accepted.
 
@@ -137,9 +138,10 @@ The repository has moved from consensus-preparation-only into certificate-gated 
 
 - validator nodes can now prove identity and enforce peer admission over the current transport, but peer discovery is still static HTTP configuration rather than authenticated libp2p
 - automation can now rotate proposers on timeout, rebroadcast the latest local proposal or vote after link recovery, and replay persisted local proposal or vote actions after restart
-- the current operator surface is materially better through round warnings, per-height round history, block readiness, leading tallies, replay backlog visibility, and bounded rejection diagnostics, but it is still too thin for full production incident handling across transport, peer-import, and broader recovery scenarios
-- broader consensus recovery coverage is still needed beyond the current local proposal/vote WAL path
+- the current operator surface is materially better through round warnings, per-height round history, block readiness, replay and import backlog visibility, snapshot-restore history, leading tallies, and bounded rejection diagnostics, but it is still too thin for full production incident handling across transport, peer-import, and broader recovery scenarios
+- broader consensus recovery coverage is still needed beyond the current local proposal/vote WAL plus import-repair and snapshot-recovery path
 
 That is why the project has moved beyond replicated prototype, but it is still not a production blockchain.
+
 
 

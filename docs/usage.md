@@ -215,7 +215,7 @@ Expected behavior:
 - `GET /v1/status`, `GET /v1/consensus`, and `GET /v1/dev/block-template` now expose `roundEvidence` so operators can see the active round deadline, proposal presence, leading vote power, quorum remaining, replay backlog, warnings, and certificate state
 - those same responses now expose `roundHistory`, which shows the pending height across prior and active rounds so operators can inspect proposer rotation and stalled rounds side by side
 - those same responses now expose `blockReadiness`, which shows whether the local template matches stored proposals and certificates and whether commit or import can proceed from stored certified artifacts
-- those same responses now expose `recovery`, which shows pending replayable local proposal or vote actions plus recent replay/completion metadata from the local consensus-action WAL
+- those same responses now expose `recovery`, which shows pending replayable local proposal or vote actions, pending import backlog, and recent replay/completion plus snapshot-restore metadata from the broader local consensus recovery surface
 - those same responses now expose `diagnostics`, which show recent rejected proposal, vote, commit, or import actions with stable error codes
 - if a peer link drops and later returns, validators keep rebroadcasting their latest local proposal or vote for the pending height until the matching certificate exists
 - if a validator restarts mid-round after persisting a local proposal or vote, the node can replay that pending action from the persisted recovery state
@@ -248,9 +248,17 @@ Expected behavior:
 - use `leadingVotePower`, `quorumRemaining`, `pendingReplayRounds`, and `warnings` inside `roundEvidence` to separate partial quorum, timeout, replay backlog, and proposer-schedule problems
 - inspect `roundHistory` in those same responses to compare round-0, round-1, and later proposer attempts for the pending height without losing visibility into earlier rounds
 - inspect `blockReadiness` in those same responses to see whether the current local template matches a stored proposal, whether a matching certificate exists, and whether a certified stored proposal is already ready for commit or import
-- inspect `recovery` in those same responses to see whether the node still has pending replayable local proposal or vote actions after a restart or dropped peer link
+- inspect `recovery` in those same responses to see whether the node still has pending replayable local proposal or vote actions, blocked peer-import heights, or a recent snapshot restore after a restart or dropped peer link
 - inspect `diagnostics` in those same responses to see whether recent failures were caused by stale rounds, unexpected proposers, missing proposals, template mismatch, missing certificates, or other rejected consensus actions
-- remember the current engine now supports timeout-driven proposer rotation, latest-artifact rebroadcast after peer recovery, restart-safe local proposal or vote replay, per-height round history, block readiness inspection, and bounded rejection diagnostics, but broader recovery coverage is still limited
+- remember the current engine now supports timeout-driven proposer rotation, latest-artifact rebroadcast after peer recovery, restart-safe local proposal or vote replay, pending import recovery, snapshot-restore history, per-height round history, block readiness inspection, and bounded rejection diagnostics, but broader recovery coverage is still limited
+
+### Peer Sync Falls Back To Snapshot Restore
+
+- inspect `diagnostics` in `GET /v1/status` or `GET /v1/consensus`; if the latest `block_import_rejected` entry has `source=peer_sync`, the node hit a block-import problem during background sync before falling back to snapshot restore
+- inspect `recovery.pendingImportCount` and `recovery.pendingImportHeights` to see whether the node is still blocked on a peer-import path or whether that backlog has already been cleared
+- inspect `recovery.lastSnapshotRestoreAt`, `recovery.lastSnapshotRestoreHeight`, and `recovery.lastSnapshotRestoreBlockHash` to confirm that snapshot repair actually ran and which chain tip it restored
+- inspect `recovery.recentActions` for a completed `block_import` action followed by a completed `snapshot_restore` action when you are debugging catch-up or divergence repair
+- remember that peer snapshot restore now preserves the local node's own recovery and diagnostic history, so post-incident inspection stays on the repairing node instead of inheriting the peer''s local WAL context
 
 ### Peer Identity Verification Or Admission Fails
 
@@ -289,5 +297,7 @@ Expected behavior:
 13. Inspect the resulting block, vote tallies, and certificate on both nodes.
 14. Optionally restart a node and confirm the validator snapshot, round state, consensus artifacts, and `recovery` state survived.
 15. If the restarted node had a pending local proposal or vote, confirm the action is replayed and later marked completed once the block finalizes.
+
+
 
 

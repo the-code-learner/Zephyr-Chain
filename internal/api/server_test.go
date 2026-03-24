@@ -852,7 +852,7 @@ func TestHandleStatusExposesConsensusRecovery(t *testing.T) {
 	if err := json.NewDecoder(recorder.Body).Decode(&response); err != nil {
 		t.Fatalf("decode status response: %v", err)
 	}
-	if !response.Recovery.NeedsReplay || response.Recovery.PendingActionCount != 2 {
+	if !response.Recovery.NeedsReplay || !response.Recovery.NeedsRecovery || response.Recovery.PendingActionCount != 2 || response.Recovery.PendingReplayCount != 2 || response.Recovery.PendingImportCount != 0 {
 		t.Fatalf("expected pending recovery actions in status response, got %+v", response.Recovery)
 	}
 	if len(response.Recovery.PendingActions) != 2 {
@@ -2534,6 +2534,246 @@ func TestPeerSyncRestoresSnapshotWhenSameHeightDiverges(t *testing.T) {
 	}
 }
 
+func TestHandleImportBlockRejectsAndExposesPendingImportRecovery(t *testing.T) {
+	proposer := newConsensusSigner(t)
+	voter := newConsensusSigner(t)
+	validators := []dpos.Validator{
+		{Rank: 1, Address: proposer.address, VotingPower: 60, SelfStake: 40, DelegatedStake: 20},
+		{Rank: 2, Address: voter.address, VotingPower: 40, SelfStake: 25, DelegatedStake: 15},
+	}
+
+	producer := newTestServer(t, Config{
+		DataDir:                      t.TempDir(),
+		BlockInterval:                0,
+		SyncInterval:                 0,
+		MaxTransactionsPerBlock:      10,
+		EnableBlockProduction:        true,
+		EnablePeerSync:               false,
+		RequireConsensusCertificates: true,
+	})
+	if _, err := producer.ledger.SetValidators(validators, dpos.ElectionConfig{MaxValidators: 2}); err != nil {
+		t.Fatalf("set producer validators: %v", err)
+	}
+
+	envelope := signedEnvelope(t, 25, 1, "pending-import-recovery")
+	if _, err := producer.ledger.Credit(envelope.From, 100); err != nil {
+		t.Fatalf("credit producer sender: %v", err)
+	}
+	if _, err := producer.ledger.Accept(envelope); err != nil {
+		t.Fatalf("accept producer transaction: %v", err)
+	}
+
+	producedAt := time.Date(2026, time.March, 24, 18, 0, 0, 0, time.UTC)
+	template, err := producer.ledger.BuildNextBlock(10, producedAt)
+	if err != nil {
+		t.Fatalf("build producer template: %v", err)
+	}
+	proposal := signedConsensusProposal(t, proposer, template.Height, 0, template.PreviousHash, template.ProducedAt, template.Transactions)
+	if err := producer.ledger.RecordProposal(proposal); err != nil {
+		t.Fatalf("record producer proposal: %v", err)
+	}
+	if _, _, err := producer.ledger.RecordVote(signedConsensusVote(t, proposer, template.Height, 0, template.Hash)); err != nil {
+		t.Fatalf("record producer vote A: %v", err)
+	}
+	if _, _, err := producer.ledger.RecordVote(signedConsensusVote(t, voter, template.Height, 0, template.Hash)); err != nil {
+		t.Fatalf("record producer vote B: %v", err)
+	}
+	block, err := producer.produceLocalBlock(producedAt)
+	if err != nil {
+		t.Fatalf("produce certified block: %v", err)
+	}
+
+	replica := newTestServer(t, Config{
+		DataDir:                      t.TempDir(),
+		BlockInterval:                0,
+		SyncInterval:                 0,
+		MaxTransactionsPerBlock:      10,
+		EnableBlockProduction:        false,
+		EnablePeerSync:               false,
+		RequireConsensusCertificates: true,
+	})
+	if _, err := replica.ledger.SetValidators(validators, dpos.ElectionConfig{MaxValidators: 2}); err != nil {
+		t.Fatalf("set replica validators: %v", err)
+	}
+	if _, err := replica.ledger.Credit(envelope.From, 100); err != nil {
+		t.Fatalf("credit replica sender: %v", err)
+	}
+
+	body, err := json.Marshal(block)
+	if err != nil {
+		t.Fatalf("marshal block: %v", err)
+	}
+	request := httptest.NewRequest(http.MethodPost, "/v1/internal/blocks", bytes.NewReader(body))
+	recorder := httptest.NewRecorder()
+	replica.Handler().ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusConflict {
+		t.Fatalf("expected import status 409, got %d", recorder.Code)
+	}
+
+	statusRequest := httptest.NewRequest(http.MethodGet, "/v1/status", nil)
+	statusRecorder := httptest.NewRecorder()
+	replica.Handler().ServeHTTP(statusRecorder, statusRequest)
+	if statusRecorder.Code != http.StatusOK {
+		t.Fatalf("expected status response 200, got %d", statusRecorder.Code)
+	}
+
+	var response StatusResponse
+	if err := json.NewDecoder(statusRecorder.Body).Decode(&response); err != nil {
+		t.Fatalf("decode status response: %v", err)
+	}
+	if response.Recovery.NeedsReplay || !response.Recovery.NeedsRecovery || response.Recovery.PendingActionCount != 1 || response.Recovery.PendingReplayCount != 0 || response.Recovery.PendingImportCount != 1 {
+		t.Fatalf("unexpected recovery state after rejected import: %+v", response.Recovery)
+	}
+	if len(response.Recovery.PendingImportHeights) != 1 || response.Recovery.PendingImportHeights[0] != block.Height {
+		t.Fatalf("unexpected pending import heights: %+v", response.Recovery.PendingImportHeights)
+	}
+	if len(response.Recovery.PendingActions) != 1 {
+		t.Fatalf("expected one pending recovery action, got %+v", response.Recovery.PendingActions)
+	}
+	pending := response.Recovery.PendingActions[0]
+	if pending.Type != ledger.ConsensusActionBlockImport || pending.Status != ledger.ConsensusActionPending || !strings.Contains(pending.Note, "proposal_required") {
+		t.Fatalf("unexpected pending import action %+v", pending)
+	}
+	if len(response.Diagnostics.Recent) == 0 {
+		t.Fatal("expected import diagnostics after rejected peer block")
+	}
+	diagnostic := response.Diagnostics.Recent[0]
+	if diagnostic.Kind != "block_import_rejected" || diagnostic.Code != "proposal_required" || diagnostic.Source != "peer" {
+		t.Fatalf("unexpected import diagnostic %+v", diagnostic)
+	}
+}
+
+func TestPeerSyncConsensusImportFailureRestoresSnapshotAndRecordsRecoveryHistory(t *testing.T) {
+	proposer := newConsensusSigner(t)
+	voter := newConsensusSigner(t)
+	validators := []dpos.Validator{
+		{Rank: 1, Address: proposer.address, VotingPower: 60, SelfStake: 40, DelegatedStake: 20},
+		{Rank: 2, Address: voter.address, VotingPower: 40, SelfStake: 25, DelegatedStake: 15},
+	}
+
+	producer := newTestServer(t, Config{
+		DataDir:                      t.TempDir(),
+		NodeID:                       "producer",
+		BlockInterval:                0,
+		SyncInterval:                 0,
+		MaxTransactionsPerBlock:      10,
+		EnableBlockProduction:        true,
+		EnablePeerSync:               false,
+		RequireConsensusCertificates: true,
+	})
+	if _, err := producer.ledger.SetValidators(validators, dpos.ElectionConfig{MaxValidators: 2}); err != nil {
+		t.Fatalf("set producer validators: %v", err)
+	}
+
+	envelope := signedEnvelope(t, 25, 1, "peer-sync-import-recovery")
+	if _, err := producer.ledger.Credit(envelope.From, 100); err != nil {
+		t.Fatalf("credit producer sender: %v", err)
+	}
+	if _, err := producer.ledger.Accept(envelope); err != nil {
+		t.Fatalf("accept producer transaction: %v", err)
+	}
+
+	producedAt := time.Date(2026, time.March, 24, 18, 30, 0, 0, time.UTC)
+	template, err := producer.ledger.BuildNextBlock(10, producedAt)
+	if err != nil {
+		t.Fatalf("build producer template: %v", err)
+	}
+	proposal := signedConsensusProposal(t, proposer, template.Height, 0, template.PreviousHash, template.ProducedAt, template.Transactions)
+	if err := producer.ledger.RecordProposal(proposal); err != nil {
+		t.Fatalf("record producer proposal: %v", err)
+	}
+	if _, _, err := producer.ledger.RecordVote(signedConsensusVote(t, proposer, template.Height, 0, template.Hash)); err != nil {
+		t.Fatalf("record producer vote A: %v", err)
+	}
+	if _, _, err := producer.ledger.RecordVote(signedConsensusVote(t, voter, template.Height, 0, template.Hash)); err != nil {
+		t.Fatalf("record producer vote B: %v", err)
+	}
+	block, err := producer.produceLocalBlock(producedAt)
+	if err != nil {
+		t.Fatalf("produce certified producer block: %v", err)
+	}
+
+	producerHTTP := httptest.NewServer(producer.Handler())
+	defer producerHTTP.Close()
+
+	replicaDataDir := t.TempDir()
+	replicaSeed := newTestServer(t, Config{
+		DataDir:                      replicaDataDir,
+		NodeID:                       "replica-seed",
+		BlockInterval:                0,
+		SyncInterval:                 0,
+		MaxTransactionsPerBlock:      10,
+		EnableBlockProduction:        false,
+		EnablePeerSync:               false,
+		RequireConsensusCertificates: true,
+	})
+	if _, err := replicaSeed.ledger.SetValidators(validators, dpos.ElectionConfig{MaxValidators: 2}); err != nil {
+		t.Fatalf("set replica validators: %v", err)
+	}
+	if _, err := replicaSeed.ledger.Credit(envelope.From, 100); err != nil {
+		t.Fatalf("credit replica sender: %v", err)
+	}
+	replicaSeed.Close()
+
+	replica := newTestServer(t, Config{
+		DataDir:                      replicaDataDir,
+		NodeID:                       "replica",
+		PeerURLs:                     []string{producerHTTP.URL},
+		BlockInterval:                0,
+		SyncInterval:                 50 * time.Millisecond,
+		MaxTransactionsPerBlock:      10,
+		EnableBlockProduction:        false,
+		EnablePeerSync:               true,
+		RequireConsensusCertificates: true,
+	})
+
+	waitFor(t, func() bool {
+		return replica.ledger.Status().Height == 1
+	})
+
+	latest, ok := replica.ledger.LatestBlock()
+	if !ok || latest.Hash != block.Hash {
+		t.Fatalf("expected replica latest block %s after snapshot recovery, got %+v", block.Hash, latest)
+	}
+
+	statusRequest := httptest.NewRequest(http.MethodGet, "/v1/status", nil)
+	statusRecorder := httptest.NewRecorder()
+	replica.Handler().ServeHTTP(statusRecorder, statusRequest)
+	if statusRecorder.Code != http.StatusOK {
+		t.Fatalf("expected status response 200, got %d", statusRecorder.Code)
+	}
+
+	var response StatusResponse
+	if err := json.NewDecoder(statusRecorder.Body).Decode(&response); err != nil {
+		t.Fatalf("decode status response: %v", err)
+	}
+	if response.Recovery.NeedsReplay || response.Recovery.NeedsRecovery || response.Recovery.PendingActionCount != 0 || response.Recovery.PendingImportCount != 0 {
+		t.Fatalf("expected recovered status after peer snapshot restore, got %+v", response.Recovery)
+	}
+	if response.Recovery.LastSnapshotRestoreAt == nil || response.Recovery.LastSnapshotRestoreHeight != block.Height || response.Recovery.LastSnapshotRestoreBlockHash != block.Hash {
+		t.Fatalf("expected snapshot restore metadata in recovery view, got %+v", response.Recovery)
+	}
+	sawCompletedImport := false
+	sawSnapshotRestore := false
+	for _, action := range response.Recovery.RecentActions {
+		if action.Type == ledger.ConsensusActionBlockImport && action.Status == ledger.ConsensusActionCompleted {
+			sawCompletedImport = true
+		}
+		if action.Type == ledger.ConsensusActionSnapshotSync && action.Status == ledger.ConsensusActionCompleted {
+			sawSnapshotRestore = true
+		}
+	}
+	if !sawCompletedImport || !sawSnapshotRestore {
+		t.Fatalf("expected completed import and snapshot recovery actions, got %+v", response.Recovery.RecentActions)
+	}
+	if len(response.Diagnostics.Recent) == 0 {
+		t.Fatal("expected preserved import diagnostic after peer snapshot restore")
+	}
+	diagnostic := response.Diagnostics.Recent[0]
+	if diagnostic.Kind != "block_import_rejected" || diagnostic.Code != "proposal_required" || diagnostic.Source != "peer_sync" {
+		t.Fatalf("unexpected peer-sync diagnostic %+v", diagnostic)
+	}
+}
 func newTestServer(t *testing.T, config Config) *Server {
 	t.Helper()
 
