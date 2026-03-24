@@ -32,11 +32,11 @@ Implemented today:
 
 Implemented in this iteration:
 
-- `peerSyncSummary` and `GET /v1/metrics` now roll durable peer incidents up by state, reason, error code, and peer so operators can separate transport loss, admission failures, and import-blocked consensus faults
-- `GET /metrics` now exports matching `zephyr_peer_sync_reason_*` and `zephyr_peer_sync_error_code_*` gauges for Prometheus-based dashboards and alerts
-- `GET /v1/dashboards` and `GET /v1/dashboards/grafana` now include a peer incident error-code panel in the peer-sync bundle so Grafana imports surface repair causes, not only state totals
-- the README, roadmap, API, architecture, usage, applications, and private paper docs now keep that richer observability slice aligned end to end
-- focused tests now cover durable peer-sync reason and error-code rollups across status, JSON metrics, Prometheus metrics, and dashboard export
+- `GET /v1/alerts` now separates general peer-sync degradation from targeted `peer_import_blocked` and `peer_admission_blocked` warnings built from durable peer incident rollups
+- `GET /v1/alert-rules` and `GET /v1/alert-rules/prometheus` now export matching peer-import and peer-admission diagnostic rules for scrape-based monitoring stacks
+- `GET /v1/dashboards` and `GET /v1/dashboards/grafana` now tie the peer incident panels back to those alert codes so dashboard exports preserve the diagnostic path from retained incidents to operator warnings
+- the README, roadmap, API, architecture, usage, applications, and private paper docs now keep that richer alerting slice aligned end to end
+- focused tests now cover the new peer import and admission alerts across JSON alerts, Prometheus metrics, and alert-rule export
 
 Planned but not implemented yet:
 
@@ -303,7 +303,7 @@ VITE_ZEPHYR_API_BASE=http://localhost:8080
 
 - the current multi-node layer is still HTTP-based under the new transport abstraction, not libp2p networking
 - peer admission and validator pinning can now be enforced over the current HTTP transport, but peer discovery is still static configuration rather than libp2p
-- the round engine now supports timeout-driven proposer rotation, latest-artifact rebroadcast after link recovery, richer `roundEvidence`, per-height `roundHistory`, `blockReadiness`, import-aware `recovery`, durable peer-sync incident history, bounded rejection diagnostics, machine-readable `GET /v1/metrics`, Prometheus-style `GET /metrics`, derived `GET /v1/health`, derived `GET /v1/alerts`, derived `GET /v1/slo`, recommended `GET /v1/alert-rules`, exported `GET /v1/alert-rules/prometheus`, recommended `GET /v1/recording-rules`, exported `GET /v1/recording-rules/prometheus`, recommended `GET /v1/dashboards`, exported `GET /v1/dashboards/grafana`, and local consensus-action WAL replay across restart, but broader recovery tooling is still missing
+- the round engine now supports timeout-driven proposer rotation, latest-artifact rebroadcast after link recovery, richer `roundEvidence`, per-height `roundHistory`, `blockReadiness`, import-aware `recovery`, durable peer-sync incident history, bounded rejection diagnostics, machine-readable `GET /v1/metrics`, Prometheus-style `GET /metrics`, derived `GET /v1/health`, derived `GET /v1/alerts` including peer import and admission warnings, derived `GET /v1/slo`, recommended `GET /v1/alert-rules`, exported `GET /v1/alert-rules/prometheus`, recommended `GET /v1/recording-rules`, exported `GET /v1/recording-rules/prometheus`, recommended `GET /v1/dashboards`, exported `GET /v1/dashboards/grafana`, and local consensus-action WAL replay across restart, but broader recovery tooling is still missing
 - crash recovery now persists active round metadata plus a bounded local consensus-action WAL, and peer snapshot restore preserves local recovery, diagnostics, and peer-sync incident history, but replay coverage is still centered on local proposal, vote, and import-repair paths rather than the full consensus lifecycle
 - DPoS elections still happen through an API call, not an on-chain staking/governance flow
 - snapshot restore is a state catch-up mechanism, not a trust-minimized proof-based sync protocol
@@ -338,6 +338,8 @@ Short version:
 ## License
 
 Zephyr Chain is licensed under the MIT License. See [LICENSE](./LICENSE).
+
+
 
 
 

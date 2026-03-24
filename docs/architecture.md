@@ -187,10 +187,11 @@ The repository has moved from consensus-preparation-only into certificate-gated 
 
 - validator nodes can now prove identity and enforce peer admission over the current transport, but peer discovery is still static HTTP configuration rather than authenticated libp2p
 - automation can now rotate proposers on timeout, rebroadcast the latest local proposal or vote after link recovery, and replay persisted local proposal or vote actions after restart
-- the current operator surface is materially better through round warnings, per-height round history, block readiness, replay and import backlog visibility, durable peer-sync history, derived cross-peer summary with state, reason, and error-code rollups, JSON metrics, Prometheus `/metrics`, `/v1/health`, `/v1/alerts`, `/v1/slo`, `/v1/alert-rules`, `/v1/alert-rules/prometheus`, `/v1/recording-rules`, `/v1/recording-rules/prometheus`, `/v1/dashboards`, `/v1/dashboards/grafana`, structured event logs, snapshot-restore history, leading tallies, and bounded rejection diagnostics, but it is still too thin for full production incident handling across transport, peer-import, longer-horizon retention, broader dashboard coverage, and broader recovery scenarios
+- the current operator surface is materially better through round warnings, per-height round history, block readiness, replay and import backlog visibility, durable peer-sync history, derived cross-peer summary with state, reason, and error-code rollups, JSON metrics, Prometheus `/metrics`, `/v1/health`, `/v1/alerts` including targeted peer import and admission warnings, `/v1/slo`, `/v1/alert-rules`, `/v1/alert-rules/prometheus`, `/v1/recording-rules`, `/v1/recording-rules/prometheus`, `/v1/dashboards`, `/v1/dashboards/grafana`, structured event logs, snapshot-restore history, leading tallies, and bounded rejection diagnostics, but it is still too thin for full production incident handling across transport, peer-import, longer-horizon retention, broader dashboard coverage, and broader recovery scenarios
 - broader consensus recovery coverage is still needed beyond the current local proposal/vote WAL plus import-repair and snapshot-recovery path
 
 That is why the project has moved beyond replicated prototype, but it is still not a production blockchain.
+
 
 
 
