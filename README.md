@@ -26,20 +26,21 @@ Implemented today:
 - optional strict peer-admission enforcement and peer-to-validator binding on the current HTTP transport
 - peer status tracking, peer admission state, per-peer sync telemetry, block fetch by height, block import, snapshot-based catch-up, and consensus artifact replication for admitted peers
 - consensus visibility endpoints for status, validator snapshots, active round inspection, proposer schedule inspection, latest consensus artifacts, and next-block template preview
+- operator-facing observability endpoints for readiness, alerts, SLO summaries, alert-rule exports, recording-rule exports, dashboard bundles, Grafana dashboard export, JSON metrics, Prometheus metrics, and structured logs
 - Vue wallet in `apps/wallet`
 - wallet account generation, import/export, local signing, account inspection, faucet funding, and transaction broadcast
 
 Implemented in this iteration:
 
-- `GET /v1/recording-rules` now exposes recommended dashboard-oriented rollups grouped by readiness, consensus, peer sync, and operator summaries, including disabled rules when the current runtime configuration makes them inapplicable
-- `GET /v1/recording-rules/prometheus` now exports the enabled subset as Prometheus recording-rule YAML built on top of the existing health, alert, SLO, and metrics surfaces
-- the architecture and paper docs now extend the Mermaid observability flow so the new recording-rule layer stays aligned across the operator and manuscript views
-- focused tests now cover both the JSON recording-rule bundle and the Prometheus recording-rule export
+- `GET /v1/dashboards` now exposes recommended dashboard bundles for overview, consensus-and-recovery, and peer-sync operations, including disabled dashboards and panels when the current runtime configuration makes them inapplicable
+- `GET /v1/dashboards/grafana` now exports the enabled subset as Grafana dashboard JSON built on top of the current `/metrics` and recording-rule surfaces
+- the README, roadmap, API, architecture, usage, and paper docs now extend the observability flow from recording rules into dashboard bundles and Grafana export so the operator and manuscript views stay aligned
+- focused tests now cover both the JSON dashboard bundle and the Grafana dashboard export
 
 Planned but not implemented yet:
 
 - authenticated peer discovery and replay-safe transport over libp2p on top of the new HTTP admission and binding policy
-- broader consensus recovery coverage plus richer dashboards, dashboard bundles, and export adapters beyond the current local proposal, vote, peer-import, snapshot-recovery, JSON metrics, Prometheus text export, alert-rule bundles, recording-rule bundles, derived readiness, alerts, SLO summaries, structured event logs, durable peer-sync history, and derived peer-sync summary surfaces
+- broader consensus recovery coverage plus richer dashboard packages, longer-horizon aggregation, and export adapters beyond the current local proposal, vote, peer-import, snapshot-recovery, JSON metrics, Prometheus text export, alert-rule bundles, recording-rule bundles, dashboard bundles, Grafana dashboard export, derived readiness, alerts, SLO summaries, structured event logs, durable peer-sync history, and derived peer-sync summary surfaces
 - on-chain staking and governance-driven validator updates instead of ad hoc election API writes
 - deterministic WASM smart-contract runtime with native fee metering
 - confidential compute marketplace for encrypted off-chain jobs paid in native tokens
@@ -95,10 +96,12 @@ Invoke-RestMethod http://localhost:8080/v1/alerts
 Invoke-RestMethod http://localhost:8080/v1/slo
 Invoke-RestMethod http://localhost:8080/v1/alert-rules
 Invoke-RestMethod http://localhost:8080/v1/recording-rules
+Invoke-RestMethod http://localhost:8080/v1/dashboards
 Invoke-RestMethod http://localhost:8080/v1/status
 curl.exe http://localhost:8080/metrics
 curl.exe http://localhost:8080/v1/alert-rules/prometheus
 curl.exe http://localhost:8080/v1/recording-rules/prometheus
+curl.exe http://localhost:8080/v1/dashboards/grafana
 ```
 
 ### 2. Run the wallet
@@ -299,7 +302,7 @@ VITE_ZEPHYR_API_BASE=http://localhost:8080
 
 - the current multi-node layer is still HTTP-based under the new transport abstraction, not libp2p networking
 - peer admission and validator pinning can now be enforced over the current HTTP transport, but peer discovery is still static configuration rather than libp2p
-- the round engine now supports timeout-driven proposer rotation, latest-artifact rebroadcast after link recovery, richer `roundEvidence`, per-height `roundHistory`, `blockReadiness`, import-aware `recovery`, durable peer-sync incident history, bounded rejection diagnostics, machine-readable `GET /v1/metrics`, Prometheus-style `GET /metrics`, derived `GET /v1/health`, derived `GET /v1/alerts`, derived `GET /v1/slo`, recommended `GET /v1/alert-rules`, exported `GET /v1/alert-rules/prometheus`, recommended `GET /v1/recording-rules`, exported `GET /v1/recording-rules/prometheus`, and local consensus-action WAL replay across restart, but broader recovery tooling is still missing
+- the round engine now supports timeout-driven proposer rotation, latest-artifact rebroadcast after link recovery, richer `roundEvidence`, per-height `roundHistory`, `blockReadiness`, import-aware `recovery`, durable peer-sync incident history, bounded rejection diagnostics, machine-readable `GET /v1/metrics`, Prometheus-style `GET /metrics`, derived `GET /v1/health`, derived `GET /v1/alerts`, derived `GET /v1/slo`, recommended `GET /v1/alert-rules`, exported `GET /v1/alert-rules/prometheus`, recommended `GET /v1/recording-rules`, exported `GET /v1/recording-rules/prometheus`, recommended `GET /v1/dashboards`, exported `GET /v1/dashboards/grafana`, and local consensus-action WAL replay across restart, but broader recovery tooling is still missing
 - crash recovery now persists active round metadata plus a bounded local consensus-action WAL, and peer snapshot restore preserves local recovery, diagnostics, and peer-sync incident history, but replay coverage is still centered on local proposal, vote, and import-repair paths rather than the full consensus lifecycle
 - DPoS elections still happen through an API call, not an on-chain staking/governance flow
 - snapshot restore is a state catch-up mechanism, not a trust-minimized proof-based sync protocol
@@ -316,7 +319,7 @@ The production roadmap now lives in [docs/roadmap.md](./docs/roadmap.md).
 Short version:
 
 1. Move the new enforced HTTP peer-admission and validator-binding policy toward authenticated libp2p discovery plus replay-safe transport behavior.
-2. Extend the new `blockReadiness`, `roundHistory`, `roundEvidence`, `recovery`, `diagnostics`, `peerSyncHistory`, `peerSyncSummary`, per-peer `recentIncidents`, `GET /v1/metrics`, `GET /metrics`, `GET /v1/health`, `GET /v1/alerts`, `GET /v1/slo`, `GET /v1/alert-rules`, `GET /v1/alert-rules/prometheus`, `GET /v1/recording-rules`, `GET /v1/recording-rules/prometheus`, and structured event logs into deeper recovery, longer-horizon incident retention, richer exported metrics, dashboard bundles, and production incident tooling.
+2. Extend the new `blockReadiness`, `roundHistory`, `roundEvidence`, `recovery`, `diagnostics`, `peerSyncHistory`, `peerSyncSummary`, per-peer `recentIncidents`, `GET /v1/metrics`, `GET /metrics`, `GET /v1/health`, `GET /v1/alerts`, `GET /v1/slo`, `GET /v1/alert-rules`, `GET /v1/alert-rules/prometheus`, `GET /v1/recording-rules`, `GET /v1/recording-rules/prometheus`, `GET /v1/dashboards`, `GET /v1/dashboards/grafana`, and structured event logs into deeper recovery, longer-horizon incident retention, richer exported metrics, broader dashboard coverage, and production incident tooling.
 3. Move validator lifecycle changes behind staking, delegation, slashing, and governance state transitions.
 4. Add deterministic WASM execution, native fee metering, and the confidential compute lane.
 5. Add production observability, recovery tooling, and public testnet operations.

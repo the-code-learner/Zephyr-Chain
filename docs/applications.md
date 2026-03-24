@@ -72,7 +72,7 @@ Why it fits:
 Production prerequisites:
 
 - stronger sync trust models
-- richer dashboard bundles and alerting on top of the current structured logs, operator evidence, durable incident history, cross-peer summaries, recording-rule exports, and production incident tooling
+- broader dashboard packages and alerting on top of the current structured logs, operator evidence, durable incident history, cross-peer summaries, recording-rule exports, dashboard bundle exports, and production incident tooling
 - governance around validator membership changes
 
 ### Managed Validator And Partner-Network Operations
@@ -81,12 +81,12 @@ Zephyr can also fit managed validator services and consortium-operated partner n
 
 Why it fits:
 
-- `/v1/health`, `/v1/alerts`, `/v1/slo`, `/v1/alert-rules`, `/v1/alert-rules/prometheus`, `/v1/recording-rules`, `/v1/recording-rules/prometheus`, `/v1/metrics`, Prometheus `/metrics`, structured logs, and durable peer incident history give operators a concrete base for automated health checks, derived alert polling, objective tracking, rule export, scraping, dashboard rollups, and incident response
+- `/v1/health`, `/v1/alerts`, `/v1/slo`, `/v1/alert-rules`, `/v1/alert-rules/prometheus`, `/v1/recording-rules`, `/v1/recording-rules/prometheus`, `/v1/dashboards`, `/v1/dashboards/grafana`, `/v1/metrics`, Prometheus `/metrics`, structured logs, and durable peer incident history give operators a concrete base for automated health checks, derived alert polling, objective tracking, rule export, dashboard bundle export, scraping, dashboard rollups, and incident response
 - peer admission and validator binding map well to known-participant topologies
 
 Production prerequisites:
 
-- richer dashboards, objective tuning, and longer-horizon export adapters beyond the current `/v1/slo`, `/v1/alert-rules`, `/v1/alert-rules/prometheus`, `/v1/recording-rules`, and `/v1/recording-rules/prometheus` surfaces
+- broader dashboard packages, objective tuning, and longer-horizon export adapters beyond the current `/v1/slo`, `/v1/alert-rules`, `/v1/alert-rules/prometheus`, `/v1/recording-rules`, `/v1/recording-rules/prometheus`, `/v1/dashboards`, and `/v1/dashboards/grafana` surfaces
 - broader restart-safe recovery across more consensus actions
 
 ### Supply Chain, Provenance, And Shared Audit Trails

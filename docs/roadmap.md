@@ -43,6 +43,7 @@ As of this iteration, the repository has:
 - an operator-facing `GET /v1/slo` surface that projects those same signals into SLO-oriented objective states for readiness, consensus continuity, and peer-sync continuity
 - recommended alert-rule bundle exports through JSON `GET /v1/alert-rules` and Prometheus-oriented `GET /v1/alert-rules/prometheus`
 - recommended recording-rule bundle exports through JSON `GET /v1/recording-rules` and Prometheus-oriented `GET /v1/recording-rules/prometheus`
+- recommended dashboard bundle exports through JSON `GET /v1/dashboards` and Grafana-oriented `GET /v1/dashboards/grafana`
 - a bounded local consensus-action WAL with pending/completed status, replay-attempt metadata, restart-safe persistence, explicit import-recovery plus snapshot-restore history, and durable peer-sync incident history
 - bounded recent consensus diagnostics for rejected proposal, vote, commit, and import paths, including explicit `template_mismatch` and peer-sync import failures
 - a browser wallet that can create accounts, sign locally, and submit transactions
@@ -50,7 +51,7 @@ As of this iteration, the repository has:
 What it still does not have:
 
 - authenticated peer discovery and replay-safe transport over libp2p
-- broader recovery, dashboard-friendly export adapters, transport-facing incident evidence, and longer-horizon aggregation beyond the current local round history, block readiness, warnings, durable peer-sync history, derived peer-sync summary, JSON metrics, Prometheus `GET /metrics`, `GET /v1/health`, `GET /v1/alerts`, `GET /v1/slo`, `GET /v1/alert-rules`, `GET /v1/alert-rules/prometheus`, `GET /v1/recording-rules`, `GET /v1/recording-rules/prometheus`, structured event logs, import backlog, snapshot-restore history, and rejection history with only bounded retention so far
+- broader recovery, richer dashboard packages beyond the current dashboard bundle and Grafana export, transport-facing incident evidence, and longer-horizon aggregation beyond the current local round history, block readiness, warnings, durable peer-sync history, derived peer-sync summary, JSON metrics, Prometheus `GET /metrics`, `GET /v1/health`, `GET /v1/alerts`, `GET /v1/slo`, `GET /v1/alert-rules`, `GET /v1/alert-rules/prometheus`, `GET /v1/recording-rules`, `GET /v1/recording-rules/prometheus`, `GET /v1/dashboards`, `GET /v1/dashboards/grafana`, structured event logs, import backlog, snapshot-restore history, and rejection history with only bounded retention so far
 - broader recovery coverage beyond the current local proposal/vote WAL plus peer-import and snapshot-recovery path
 - on-chain staking/governance-driven validator updates
 - WASM contracts, fee metering, or compute markets
@@ -96,15 +97,15 @@ Status:
 - valid higher-round proposals and votes can move a node onto the newer round instead of being rejected just because the local timer had not fired yet
 - a first timeout-driven engine now exists: the scheduled proposer can self-propose, active validators can auto-vote, timeout can rotate the proposer, the next proposer can reuse the latest stored candidate body, and the proposer can auto-commit after quorum when certificate enforcement is enabled
 - proposal and vote broadcasts on the automation path are now sent in-order to avoid vote-before-proposal races on the happy path
-- the current automation path now has delayed-link proposal and vote recovery, richer round evidence, per-height round history, block readiness, import-aware recovery state, durable peer-sync history, derived peer-sync summary, bounded rejection diagnostics, a machine-readable `GET /v1/metrics` surface, Prometheus `GET /metrics`, operator-facing `GET /v1/health`, derived `GET /v1/alerts`, derived `GET /v1/slo`, recommended `GET /v1/alert-rules`, exported `GET /v1/alert-rules/prometheus`, recommended `GET /v1/recording-rules`, exported `GET /v1/recording-rules/prometheus`, structured JSON event logs, and a restart-safe local proposal or vote WAL plus snapshot-repair history, but it still lacks broader recovery coverage and longer-horizon incident retention
+- the current automation path now has delayed-link proposal and vote recovery, richer round evidence, per-height round history, block readiness, import-aware recovery state, durable peer-sync history, derived peer-sync summary, bounded rejection diagnostics, a machine-readable `GET /v1/metrics` surface, Prometheus `GET /metrics`, operator-facing `GET /v1/health`, derived `GET /v1/alerts`, derived `GET /v1/slo`, recommended `GET /v1/alert-rules`, exported `GET /v1/alert-rules/prometheus`, recommended `GET /v1/recording-rules`, exported `GET /v1/recording-rules/prometheus`, recommended `GET /v1/dashboards`, exported `GET /v1/dashboards/grafana`, structured JSON event logs, and a restart-safe local proposal or vote WAL plus snapshot-repair history, but it still lacks broader recovery coverage and longer-horizon incident retention
 
 Next steps:
 
-1. Extend the new `blockReadiness`, `roundHistory`, `roundEvidence`, `recovery`, `diagnostics`, `peerSyncHistory`, `peerSyncSummary`, per-peer `recentIncidents`, `GET /v1/health`, `GET /v1/alerts`, `GET /v1/slo`, `GET /v1/alert-rules`, `GET /v1/alert-rules/prometheus`, `GET /v1/recording-rules`, and `GET /v1/recording-rules/prometheus` into deeper peer-import, divergence, longer-horizon multi-peer diagnosis, and production incident flows.
+1. Extend the new `blockReadiness`, `roundHistory`, `roundEvidence`, `recovery`, `diagnostics`, `peerSyncHistory`, `peerSyncSummary`, per-peer `recentIncidents`, `GET /v1/health`, `GET /v1/alerts`, `GET /v1/slo`, `GET /v1/alert-rules`, `GET /v1/alert-rules/prometheus`, `GET /v1/recording-rules`, `GET /v1/recording-rules/prometheus`, `GET /v1/dashboards`, and `GET /v1/dashboards/grafana` into deeper peer-import, divergence, longer-horizon multi-peer diagnosis, and production incident flows.
 2. Extend the current local proposal/vote WAL plus import-repair history into broader consensus recovery coverage where more in-flight actions can resume safely after restart.
 3. Add deterministic multi-node integration tests for certified happy path, conflicting proposals, timeout and re-proposal, restart during a round, rejection diagnostics, and recovery from partial quorum.
 4. Keep tightening the transport-backed consensus loop so proposal and vote recovery remain correct when peers reconnect after advancing rounds.
-5. Tune the new alert-rule and recording-rule bundles, add dashboard exports on top of them, and extend the current structured logs, JSON metrics, Prometheus `GET /metrics`, `GET /v1/alerts`, `GET /v1/slo`, and readiness surfaces into wider aggregation beyond the current bounded peer-history window.
+5. Tune the new alert-rule, recording-rule, and dashboard bundles, extend the Grafana export, and extend the current structured logs, JSON metrics, Prometheus `GET /metrics`, `GET /v1/alerts`, `GET /v1/slo`, and readiness surfaces into wider aggregation beyond the current bounded peer-history window.
 
 Exit criteria:
 
@@ -129,6 +130,7 @@ Status:
 - `GET /v1/slo` now exposes SLO-oriented objective summaries on top of those same signals for dashboards, operators, and automation
 - `GET /v1/alert-rules` and `GET /v1/alert-rules/prometheus` now turn those same metrics and objectives into recommended monitoring bundles for JSON and Prometheus-oriented workflows
 - `GET /v1/recording-rules` and `GET /v1/recording-rules/prometheus` now turn those same metrics and objectives into recommended dashboard and aggregation rollups for JSON and Prometheus-oriented workflows
+- `GET /v1/dashboards` and `GET /v1/dashboards/grafana` now turn those same metrics, rollups, and objectives into recommended operator dashboard bundles and Grafana-oriented export
 - optional structured JSON event logs already expose consensus diagnostics, peer incidents, and snapshot recovery as line-oriented runtime events
 - the timeout-driven automation slice already uses that transport for proposal and vote dissemination
 - behind nodes can fetch blocks or restore full snapshots
@@ -140,7 +142,7 @@ Next steps:
 2. Add transport-level duplicate suppression, replay-safe message handling, and explicit message identifiers for consensus artifacts.
 3. Separate dev snapshot restore from production state sync so operators can choose explicit trust models.
 4. Add checkpointing, snapshot metadata, and verification hooks for state transfer.
-5. Extend the current JSON metrics surface, Prometheus `GET /metrics`, `GET /v1/health`, `GET /v1/alerts`, `GET /v1/slo`, `GET /v1/alert-rules`, `GET /v1/alert-rules/prometheus`, `GET /v1/recording-rules`, `GET /v1/recording-rules/prometheus`, and structured event logs into dashboard bundles, broader multi-peer incident aggregation, and export adapters for validator, sync, admission, transport, automation, and repair operations.
+5. Extend the current JSON metrics surface, Prometheus `GET /metrics`, `GET /v1/health`, `GET /v1/alerts`, `GET /v1/slo`, `GET /v1/alert-rules`, `GET /v1/alert-rules/prometheus`, `GET /v1/recording-rules`, `GET /v1/recording-rules/prometheus`, `GET /v1/dashboards`, `GET /v1/dashboards/grafana`, and structured event logs into broader dashboard packages, multi-peer incident aggregation, and export adapters for validator, sync, admission, transport, automation, and repair operations.
 
 Exit criteria:
 
