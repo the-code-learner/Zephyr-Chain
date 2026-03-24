@@ -13,35 +13,37 @@ Implemented today:
 - transaction envelope validation in `internal/tx`
 - durable accounts, mempool, committed blocks, restart-safe state, and snapshot restore in `internal/ledger`
 - durable validator-set snapshots with versioning, proposer scheduling, and quorum summaries in `internal/ledger`
+- durable consensus round state with restart-safe height, round, and round-start tracking in `internal/ledger`
 - durable signed consensus proposals, validator votes, and quorum certificates in `internal/ledger`
 - self-contained consensus proposals that carry the full candidate transaction body plus deterministic template fields
 - automatic single-node block production plus manual dev block production
 - optional proposer-schedule enforcement for block production when a validator set and local validator address are configured
 - optional certificate-gated local block commit and remote block import when consensus enforcement is enabled
 - certificate-gated local commit can replay a stored certified proposal body even when the local mempool no longer has that candidate
-- optional consensus automation for scheduled self-proposal, validator auto-vote, and certified proposer auto-commit on the current devnet path
+- optional consensus automation for scheduled self-proposal, validator auto-vote, timeout-driven round advance, proposer rotation, and certified proposer auto-commit on the current devnet path
 - transport-backed peer replication in `internal/api` with the current implementation running over HTTP
 - signed validator transport-identity proofs in status responses and peer verification views when a validator private key is configured
 - optional strict peer-admission enforcement and peer-to-validator binding on the current HTTP transport
 - peer status tracking, peer admission state, block fetch by height, block import, snapshot-based catch-up, and consensus artifact replication for admitted peers
-- consensus visibility endpoints for status, validator snapshots, proposer schedule inspection, latest consensus artifacts, and next-block template preview
+- consensus visibility endpoints for status, validator snapshots, active round inspection, proposer schedule inspection, latest consensus artifacts, and next-block template preview
 - Vue wallet in `apps/wallet`
 - wallet account generation, import/export, local signing, account inspection, faucet funding, and transaction broadcast
 
 Implemented in this iteration:
 
-- `ZEPHYR_ENABLE_CONSENSUS_AUTOMATION` and `ZEPHYR_CONSENSUS_INTERVAL` now enable a first autonomous consensus driver on top of the current proposal, vote, and certificate flow
-- when automation is enabled and the node is the scheduled proposer, it can now build the next block template, sign a self-contained proposal, and disseminate it without operator POST calls
-- active validators with automation enabled can now sign and replicate votes automatically for the current scheduled proposal
-- a scheduled proposer with certificate enforcement enabled can now commit immediately from the stored certified proposal body once quorum is observed
-- startup now rejects consensus automation when no validator private key is configured
-- focused tests now cover startup rejection without a validator key, single-validator autonomous certified commit, and a two-validator replicated propose-vote-commit path
+- `ZEPHYR_CONSENSUS_ROUND_TIMEOUT` now works with `ZEPHYR_ENABLE_CONSENSUS_AUTOMATION` and `ZEPHYR_CONSENSUS_INTERVAL` to drive timeout-based round changes
+- consensus round height, round number, and round start time now persist in the ledger and survive restart
+- proposer selection is now round-aware, so timeout can rotate block proposal authority across validators for the same height
+- valid higher-round proposals and votes can move slower peers onto the newer round instead of being rejected purely because their local timer has not fired yet
+- when a round changes, the new proposer can reuse the latest stored candidate body for that height instead of depending only on local mempool convergence
+- automated proposal and vote broadcast on the validator path now happen in-order, which fixes the vote-before-proposal race on the multi-node happy path
+- focused tests now cover persisted round rotation, higher-round proposal acceptance, timeout-driven reproposal from stored candidate state, and automated proposer handoff after round timeout
 
 Planned but not implemented yet:
 
 - authenticated peer discovery and replay-safe transport over libp2p on top of the new HTTP admission and binding policy
-- round timeout, vote rebroadcast, re-proposal, and proposer-rotation logic on top of the first automation slice
-- consensus write-ahead recovery, restart-safe round state, and richer operator evidence surfaces
+- vote rebroadcast, stronger round-change evidence, and richer stale-round/operator diagnostics on top of the first timeout-driven round engine
+- consensus write-ahead recovery, restart-safe in-flight round replay, and richer operator evidence surfaces
 - on-chain staking and governance-driven validator updates instead of ad hoc election API writes
 - deterministic WASM smart-contract runtime with native fee metering
 - confidential compute marketplace for encrypted off-chain jobs paid in native tokens
@@ -53,7 +55,7 @@ Planned but not implemented yet:
 - `internal/api`: HTTP handlers, peer replication, consensus surface, transport abstraction, sync loops, automation loop, and status endpoints
 - `internal/consensus`: signed proposal and vote message primitives
 - `internal/dpos`: candidate, vote, validator, and election service logic
-- `internal/ledger`: persisted accounts, mempool entries, committed blocks, validator snapshots, consensus artifacts, snapshots, and commit/import logic
+- `internal/ledger`: persisted accounts, mempool entries, committed blocks, validator snapshots, round state, consensus artifacts, snapshots, and commit/import logic
 - `internal/tx`: transaction envelope validation, address derivation, and signature verification
 - `apps/wallet`: reference light wallet built with Vue 3, Vite, and Tailwind CSS
 - `docs/`: architecture, API, usage, and roadmap guides
@@ -83,6 +85,7 @@ By default the node:
 - stores durable state in `var/node`
 - produces blocks every `15s` when transactions are queued
 - runs the consensus automation ticker every `1s`, but automation stays off until `ZEPHYR_ENABLE_CONSENSUS_AUTOMATION=true`
+- uses a `5s` consensus round timeout once automation is enabled
 - runs peer sync only if `ZEPHYR_PEERS` is configured
 - exposes consensus status even before a validator set has been elected
 
@@ -159,7 +162,7 @@ Invoke-RestMethod http://localhost:8080/v1/consensus
 
 ### 5. Enable autonomous certified consensus on a devnet
 
-Proposer node:
+Initial round-0 proposer:
 
 ```powershell
 $env:ZEPHYR_NODE_ID="node-a"
@@ -171,12 +174,13 @@ $env:ZEPHYR_ENABLE_BLOCK_PRODUCTION="true"
 $env:ZEPHYR_ENABLE_PEER_SYNC="true"
 $env:ZEPHYR_ENABLE_CONSENSUS_AUTOMATION="true"
 $env:ZEPHYR_CONSENSUS_INTERVAL="250ms"
+$env:ZEPHYR_CONSENSUS_ROUND_TIMEOUT="2s"
 $env:ZEPHYR_ENFORCE_PROPOSER_SCHEDULE="true"
 $env:ZEPHYR_REQUIRE_CONSENSUS_CERTIFICATES="true"
 go run ./cmd/node
 ```
 
-Validator follower:
+Second validator:
 
 ```powershell
 $env:ZEPHYR_NODE_ID="node-b"
@@ -184,17 +188,18 @@ $env:ZEPHYR_HTTP_ADDR=":8081"
 $env:ZEPHYR_DATA_DIR="var/devnet-b"
 $env:ZEPHYR_PEERS="http://localhost:8080"
 $env:ZEPHYR_VALIDATOR_PRIVATE_KEY="<base64-pkcs8-p256-private-key-b>"
-$env:ZEPHYR_ENABLE_BLOCK_PRODUCTION="false"
+$env:ZEPHYR_ENABLE_BLOCK_PRODUCTION="true"
 $env:ZEPHYR_ENABLE_PEER_SYNC="true"
 $env:ZEPHYR_ENABLE_CONSENSUS_AUTOMATION="true"
 $env:ZEPHYR_CONSENSUS_INTERVAL="250ms"
+$env:ZEPHYR_CONSENSUS_ROUND_TIMEOUT="2s"
 $env:ZEPHYR_REQUIRE_PEER_IDENTITY="true"
 $env:ZEPHYR_PEER_VALIDATORS="http://localhost:8080=zph_validator_a"
 $env:ZEPHYR_REQUIRE_CONSENSUS_CERTIFICATES="true"
 go run ./cmd/node
 ```
 
-With an active validator set and queued transactions, the scheduled proposer now self-builds and signs the next proposal, active validators auto-vote, and the scheduled proposer auto-commits as soon as a matching quorum certificate exists.
+With an active validator set and queued transactions, the scheduled proposer self-builds and signs the next proposal, active validators auto-vote, and the scheduled proposer auto-commits as soon as a matching quorum certificate exists. If the scheduled proposer stalls past the round timeout, the node advances the round, rotates the proposer, and the new proposer can reuse the latest stored candidate body for that same height.
 
 ## Runtime Configuration
 
@@ -208,14 +213,15 @@ With an active validator set and queued transactions, the scheduled proposer now
 - `ZEPHYR_PEERS`: comma-separated peer base URLs such as `http://localhost:8081,http://localhost:8082`
 - `ZEPHYR_BLOCK_INTERVAL`: automatic block-production interval such as `15s`
 - `ZEPHYR_CONSENSUS_INTERVAL`: automation ticker interval such as `250ms` or `1s`
+- `ZEPHYR_CONSENSUS_ROUND_TIMEOUT`: timeout window for the active round before automation advances to the next round
 - `ZEPHYR_SYNC_INTERVAL`: peer poll/sync interval such as `5s`
 - `ZEPHYR_MAX_TXS_PER_BLOCK`: maximum committed transactions per produced block
 - `ZEPHYR_ENABLE_BLOCK_PRODUCTION`: `true` or `false`
-- `ZEPHYR_ENABLE_CONSENSUS_AUTOMATION`: `true` or `false`; when enabled, active validators automatically propose or vote on the current round-0 flow
+- `ZEPHYR_ENABLE_CONSENSUS_AUTOMATION`: `true` or `false`; when enabled, active validators automatically propose, vote, and advance rounds on the current devnet path
 - `ZEPHYR_ENABLE_PEER_SYNC`: `true` or `false`
 - `ZEPHYR_REQUIRE_PEER_IDENTITY`: `true` or `false`; when enabled, replicated peer POST requests must include a valid signed transport identity
 - `ZEPHYR_PEER_VALIDATORS`: comma-separated `<peer-url>=<validator-address>` bindings used to pin configured peers to expected validators
-- `ZEPHYR_ENFORCE_PROPOSER_SCHEDULE`: `true` or `false`; when enabled and a validator set exists, only the scheduled proposer may produce the next block locally
+- `ZEPHYR_ENFORCE_PROPOSER_SCHEDULE`: `true` or `false`; when enabled and a validator set exists, only the scheduled proposer for the active round may produce the next block locally
 - `ZEPHYR_REQUIRE_CONSENSUS_CERTIFICATES`: `true` or `false`; when enabled and a validator set exists, local block commit and remote block import require a matching proposal and quorum certificate
 
 Default values:
@@ -228,6 +234,7 @@ Default values:
 - `ZEPHYR_PEERS`: empty
 - `ZEPHYR_BLOCK_INTERVAL`: `15s`
 - `ZEPHYR_CONSENSUS_INTERVAL`: `1s`
+- `ZEPHYR_CONSENSUS_ROUND_TIMEOUT`: `5s`
 - `ZEPHYR_SYNC_INTERVAL`: `5s`
 - `ZEPHYR_MAX_TXS_PER_BLOCK`: `100`
 - `ZEPHYR_ENABLE_BLOCK_PRODUCTION`: `true`
@@ -259,24 +266,27 @@ VITE_ZEPHYR_API_BASE=http://localhost:8080
 6. The node validates the payload, address, signature, nonce, and available balance before persisting the transaction in the durable mempool.
 7. A block-producing node can build a deterministic next-block template from the current mempool and latest chain tip.
 8. DPoS elections persist a durable validator snapshot with versioning, voting-power totals, and next-proposer scheduling metadata.
-9. Operators can still submit signed proposals for that concrete block template, including the exact `previousHash`, `producedAt`, full `transactions`, ordered `transactionIds`, and derived `blockHash`.
-10. Validators can verify those proposal transactions directly from the proposal body instead of depending on local mempool convergence alone.
-11. If consensus automation is enabled, the scheduled proposer can build that same template, sign a round-0 proposal, persist it, and disseminate it without an operator POST.
-12. Active validators with automation enabled can sign and replicate a round-0 vote for the current known proposal.
-13. Once vote power crosses quorum, the node stores a durable commit certificate artifact for that height and round.
-14. If proposer-schedule enforcement is enabled, a node can refuse to produce a block unless its configured validator address matches the scheduled proposer for the next height.
-15. If consensus-certificate enforcement is enabled, local block commit and remote block import both require a proposal and quorum certificate for the exact block template being committed.
-16. A scheduled proposer with automation enabled and certificate enforcement turned on can auto-commit immediately from the stored certified proposal body.
-17. A consensus-gated local commit can replay the stored certified proposal body even when the local mempool does not contain that candidate anymore.
-18. If a validator private key is configured, the node derives a signed transport identity for its validator address and exposes that proof in runtime status.
-19. Configured peer nodes receive transactions, self-contained consensus proposals, votes, and blocks over the current transport implementation, verify peer identity proofs when available, enforce admission and validator binding when configured, import blocks when possible, and fall back to snapshot restore when they need catch-up.
+9. Consensus state now persists the active height, round, and round start time separately from blocks and validator snapshots.
+10. Operators can still submit signed proposals for the active round's concrete block template, including the exact `previousHash`, `producedAt`, full `transactions`, ordered `transactionIds`, and derived `blockHash`.
+11. Validators can verify those proposal transactions directly from the proposal body instead of depending on local mempool convergence alone.
+12. If consensus automation is enabled, the scheduled proposer for the active round can build that same template, sign a proposal, persist it, and disseminate it without an operator POST.
+13. Active validators with automation enabled can sign and replicate a vote for the current known proposal.
+14. If the active round times out, the node advances the round, rotates the scheduled proposer, and can accept higher-round messages from peers even if its own timer had not fired yet.
+15. A new higher-round proposer can reuse the latest stored candidate body for that height instead of depending only on local mempool state.
+16. Once vote power crosses quorum, the node stores a durable commit certificate artifact for that height and round.
+17. If proposer-schedule enforcement is enabled, a node can refuse to produce a block unless its configured validator address matches the scheduled proposer for the active round.
+18. If consensus-certificate enforcement is enabled, local block commit and remote block import both require a proposal and quorum certificate for the exact block template being committed.
+19. A scheduled proposer with automation enabled and certificate enforcement turned on can auto-commit immediately from the stored certified proposal body.
+20. A consensus-gated local commit can replay the stored certified proposal body even when the local mempool does not contain that candidate anymore.
+21. If a validator private key is configured, the node derives a signed transport identity for its validator address and exposes that proof in runtime status.
+22. Configured peer nodes receive transactions, self-contained consensus proposals, votes, and blocks over the current transport implementation, verify peer identity proofs when available, enforce admission and validator binding when configured, import blocks when possible, and fall back to snapshot restore when they need catch-up.
 
 ## Current Limitations
 
 - the current multi-node layer is still HTTP-based under the new transport abstraction, not libp2p networking
 - peer admission and validator pinning can now be enforced over the current HTTP transport, but peer discovery is still static configuration rather than libp2p
-- a first autonomous proposer, voter, and proposer-side certified commit loop now exists, but timeout, rebroadcast, re-proposal, proposer rotation, and persisted round recovery are still missing
-- round timeout, round change, and crash-recovery behavior are not implemented yet
+- the round engine now supports timeout-driven proposer rotation and stored-candidate reproposal, but vote rebroadcast and stronger round-change evidence are still missing
+- crash recovery now persists active round metadata, but write-ahead logging and replay of in-flight consensus actions are not implemented yet
 - DPoS elections still happen through an API call, not an on-chain staking/governance flow
 - snapshot restore is a state catch-up mechanism, not a trust-minimized proof-based sync protocol
 - WASM smart-contract execution is planned, but not implemented yet
@@ -292,7 +302,7 @@ The production roadmap now lives in [docs/roadmap.md](./docs/roadmap.md).
 Short version:
 
 1. Move the new enforced HTTP peer-admission and validator-binding policy toward authenticated libp2p discovery plus replay-safe transport behavior.
-2. Extend the first-pass autonomous round engine with timeout handling, vote rebroadcast, re-proposal, proposer rotation, and restart-safe round recovery.
+2. Extend the timeout-driven round engine with vote rebroadcast, stronger round-change evidence, and restart-safe recovery/WAL behavior.
 3. Move validator lifecycle changes behind staking, delegation, slashing, and governance state transitions.
 4. Add deterministic WASM execution, native fee metering, and the confidential compute lane.
 5. Add production observability, recovery tooling, and public testnet operations.
@@ -308,4 +318,3 @@ Short version:
 ## License
 
 Zephyr Chain is licensed under the MIT License. See [LICENSE](./LICENSE).
-

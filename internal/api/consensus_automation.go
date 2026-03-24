@@ -9,8 +9,6 @@ import (
 	"github.com/zephyr-chain/zephyr-chain/internal/tx"
 )
 
-const automatedConsensusRound uint64 = 0
-
 func (s *Server) startConsensusAutomation() {
 	s.wg.Add(1)
 	go func() {
@@ -38,10 +36,18 @@ func (s *Server) runConsensusAutomation() error {
 	if !isActiveValidator(s.ledger.ValidatorSet(), s.config.ValidatorAddress) {
 		return nil
 	}
-	if err := s.maybeAutomateProposal(); err != nil {
+
+	now := time.Now().UTC()
+	if _, err := s.ledger.EnsureRoundStarted(now); err != nil && !errors.Is(err, ledger.ErrNoValidatorSet) {
 		return err
 	}
-	if err := s.maybeAutomateVote(); err != nil {
+	if err := s.maybeAdvanceConsensusRound(now); err != nil {
+		return err
+	}
+	if err := s.maybeAutomateProposal(now); err != nil {
+		return err
+	}
+	if err := s.maybeAutomateVote(now); err != nil {
 		return err
 	}
 	if err := s.maybeAutomateCommit(); err != nil {
@@ -50,7 +56,44 @@ func (s *Server) runConsensusAutomation() error {
 	return nil
 }
 
-func (s *Server) maybeAutomateProposal() error {
+func (s *Server) maybeAdvanceConsensusRound(now time.Time) error {
+	if s.config.ConsensusRoundTimeout <= 0 {
+		return nil
+	}
+
+	consensusView := s.ledger.Consensus()
+	if consensusView.ValidatorCount == 0 {
+		return nil
+	}
+
+	roundState := s.ledger.RoundState()
+	if roundState.StartedAt.IsZero() {
+		return nil
+	}
+	if now.Before(roundState.StartedAt.Add(s.config.ConsensusRoundTimeout)) {
+		return nil
+	}
+
+	proposal, proposalExists := s.ledger.ProposalAt(consensusView.NextHeight, consensusView.CurrentRound)
+	if proposalExists {
+		if _, exists := s.ledger.Certificate(proposal.Height, proposal.Round, proposal.BlockHash); exists {
+			return nil
+		}
+	}
+
+	hasPendingWork := proposalExists || s.ledger.MempoolSize() > 0
+	if !hasPendingWork {
+		_, hasPendingWork = s.ledger.LatestProposalForHeight(consensusView.NextHeight)
+	}
+	if !hasPendingWork {
+		return nil
+	}
+
+	_, err := s.ledger.AdvanceRound(now)
+	return err
+}
+
+func (s *Server) maybeAutomateProposal(now time.Time) error {
 	if !s.config.EnableBlockProduction {
 		return nil
 	}
@@ -59,41 +102,51 @@ func (s *Server) maybeAutomateProposal() error {
 	if consensusView.ValidatorCount == 0 || consensusView.NextProposer == "" || consensusView.NextProposer != s.config.ValidatorAddress {
 		return nil
 	}
-	if _, exists := s.ledger.ProposalAt(consensusView.NextHeight, automatedConsensusRound); exists {
+	if _, exists := s.ledger.ProposalAt(consensusView.NextHeight, consensusView.CurrentRound); exists {
 		return nil
 	}
 
-	block, err := s.ledger.BuildNextBlock(s.config.MaxTransactionsPerBlock, time.Now().UTC())
+	proposal := consensus.Proposal{
+		Height: consensusView.NextHeight,
+		Round:  consensusView.CurrentRound,
+	}
+	if previousProposal, exists := s.ledger.LatestProposalForHeight(consensusView.NextHeight); exists && previousProposal.Round < consensusView.CurrentRound {
+		proposal.BlockHash = previousProposal.BlockHash
+		proposal.PreviousHash = previousProposal.PreviousHash
+		proposal.ProducedAt = previousProposal.ProducedAt
+		proposal.TransactionIDs = append([]string(nil), previousProposal.TransactionIDs...)
+		proposal.Transactions = append([]tx.Envelope(nil), previousProposal.Transactions...)
+	} else {
+		block, err := s.ledger.BuildNextBlock(s.config.MaxTransactionsPerBlock, now)
+		if err != nil {
+			return err
+		}
+		proposal.BlockHash = block.Hash
+		proposal.PreviousHash = block.PreviousHash
+		proposal.ProducedAt = block.ProducedAt
+		proposal.TransactionIDs = append([]string(nil), block.TransactionIDs...)
+		proposal.Transactions = append([]tx.Envelope(nil), block.Transactions...)
+	}
+
+	signedProposal, err := s.identitySigner.SignProposal(proposal, now)
 	if err != nil {
 		return err
 	}
-	proposal, err := s.identitySigner.SignProposal(consensus.Proposal{
-		Height:         block.Height,
-		Round:          automatedConsensusRound,
-		BlockHash:      block.Hash,
-		PreviousHash:   block.PreviousHash,
-		ProducedAt:     block.ProducedAt,
-		TransactionIDs: append([]string(nil), block.TransactionIDs...),
-		Transactions:   append([]tx.Envelope(nil), block.Transactions...),
-	}, time.Now().UTC())
-	if err != nil {
-		return err
-	}
-	if err := s.ledger.RecordProposal(proposal); err != nil {
+	if err := s.ledger.RecordProposal(signedProposal); err != nil {
 		return err
 	}
 
-	go s.broadcastProposal(proposal)
+	go s.broadcastProposal(signedProposal)
 	return nil
 }
 
-func (s *Server) maybeAutomateVote() error {
+func (s *Server) maybeAutomateVote(now time.Time) error {
 	consensusView := s.ledger.Consensus()
 	if consensusView.ValidatorCount == 0 {
 		return nil
 	}
 
-	proposal, exists := s.ledger.ProposalAt(consensusView.NextHeight, automatedConsensusRound)
+	proposal, exists := s.ledger.ProposalAt(consensusView.NextHeight, consensusView.CurrentRound)
 	if !exists {
 		return nil
 	}
@@ -105,7 +158,7 @@ func (s *Server) maybeAutomateVote() error {
 		Height:    proposal.Height,
 		Round:     proposal.Round,
 		BlockHash: proposal.BlockHash,
-	}, time.Now().UTC())
+	}, now)
 	if err != nil {
 		return err
 	}
@@ -127,7 +180,7 @@ func (s *Server) maybeAutomateCommit() error {
 		return nil
 	}
 
-	proposal, exists := s.ledger.ProposalAt(consensusView.NextHeight, automatedConsensusRound)
+	proposal, exists := s.ledger.ProposalAt(consensusView.NextHeight, consensusView.CurrentRound)
 	if !exists || proposal.Proposer != s.config.ValidatorAddress {
 		return nil
 	}
@@ -156,6 +209,7 @@ func ignoreConsensusAutomationError(err error) bool {
 		errors.Is(err, ledger.ErrValidatorNotActive),
 		errors.Is(err, ledger.ErrUnexpectedProposer),
 		errors.Is(err, ledger.ErrConsensusHeightMismatch),
+		errors.Is(err, ledger.ErrConsensusRoundMismatch),
 		errors.Is(err, ledger.ErrConsensusPreviousHash),
 		errors.Is(err, ledger.ErrConflictingProposal),
 		errors.Is(err, ledger.ErrUnknownProposal),

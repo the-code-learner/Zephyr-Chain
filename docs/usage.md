@@ -6,9 +6,9 @@ The current repository gives you five practical local development flows:
 
 - a single-node flow where one Go node persists chain state, funds test accounts, validates transactions, and commits blocks
 - a small multi-node devnet flow where one node produces blocks and other configured nodes follow through transport-backed replication and sync
-- a scheduling flow where you elect a validator set, inspect the derived proposer schedule, and optionally enforce that schedule for local block production
-- a manual certificate-gated consensus flow where you build a concrete next-block template, submit signed proposals and votes for that template, and commit only after a quorum certificate exists
-- an automated certificate-gated devnet flow where the scheduled proposer self-proposes, active validators auto-vote, and the proposer auto-commits once quorum exists
+- a scheduling flow where you elect a validator set, inspect the derived active round and scheduled proposer, and optionally enforce that schedule for local block production
+- a manual certificate-gated consensus flow where you build a concrete next-block template, submit signed proposals and votes for the active round, and commit only after a quorum certificate exists
+- an automated certificate-gated devnet flow where the scheduled proposer self-proposes, active validators auto-vote, timeout can rotate the proposer, and the next proposer can reuse the stored candidate body for the same height
 
 The browser wallet can create a local account, export and import it, inspect node-side account state, sign a transaction, and send it to the node.
 
@@ -68,14 +68,7 @@ What to expect:
 
 ## Inspect Validator Scheduling
 
-1. Start a node with a validator address:
-
-```powershell
-$env:ZEPHYR_NODE_ID="node-a"
-$env:ZEPHYR_VALIDATOR_ADDRESS="zph_validator_a"
-go run ./cmd/node
-```
-
+1. Start a node with a validator address or validator private key.
 2. Submit an election, then inspect:
 
 ```powershell
@@ -87,7 +80,7 @@ You should see:
 
 - a validator snapshot version that increases when the election result is replaced
 - the persisted validator list and normalized election config
-- `totalVotingPower`, `quorumVotingPower`, and `nextProposer`
+- `totalVotingPower`, `quorumVotingPower`, `currentRound`, `currentRoundStartedAt`, and `nextProposer`
 
 ## Inspect Signed Validator Identity
 
@@ -105,13 +98,6 @@ Then inspect:
 Invoke-RestMethod http://localhost:8080/v1/status
 Invoke-RestMethod http://localhost:8080/v1/peers
 ```
-
-What to expect:
-
-- `GET /v1/status` includes an `identity` object signed by the validator key
-- the node derives `validatorAddress` from that key unless you also set `ZEPHYR_VALIDATOR_ADDRESS`, in which case startup rejects mismatches
-- `GET /v1/peers` shows `identityPresent`, `identityVerified`, and `identityError` for configured peers
-- when strict peer admission is enabled, `GET /v1/status` also reports `peerIdentityRequired=true`
 
 ## Enforce Peer Admission
 
@@ -150,39 +136,28 @@ go run ./cmd/node
 
 2. Make sure a validator set already exists.
 3. Queue at least one transaction in the mempool.
-4. Fetch the concrete next block candidate:
+4. Fetch the concrete next block candidate and the active round:
 
 ```powershell
 Invoke-RestMethod http://localhost:8080/v1/dev/block-template
+Invoke-RestMethod http://localhost:8080/v1/consensus
 ```
 
-5. Build a signed proposal whose `height`, `previousHash`, `producedAt`, full `transactions`, ordered `transactionIds`, and `blockHash` match that template exactly.
+5. Build a signed proposal whose `height`, `round`, `previousHash`, `producedAt`, full `transactions`, ordered `transactionIds`, and `blockHash` match that template exactly.
 6. POST the proposal to `/v1/consensus/proposals`.
-7. Submit validator votes to `/v1/consensus/votes` until a quorum certificate exists for that same `blockHash`.
+7. Submit validator votes to `/v1/consensus/votes` until a quorum certificate exists for that same `height`, `round`, and `blockHash`.
 8. Commit that exact block template by reusing the returned `producedAt` timestamp:
 
 ```powershell
-$body = @{ producedAt = "2026-03-23T10:00:00Z" } | ConvertTo-Json
+$body = @{ producedAt = "2026-03-24T13:00:00Z" } | ConvertTo-Json
 Invoke-RestMethod http://localhost:8080/v1/dev/produce-block -Method Post -ContentType 'application/json' -Body $body
 ```
 
-Expected behavior:
-
-- the proposal is rejected if the proposer is not scheduled for that height or if `previousHash` does not match the current tip
-- the proposal is rejected if `blockHash` does not match the signed `producedAt` plus ordered `transactionIds`
-- the proposal is rejected if embedded `transactions` are missing or do not match those `transactionIds`
-- votes are rejected if they do not reference a known proposal
-- once the accumulated vote power crosses quorum, the node stores a quorum certificate artifact
-- with `ZEPHYR_REQUIRE_CONSENSUS_CERTIFICATES=true`, block commit returns `409` until the matching proposal and certificate exist
-- once certified, the node can commit from the stored proposal body even if the local mempool no longer contains that candidate
-- even after certification, changing `producedAt` changes the candidate and the commit is rejected
-- peers configured with the same enforcement flag import only certified blocks whose concrete template matches a stored proposal
-
 ## Run An Automated Certified Devnet
 
-This is the closest current path to a production-style validator flow, but it is still a first-pass round-0 engine.
+This is the closest current path to a production-style validator flow, but it is still a first-pass timeout-driven round engine.
 
-1. Start the scheduled proposer with automation enabled:
+1. Start the initial round-0 proposer:
 
 ```powershell
 $env:ZEPHYR_NODE_ID="node-a"
@@ -194,12 +169,13 @@ $env:ZEPHYR_ENABLE_BLOCK_PRODUCTION="true"
 $env:ZEPHYR_ENABLE_PEER_SYNC="true"
 $env:ZEPHYR_ENABLE_CONSENSUS_AUTOMATION="true"
 $env:ZEPHYR_CONSENSUS_INTERVAL="250ms"
+$env:ZEPHYR_CONSENSUS_ROUND_TIMEOUT="2s"
 $env:ZEPHYR_ENFORCE_PROPOSER_SCHEDULE="true"
 $env:ZEPHYR_REQUIRE_CONSENSUS_CERTIFICATES="true"
 go run ./cmd/node
 ```
 
-2. Start another active validator with automation enabled:
+2. Start another active validator:
 
 ```powershell
 $env:ZEPHYR_NODE_ID="node-b"
@@ -207,10 +183,11 @@ $env:ZEPHYR_HTTP_ADDR=":8081"
 $env:ZEPHYR_DATA_DIR="var/devnet-b"
 $env:ZEPHYR_PEERS="http://localhost:8080"
 $env:ZEPHYR_VALIDATOR_PRIVATE_KEY="<base64-pkcs8-p256-private-key-b>"
-$env:ZEPHYR_ENABLE_BLOCK_PRODUCTION="false"
+$env:ZEPHYR_ENABLE_BLOCK_PRODUCTION="true"
 $env:ZEPHYR_ENABLE_PEER_SYNC="true"
 $env:ZEPHYR_ENABLE_CONSENSUS_AUTOMATION="true"
 $env:ZEPHYR_CONSENSUS_INTERVAL="250ms"
+$env:ZEPHYR_CONSENSUS_ROUND_TIMEOUT="2s"
 $env:ZEPHYR_REQUIRE_PEER_IDENTITY="true"
 $env:ZEPHYR_PEER_VALIDATORS="http://localhost:8080=zph_validator_a"
 $env:ZEPHYR_REQUIRE_CONSENSUS_CERTIFICATES="true"
@@ -218,7 +195,7 @@ go run ./cmd/node
 ```
 
 3. Submit an election that makes both validators active and puts Node A first in the proposer schedule.
-4. Queue at least one transaction on Node A.
+4. Queue at least one transaction on the current proposer.
 5. Inspect the live state:
 
 ```powershell
@@ -230,26 +207,11 @@ Invoke-RestMethod http://localhost:8081/v1/consensus
 Expected behavior:
 
 - startup fails if automation is enabled without `ZEPHYR_VALIDATOR_PRIVATE_KEY`
-- the scheduled proposer builds the next block template and persists a self-contained round-0 proposal automatically
+- the scheduled proposer builds the next block template and persists a self-contained proposal automatically
 - active validators persist and replicate votes automatically for that proposal
 - once quorum is observed, the proposer commits from the stored certified proposal body without requiring `POST /v1/dev/produce-block`
+- if the active proposer stalls past `ZEPHYR_CONSENSUS_ROUND_TIMEOUT`, the node advances `currentRound`, rotates `nextProposer`, and the new proposer can reuse the latest stored candidate body for that same height
 - admitted peers replicate the proposal, vote, certificate, and committed block over the current HTTP transport
-- `GET /v1/status` and `GET /v1/consensus` expose `consensusAutomationEnabled=true`
-
-## Enforce Proposer Scheduling Locally
-
-This is a narrower guard than certificate enforcement.
-
-Run the node with:
-
-```powershell
-$env:ZEPHYR_NODE_ID="node-b"
-$env:ZEPHYR_VALIDATOR_ADDRESS="zph_validator_b"
-$env:ZEPHYR_ENFORCE_PROPOSER_SCHEDULE="true"
-go run ./cmd/node
-```
-
-After an election is stored, `POST /v1/dev/produce-block` returns `409` if the local validator is not the scheduled proposer for the next height.
 
 ## Troubleshooting
 
@@ -258,6 +220,7 @@ After an election is stored, `POST /v1/dev/produce-block` returns `409` if the l
 - confirm a validator set already exists through `GET /v1/validators`
 - confirm the signer address is part of that validator set
 - confirm the proposal height matches the node's `nextHeight` in `GET /v1/consensus`
+- confirm the proposal round matches the node's `currentRound` in `GET /v1/consensus`, unless you are intentionally advancing to a higher round
 - confirm the proposal signer matches `nextProposer`
 - confirm the proposal `previousHash` matches the current chain tip
 - confirm the proposal `producedAt`, full `transactions`, and ordered `transactionIds` come from the same `GET /v1/dev/block-template` response as `blockHash`
@@ -271,8 +234,9 @@ After an election is stored, `POST /v1/dev/produce-block` returns `409` if the l
 - confirm `GET /v1/consensus` reports the expected validator in `nextProposer`
 - confirm the proposer node still has `ZEPHYR_ENABLE_BLOCK_PRODUCTION=true`
 - confirm `GET /v1/status` or `GET /v1/consensus` shows `consensusAutomationEnabled=true`
-- confirm there is at least one queued transaction when expecting an automatic proposal
-- remember the current automation path is only round 0; there is no timeout, re-proposal, rebroadcast, or round-change recovery yet
+- confirm `ZEPHYR_CONSENSUS_ROUND_TIMEOUT` is long enough for proposal and vote dissemination in your local setup
+- confirm there is at least one queued transaction or a previously stored proposal body when you expect automatic proposal generation
+- remember the current engine supports timeout-driven proposer rotation, but vote rebroadcast and WAL-style replay are still not implemented
 
 ### Peer Identity Verification Or Admission Fails
 
@@ -286,17 +250,16 @@ After an election is stored, `POST /v1/dev/produce-block` returns `409` if the l
 ### Certified Block Production Is Rejected
 
 - confirm `GET /v1/consensus` shows a non-empty validator set
-- confirm `ZEPHYR_VALIDATOR_ADDRESS` matches the local validator you expect this node to represent, or let the private key derive it automatically
-- confirm `GET /v1/consensus` reports the same address in `nextProposer`
+- confirm the active `currentRound` and `nextProposer` match the proposal and certificate you expect to commit
 - confirm `GET /v1/dev/block-template` and your proposal use the same `blockHash`, `previousHash`, `producedAt`, full `transactions`, and `transactionIds`
-- confirm `GET /v1/consensus` shows a latest certificate for that same `blockHash`
+- confirm `GET /v1/consensus` shows a latest certificate for that same `height`, `round`, and `blockHash`
 - confirm you replay `POST /v1/dev/produce-block` with the same `producedAt` used by the certified template when you are using the manual path
 - disable `ZEPHYR_REQUIRE_CONSENSUS_CERTIFICATES` only if you intentionally want a looser local dev flow
 
 ## Recommended Local Demo Flow
 
 1. Start Node A.
-2. Start Node B as a replica.
+2. Start Node B as a replica or second validator.
 3. Start the Vue wallet against Node A.
 4. Create a wallet.
 5. Fund the wallet with the local dev faucet.
@@ -305,7 +268,7 @@ After an election is stored, `POST /v1/dev/produce-block` returns `409` if the l
 8. Inspect `GET /v1/status`, `GET /v1/peers`, `GET /v1/blocks/latest`, and `GET /v1/accounts/{address}` on both nodes.
 9. If validator private keys are configured, confirm peer identity verification succeeds in `GET /v1/peers`.
 10. Submit a validator election and inspect `GET /v1/validators` plus `GET /v1/consensus`.
-11. Either submit a matching proposal and validator votes manually, or let the automated proposer and validators do it for the current round-0 flow.
-12. Inspect the resulting block, vote tallies, and certificate on both nodes.
-13. Optionally restart a node and confirm the validator snapshot and consensus artifacts survived.
-
+11. Either submit a matching proposal and validator votes manually, or let the automated proposer and validators handle the active round.
+12. If the active proposer stalls, watch `currentRound` advance and `nextProposer` rotate.
+13. Inspect the resulting block, vote tallies, and certificate on both nodes.
+14. Optionally restart a node and confirm the validator snapshot, round state, and consensus artifacts survived.

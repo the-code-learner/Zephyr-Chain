@@ -20,14 +20,15 @@ Change it with `ZEPHYR_HTTP_ADDR` when starting the node.
 - `ZEPHYR_PEERS`: comma-separated peer base URLs, default empty
 - `ZEPHYR_BLOCK_INTERVAL`: automatic block-production interval, default `15s`
 - `ZEPHYR_CONSENSUS_INTERVAL`: consensus automation ticker interval, default `1s`
+- `ZEPHYR_CONSENSUS_ROUND_TIMEOUT`: active round timeout before automation advances to the next round, default `5s`
 - `ZEPHYR_SYNC_INTERVAL`: peer poll/sync interval, default `5s`
 - `ZEPHYR_MAX_TXS_PER_BLOCK`: maximum committed transactions per block, default `100`
 - `ZEPHYR_ENABLE_BLOCK_PRODUCTION`: enable local block production, default `true`
-- `ZEPHYR_ENABLE_CONSENSUS_AUTOMATION`: enable the current round-0 automation loop, default `false`
+- `ZEPHYR_ENABLE_CONSENSUS_AUTOMATION`: enable the current timeout-driven automation loop, default `false`
 - `ZEPHYR_ENABLE_PEER_SYNC`: enable background peer sync, default `true`
 - `ZEPHYR_REQUIRE_PEER_IDENTITY`: when `true`, replicated peer POST requests must include a valid signed transport identity, default `false`
 - `ZEPHYR_PEER_VALIDATORS`: comma-separated `<peer-url>=<validator-address>` bindings used to pin configured peers to expected validators, default empty
-- `ZEPHYR_ENFORCE_PROPOSER_SCHEDULE`: when `true`, only the scheduled proposer may produce the next block once a validator set exists, default `false`
+- `ZEPHYR_ENFORCE_PROPOSER_SCHEDULE`: when `true`, only the scheduled proposer for the active round may produce the next block once a validator set exists, default `false`
 - `ZEPHYR_REQUIRE_CONSENSUS_CERTIFICATES`: when `true`, local block commit and remote block import require a matching proposal and quorum certificate, default `false`
 
 Notes:
@@ -42,10 +43,10 @@ Notes:
 ```json
 {
   "height": 1,
-  "round": 0,
+  "round": 1,
   "blockHash": "<64-hex-block-hash>",
   "previousHash": "",
-  "producedAt": "2026-03-23T15:32:00Z",
+  "producedAt": "2026-03-24T13:00:00Z",
   "transactionIds": [
     "<64-hex-transaction-id>"
   ],
@@ -61,11 +62,11 @@ Notes:
       "signature": "<base64-signature>"
     }
   ],
-  "proposer": "zph_validator_a",
-  "payload": "{\"blockHash\":\"<64-hex-block-hash>\",\"height\":1,\"previousHash\":\"\",\"producedAt\":\"2026-03-23T15:32:00Z\",\"proposer\":\"zph_validator_a\",\"round\":0,\"transactionIds\":[\"<64-hex-transaction-id>\"]}",
+  "proposer": "zph_validator_b",
+  "payload": "{\"blockHash\":\"<64-hex-block-hash>\",\"height\":1,\"previousHash\":\"\",\"producedAt\":\"2026-03-24T13:00:00Z\",\"proposer\":\"zph_validator_b\",\"round\":1,\"transactionIds\":[\"<64-hex-transaction-id>\"]}",
   "publicKey": "<base64-spki-public-key>",
   "signature": "<base64-signature>",
-  "proposedAt": "2026-03-23T15:32:02Z"
+  "proposedAt": "2026-03-24T13:00:01Z"
 }
 ```
 
@@ -74,6 +75,7 @@ Current meaning:
 - `blockHash` must be the derived hash of `height`, `previousHash`, `producedAt`, and ordered `transactionIds`
 - `transactions` must be present and must match `transactionIds` in the same order
 - the proposer signs that full template commitment, not just a standalone hash string
+- the scheduled proposer is derived from both `height` and `round`
 - validators can verify the candidate directly from the proposal body without relying on local mempool convergence alone
 
 ### Vote
@@ -81,13 +83,13 @@ Current meaning:
 ```json
 {
   "height": 1,
-  "round": 0,
+  "round": 1,
   "blockHash": "<64-hex-block-hash>",
-  "voter": "zph_validator_b",
-  "payload": "{\"blockHash\":\"<64-hex-block-hash>\",\"height\":1,\"round\":0,\"voter\":\"zph_validator_b\"}",
+  "voter": "zph_validator_a",
+  "payload": "{\"blockHash\":\"<64-hex-block-hash>\",\"height\":1,\"round\":1,\"voter\":\"zph_validator_a\"}",
   "publicKey": "<base64-spki-public-key>",
   "signature": "<base64-signature>",
-  "votedAt": "2026-03-23T15:32:05Z"
+  "votedAt": "2026-03-24T13:00:02Z"
 }
 ```
 
@@ -96,13 +98,13 @@ Current meaning:
 ```json
 {
   "height": 1,
-  "round": 0,
+  "round": 1,
   "blockHash": "<64-hex-block-hash>",
   "votingPower": 43000,
   "quorumVotingPower": 28667,
   "voterCount": 2,
   "voters": ["zph_validator_a", "zph_validator_b"],
-  "createdAt": "2026-03-23T15:32:06Z"
+  "createdAt": "2026-03-24T13:00:03Z"
 }
 ```
 
@@ -119,13 +121,6 @@ Current meaning:
 }
 ```
 
-Current meaning:
-
-- this proof exists when `ZEPHYR_VALIDATOR_PRIVATE_KEY` is configured
-- peers verify the proof when reading `GET /v1/status`, and validator nodes attach the same proof to replicated POST requests
-- when `ZEPHYR_REQUIRE_PEER_IDENTITY=true`, replicated peer POST requests without a valid proof are rejected with `403`
-- when `ZEPHYR_PEER_VALIDATORS` is configured, the receiving node also checks that the proven validator belongs to its configured peer-binding allowlist
-
 ## Consensus Endpoints
 
 ### GET /v1/consensus
@@ -137,7 +132,8 @@ Current behavior:
 - the response includes `consensusAutomationEnabled`, `proposerScheduleEnforced`, and `consensusCertificatesRequired`
 - `validatorSet` exposes the durable validator snapshot
 - `artifacts` exposes the latest stored proposal, votes, and certificate
-- `consensus` exposes the derived summary for `nextHeight`, `nextProposer`, total voting power, and quorum target
+- `consensus` now includes `currentRound` and `currentRoundStartedAt` in addition to `nextHeight`, `nextProposer`, total voting power, and quorum target
+- `nextProposer` reflects the active round, not only the next height
 
 ### POST /v1/consensus/proposals
 
@@ -146,12 +142,13 @@ Validates and persists a signed proposal for the next block height.
 Current behavior:
 
 - the proposer must be part of the active validator set
-- the proposer must match the scheduled proposer for that height
+- the proposer must match the scheduled proposer for that height and round
 - `previousHash` must match the current chain tip for that height
 - `blockHash` must match the proposal's `producedAt` plus ordered `transactionIds`
 - `transactions` must be present and must match `transactionIds` in the same order
-- the proposal is stored durably and replicated to admitted peers when strict peer admission is enabled
-- the proposal becomes part of the block-gating path when certificate enforcement is enabled
+- the node rejects stale lower-round proposals after it has already moved forward
+- a valid higher-round proposal can advance the local active round when needed
+- the proposal is stored durably and replicated to admitted peers
 - when automation is enabled, the scheduled proposer uses the same validation path internally before broadcasting the proposal
 
 ### POST /v1/consensus/votes
@@ -163,6 +160,8 @@ Current behavior:
 - the voter must be part of the active validator set
 - the vote must target a known proposal for that height and round
 - duplicate same-block votes from the same validator are idempotent
+- the node rejects stale lower-round votes after it has already moved forward
+- a valid higher-round vote can advance the local active round when needed, as long as the referenced proposal is known
 - if the accumulated vote power reaches quorum, the node stores a commit certificate artifact
 - when certificate enforcement is enabled, that certificate can unlock local commit and remote import for the matching block hash
 - when automation is enabled, active validators use the same validation path internally before broadcasting their vote
@@ -180,9 +179,9 @@ Returns the local runtime status for the current node, including consensus summa
 Current behavior:
 
 - the response includes `consensusAutomationEnabled`
+- the embedded `consensus` view now exposes `currentRound`, `currentRoundStartedAt`, and the active-round `nextProposer`
 - when `ZEPHYR_VALIDATOR_PRIVATE_KEY` is configured, the response includes an `identity` object with a signed transport proof for the local validator
 - `peerIdentityRequired` is `true` when strict peer admission or explicit peer-validator binding is enabled
-- if `ZEPHYR_VALIDATOR_ADDRESS` is also configured, startup rejects mismatches between the configured address and the private key-derived address
 
 ### GET /v1/peers
 
@@ -197,7 +196,7 @@ Current behavior:
 
 ### POST /v1/election
 
-Calculates a validator set from the provided candidates, votes, and config, persists it durably in the ledger, increments the validator-set version, and resets pending proposal, vote, and certificate artifacts.
+Calculates a validator set from the provided candidates, votes, and config, persists it durably in the ledger, increments the validator-set version, resets pending proposal, vote, and certificate artifacts, and resets the active round to height `nextHeight`, round `0`.
 
 ### GET /v1/validators
 
@@ -241,10 +240,10 @@ Behavior:
 
 - with no JSON body, the node uses the current time as the block timestamp for ungated local production
 - you may send `{ "producedAt": "<RFC3339 timestamp>" }` to target a specific previously fetched block template or a specific stored certified proposal
-- if proposer-schedule enforcement is enabled, the endpoint returns `409` when the local validator is not the scheduled proposer for the next height
+- if proposer-schedule enforcement is enabled, the endpoint returns `409` when the local validator is not the scheduled proposer for the active round
 - if certificate enforcement is enabled, the endpoint returns `409` unless the resulting block exactly matches a stored proposal template and quorum certificate
 - when certificate enforcement is enabled and a matching certified proposal exists, the node can commit from the stored proposal body even if the local mempool no longer contains those transactions
-- when automation is enabled, the scheduled proposer may reach the same commit path without an operator POST as soon as quorum exists for its current proposal
+- when automation is enabled, the scheduled proposer may reach the same commit path without an operator POST as soon as quorum exists for its current round proposal
 
 ## Internal Node-To-Node Endpoints
 
@@ -265,6 +264,7 @@ Current behavior:
 - when `ZEPHYR_REQUIRE_PEER_IDENTITY=true`, replicated peer POST requests must include a valid signed transport identity or they are rejected with `403`
 - when `ZEPHYR_PEER_VALIDATORS` is configured, replicated peer POST requests are also rejected with `403` unless the proven validator belongs to the configured peer-binding allowlist
 - proposal, vote, and block dissemination for the current automation flow use these same admitted peer paths
+- the automation path now sends proposals before votes to avoid vote-before-proposal races on the happy path
 
 ### POST /v1/internal/blocks
 

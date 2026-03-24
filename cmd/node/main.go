@@ -55,6 +55,13 @@ func main() {
 		}
 		config.ConsensusInterval = parsed
 	}
+	if timeout := os.Getenv("ZEPHYR_CONSENSUS_ROUND_TIMEOUT"); timeout != "" {
+		parsed, err := time.ParseDuration(timeout)
+		if err != nil {
+			log.Fatalf("invalid ZEPHYR_CONSENSUS_ROUND_TIMEOUT %q: %v", timeout, err)
+		}
+		config.ConsensusRoundTimeout = parsed
+	}
 	if syncInterval := os.Getenv("ZEPHYR_SYNC_INTERVAL"); syncInterval != "" {
 		parsed, err := time.ParseDuration(syncInterval)
 		if err != nil {
@@ -119,7 +126,7 @@ func main() {
 	defer server.Close()
 
 	log.Printf(
-		"zephyr node %s listening on %s (validator: %s, data dir: %s, block interval: %s, consensus automation: %t, consensus interval: %s, peer sync: %t, peer identity required: %t, peer bindings: %d, proposer schedule enforced: %t, consensus certificates required: %t, peers: %d)",
+		"zephyr node %s listening on %s (validator: %s, data dir: %s, block interval: %s, consensus automation: %t, consensus interval: %s, round timeout: %s, peer sync: %t, peer identity required: %t, peer bindings: %d, proposer schedule enforced: %t, consensus certificates required: %t, peers: %d)",
 		config.NodeID,
 		addr,
 		config.ValidatorAddress,
@@ -127,6 +134,7 @@ func main() {
 		config.BlockInterval,
 		config.EnableConsensusAutomation,
 		config.ConsensusInterval,
+		config.ConsensusRoundTimeout,
 		config.EnablePeerSync,
 		config.RequirePeerIdentity || len(config.PeerValidatorBindings) > 0,
 		len(config.PeerValidatorBindings),
