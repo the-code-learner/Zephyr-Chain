@@ -113,19 +113,20 @@ type AccountResponse struct {
 }
 
 type StatusResponse struct {
-	NodeID                        string               `json:"nodeId"`
-	ValidatorAddress              string               `json:"validatorAddress,omitempty"`
-	PeerCount                     int                  `json:"peerCount"`
-	BlockProduction               bool                 `json:"blockProduction"`
-	ConsensusAutomationEnabled    bool                 `json:"consensusAutomationEnabled"`
-	PeerSyncEnabled               bool                 `json:"peerSyncEnabled"`
-	PeerIdentityRequired          bool                 `json:"peerIdentityRequired"`
-	ProposerScheduleEnforced      bool                 `json:"proposerScheduleEnforced"`
-	ConsensusCertificatesRequired bool                 `json:"consensusCertificatesRequired"`
-	Identity                      *TransportIdentity   `json:"identity,omitempty"`
-	Status                        ledger.StatusView    `json:"status"`
-	Consensus                     ledger.ConsensusView `json:"consensus"`
-	RoundEvidence                 RoundEvidence        `json:"roundEvidence"`
+	NodeID                        string                       `json:"nodeId"`
+	ValidatorAddress              string                       `json:"validatorAddress,omitempty"`
+	PeerCount                     int                          `json:"peerCount"`
+	BlockProduction               bool                         `json:"blockProduction"`
+	ConsensusAutomationEnabled    bool                         `json:"consensusAutomationEnabled"`
+	PeerSyncEnabled               bool                         `json:"peerSyncEnabled"`
+	PeerIdentityRequired          bool                         `json:"peerIdentityRequired"`
+	ProposerScheduleEnforced      bool                         `json:"proposerScheduleEnforced"`
+	ConsensusCertificatesRequired bool                         `json:"consensusCertificatesRequired"`
+	Identity                      *TransportIdentity           `json:"identity,omitempty"`
+	Status                        ledger.StatusView            `json:"status"`
+	Consensus                     ledger.ConsensusView         `json:"consensus"`
+	RoundEvidence                 RoundEvidence                `json:"roundEvidence"`
+	Recovery                      ledger.ConsensusRecoveryView `json:"recovery"`
 }
 
 type ConsensusResponse struct {
@@ -138,6 +139,7 @@ type ConsensusResponse struct {
 	Artifacts                     ledger.ConsensusArtifactsView `json:"artifacts"`
 	Consensus                     ledger.ConsensusView          `json:"consensus"`
 	RoundEvidence                 RoundEvidence                 `json:"roundEvidence"`
+	Recovery                      ledger.ConsensusRecoveryView  `json:"recovery"`
 }
 
 type LatestBlockResponse struct {
@@ -149,6 +151,7 @@ type BlockTemplateResponse struct {
 	Artifacts     ledger.ConsensusArtifactsView `json:"artifacts"`
 	Consensus     ledger.ConsensusView          `json:"consensus"`
 	RoundEvidence RoundEvidence                 `json:"roundEvidence"`
+	Recovery      ledger.ConsensusRecoveryView  `json:"recovery"`
 }
 
 type ProduceBlockRequest struct {
@@ -282,6 +285,7 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		Status:                        s.ledger.Status(),
 		Consensus:                     s.ledger.Consensus(),
 		RoundEvidence:                 s.buildRoundEvidence(now),
+		Recovery:                      s.ledger.ConsensusRecovery(),
 	}
 	if s.identitySigner != nil {
 		identity, err := s.identitySigner.Build(now)
@@ -318,6 +322,7 @@ func (s *Server) handleConsensus(w http.ResponseWriter, r *http.Request) {
 		Artifacts:                     s.ledger.ConsensusArtifacts(),
 		Consensus:                     s.ledger.Consensus(),
 		RoundEvidence:                 s.buildRoundEvidence(time.Now().UTC()),
+		Recovery:                      s.ledger.ConsensusRecovery(),
 	})
 }
 
@@ -517,6 +522,7 @@ func (s *Server) handleBlockTemplate(w http.ResponseWriter, r *http.Request) {
 		Artifacts:     s.ledger.ConsensusArtifacts(),
 		Consensus:     s.ledger.Consensus(),
 		RoundEvidence: s.buildRoundEvidence(time.Now().UTC()),
+		Recovery:      s.ledger.ConsensusRecovery(),
 	})
 }
 

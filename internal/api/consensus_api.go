@@ -14,6 +14,7 @@ type ProposalResponse struct {
 	Proposal  consensus.Proposal            `json:"proposal"`
 	Artifacts ledger.ConsensusArtifactsView `json:"artifacts"`
 	Consensus ledger.ConsensusView          `json:"consensus"`
+	Recovery  ledger.ConsensusRecoveryView  `json:"recovery"`
 }
 
 type VoteResponse struct {
@@ -23,6 +24,7 @@ type VoteResponse struct {
 	Certificate *ledger.CommitCertificate     `json:"certificate,omitempty"`
 	Artifacts   ledger.ConsensusArtifactsView `json:"artifacts"`
 	Consensus   ledger.ConsensusView          `json:"consensus"`
+	Recovery    ledger.ConsensusRecoveryView  `json:"recovery"`
 }
 
 func (s *Server) handleConsensusProposal(w http.ResponseWriter, r *http.Request) {
@@ -43,7 +45,23 @@ func (s *Server) handleConsensusProposal(w http.ResponseWriter, r *http.Request)
 	if request.ProposedAt.IsZero() {
 		request.ProposedAt = time.Now().UTC()
 	}
-	if err := s.ledger.RecordProposal(request); err != nil {
+
+	sourceNode := requestSourceNode(r)
+	var err error
+	if sourceNode == "" && s.config.ValidatorAddress != "" && request.Proposer == s.config.ValidatorAddress {
+		err = s.ledger.RecordProposalWithAction(request, &ledger.ConsensusAction{
+			Type:       ledger.ConsensusActionProposal,
+			Height:     request.Height,
+			Round:      request.Round,
+			BlockHash:  request.BlockHash,
+			Validator:  request.Proposer,
+			RecordedAt: request.ProposedAt,
+			Note:       "local proposal submitted",
+		})
+	} else {
+		err = s.ledger.RecordProposal(request)
+	}
+	if err != nil {
 		writeJSON(w, statusForError(err), map[string]string{"error": err.Error()})
 		return
 	}
@@ -53,9 +71,10 @@ func (s *Server) handleConsensusProposal(w http.ResponseWriter, r *http.Request)
 		Proposal:  request,
 		Artifacts: s.ledger.ConsensusArtifacts(),
 		Consensus: s.ledger.Consensus(),
+		Recovery:  s.ledger.ConsensusRecovery(),
 	})
 
-	if requestSourceNode(r) == "" {
+	if sourceNode == "" {
 		go s.broadcastProposal(request)
 	}
 }
@@ -78,7 +97,26 @@ func (s *Server) handleConsensusVote(w http.ResponseWriter, r *http.Request) {
 	if request.VotedAt.IsZero() {
 		request.VotedAt = time.Now().UTC()
 	}
-	tally, certificate, err := s.ledger.RecordVote(request)
+
+	sourceNode := requestSourceNode(r)
+	var (
+		tally       ledger.VoteTally
+		certificate *ledger.CommitCertificate
+		err         error
+	)
+	if sourceNode == "" && s.config.ValidatorAddress != "" && request.Voter == s.config.ValidatorAddress {
+		tally, certificate, err = s.ledger.RecordVoteWithAction(request, &ledger.ConsensusAction{
+			Type:       ledger.ConsensusActionVote,
+			Height:     request.Height,
+			Round:      request.Round,
+			BlockHash:  request.BlockHash,
+			Validator:  request.Voter,
+			RecordedAt: request.VotedAt,
+			Note:       "local vote submitted",
+		})
+	} else {
+		tally, certificate, err = s.ledger.RecordVote(request)
+	}
 	if err != nil {
 		writeJSON(w, statusForError(err), map[string]string{"error": err.Error()})
 		return
@@ -91,9 +129,10 @@ func (s *Server) handleConsensusVote(w http.ResponseWriter, r *http.Request) {
 		Certificate: certificate,
 		Artifacts:   s.ledger.ConsensusArtifacts(),
 		Consensus:   s.ledger.Consensus(),
+		Recovery:    s.ledger.ConsensusRecovery(),
 	})
 
-	if requestSourceNode(r) == "" {
+	if sourceNode == "" {
 		go s.broadcastVote(request)
 	}
 }

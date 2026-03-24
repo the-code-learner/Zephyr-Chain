@@ -65,6 +65,10 @@ func (s *Store) ConsensusArtifacts() ConsensusArtifactsView {
 }
 
 func (s *Store) RecordProposal(proposal consensus.Proposal) error {
+	return s.RecordProposalWithAction(proposal, nil)
+}
+
+func (s *Store) RecordProposalWithAction(proposal consensus.Proposal, action *ConsensusAction) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -72,6 +76,9 @@ func (s *Store) RecordProposal(proposal consensus.Proposal) error {
 	nextState, err := recordProposalIntoState(state, proposal)
 	if err != nil {
 		return err
+	}
+	if action != nil {
+		nextState = recordConsensusActionIntoState(nextState, *action)
 	}
 	if err := s.writeState(nextState); err != nil {
 		return err
@@ -82,6 +89,10 @@ func (s *Store) RecordProposal(proposal consensus.Proposal) error {
 }
 
 func (s *Store) RecordVote(vote consensus.Vote) (VoteTally, *CommitCertificate, error) {
+	return s.RecordVoteWithAction(vote, nil)
+}
+
+func (s *Store) RecordVoteWithAction(vote consensus.Vote, action *ConsensusAction) (VoteTally, *CommitCertificate, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -89,6 +100,9 @@ func (s *Store) RecordVote(vote consensus.Vote) (VoteTally, *CommitCertificate, 
 	nextState, tally, certificate, err := recordVoteIntoState(state, vote)
 	if err != nil {
 		return VoteTally{}, nil, err
+	}
+	if action != nil {
+		nextState = recordConsensusActionIntoState(nextState, *action)
 	}
 	if err := s.writeState(nextState); err != nil {
 		return VoteTally{}, nil, err

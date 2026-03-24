@@ -20,6 +20,7 @@ import (
 
 	"github.com/zephyr-chain/zephyr-chain/internal/consensus"
 	"github.com/zephyr-chain/zephyr-chain/internal/dpos"
+	"github.com/zephyr-chain/zephyr-chain/internal/ledger"
 	"github.com/zephyr-chain/zephyr-chain/internal/tx"
 )
 
@@ -625,6 +626,69 @@ func TestHandleConsensusExposesRoundEvidence(t *testing.T) {
 	}
 }
 
+func TestHandleStatusExposesConsensusRecovery(t *testing.T) {
+	validator := newConsensusSigner(t)
+	server := newTestServer(t, Config{
+		DataDir:                 t.TempDir(),
+		NodeID:                  "node-a",
+		ValidatorPrivateKey:     encodedPrivateKey(t, validator.privateKey),
+		BlockInterval:           0,
+		SyncInterval:            0,
+		MaxTransactionsPerBlock: 10,
+		EnableBlockProduction:   false,
+		EnablePeerSync:          false,
+	})
+
+	if _, err := server.ledger.SetValidators([]dpos.Validator{
+		{Rank: 1, Address: validator.address, VotingPower: 100, SelfStake: 100},
+	}, dpos.ElectionConfig{MaxValidators: 1}); err != nil {
+		t.Fatalf("set validators: %v", err)
+	}
+
+	proposal := signedConsensusProposal(t, validator, 1, 0, "", time.Date(2026, time.March, 24, 14, 30, 0, 0, time.UTC), []tx.Envelope{signedEnvelope(t, 5, 1, "recovery-view")})
+	if err := server.ledger.RecordProposalWithAction(proposal, &ledger.ConsensusAction{
+		Type:       ledger.ConsensusActionProposal,
+		Height:     proposal.Height,
+		Round:      proposal.Round,
+		BlockHash:  proposal.BlockHash,
+		Validator:  proposal.Proposer,
+		RecordedAt: proposal.ProposedAt,
+		Note:       "test local proposal",
+	}); err != nil {
+		t.Fatalf("record proposal with action: %v", err)
+	}
+	vote := signedConsensusVote(t, validator, 1, 0, proposal.BlockHash)
+	if _, _, err := server.ledger.RecordVoteWithAction(vote, &ledger.ConsensusAction{
+		Type:       ledger.ConsensusActionVote,
+		Height:     vote.Height,
+		Round:      vote.Round,
+		BlockHash:  vote.BlockHash,
+		Validator:  vote.Voter,
+		RecordedAt: vote.VotedAt,
+		Note:       "test local vote",
+	}); err != nil {
+		t.Fatalf("record vote with action: %v", err)
+	}
+
+	request := httptest.NewRequest(http.MethodGet, "/v1/status", nil)
+	recorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", recorder.Code)
+	}
+
+	var response StatusResponse
+	if err := json.NewDecoder(recorder.Body).Decode(&response); err != nil {
+		t.Fatalf("decode status response: %v", err)
+	}
+	if !response.Recovery.NeedsReplay || response.Recovery.PendingActionCount != 2 {
+		t.Fatalf("expected pending recovery actions in status response, got %+v", response.Recovery)
+	}
+	if len(response.Recovery.PendingActions) != 2 {
+		t.Fatalf("expected two pending recovery actions, got %+v", response.Recovery.PendingActions)
+	}
+}
+
 func TestConsensusAutomationRebroadcastsProposalAfterPeerLinkRestored(t *testing.T) {
 	proposer := newConsensusSigner(t)
 	voter := newConsensusSigner(t)
@@ -802,6 +866,116 @@ func TestConsensusAutomationRebroadcastsVoteAfterPeerLinkRestored(t *testing.T) 
 		t.Fatalf("expected recovered voter vote for block %s, got %+v", proposerArtifacts.LatestCertificate.BlockHash, voterVote)
 	}
 }
+func TestConsensusAutomationReplaysPendingActionsAfterRestart(t *testing.T) {
+	proposer := newConsensusSigner(t)
+	voter := newConsensusSigner(t)
+	proposerDataDir := t.TempDir()
+
+	proposerServer := newTestServer(t, Config{
+		DataDir:                      proposerDataDir,
+		NodeID:                       "node-a",
+		ValidatorPrivateKey:          encodedPrivateKey(t, proposer.privateKey),
+		BlockInterval:                0,
+		ConsensusInterval:            20 * time.Millisecond,
+		ConsensusRoundTimeout:        2 * time.Second,
+		SyncInterval:                 0,
+		MaxTransactionsPerBlock:      10,
+		EnableBlockProduction:        true,
+		EnableConsensusAutomation:    true,
+		EnablePeerSync:               false,
+		EnforceProposerSchedule:      true,
+		RequireConsensusCertificates: true,
+	})
+
+	voterServer := newTestServer(t, Config{
+		DataDir:                      t.TempDir(),
+		NodeID:                       "node-b",
+		ValidatorPrivateKey:          encodedPrivateKey(t, voter.privateKey),
+		BlockInterval:                0,
+		ConsensusInterval:            20 * time.Millisecond,
+		ConsensusRoundTimeout:        2 * time.Second,
+		SyncInterval:                 0,
+		MaxTransactionsPerBlock:      10,
+		EnableBlockProduction:        false,
+		EnableConsensusAutomation:    true,
+		EnablePeerSync:               false,
+		RequireConsensusCertificates: true,
+	})
+	voterHTTP := httptest.NewServer(voterServer.Handler())
+	defer voterHTTP.Close()
+
+	validators := []dpos.Validator{
+		{Rank: 1, Address: proposer.address, VotingPower: 60, SelfStake: 40, DelegatedStake: 20},
+		{Rank: 2, Address: voter.address, VotingPower: 40, SelfStake: 25, DelegatedStake: 15},
+	}
+	if _, err := proposerServer.ledger.SetValidators(validators, dpos.ElectionConfig{MaxValidators: 2}); err != nil {
+		t.Fatalf("set proposer validators: %v", err)
+	}
+	if _, err := voterServer.ledger.SetValidators(validators, dpos.ElectionConfig{MaxValidators: 2}); err != nil {
+		t.Fatalf("set voter validators: %v", err)
+	}
+
+	envelope := signedEnvelope(t, 25, 1, "restart-replay")
+	if _, err := proposerServer.ledger.Credit(envelope.From, 100); err != nil {
+		t.Fatalf("credit proposer sender: %v", err)
+	}
+	if _, err := voterServer.ledger.Credit(envelope.From, 100); err != nil {
+		t.Fatalf("credit voter sender: %v", err)
+	}
+	if _, err := proposerServer.ledger.Accept(envelope); err != nil {
+		t.Fatalf("accept tx: %v", err)
+	}
+
+	waitFor(t, func() bool {
+		recovery := proposerServer.ledger.ConsensusRecovery()
+		return proposerServer.ledger.HasVote(1, 0, proposer.address) && recovery.PendingActionCount == 2
+	})
+
+	proposerServer.Close()
+	reopened, err := NewServerWithConfig(Config{
+		DataDir:                      proposerDataDir,
+		NodeID:                       "node-a",
+		ValidatorPrivateKey:          encodedPrivateKey(t, proposer.privateKey),
+		PeerURLs:                     []string{voterHTTP.URL},
+		BlockInterval:                0,
+		ConsensusInterval:            20 * time.Millisecond,
+		ConsensusRoundTimeout:        2 * time.Second,
+		SyncInterval:                 0,
+		MaxTransactionsPerBlock:      10,
+		EnableBlockProduction:        true,
+		EnableConsensusAutomation:    true,
+		EnablePeerSync:               false,
+		EnforceProposerSchedule:      true,
+		RequireConsensusCertificates: true,
+	})
+	if err != nil {
+		t.Fatalf("reopen proposer: %v", err)
+	}
+	defer reopened.Close()
+	reopenedHTTP := httptest.NewServer(reopened.Handler())
+	defer reopenedHTTP.Close()
+	voterServer.config.PeerURLs = []string{reopenedHTTP.URL}
+
+	waitFor(t, func() bool {
+		return reopened.ledger.Status().Height == 1 && voterServer.ledger.Status().Height == 1
+	})
+
+	recovery := reopened.ledger.ConsensusRecovery()
+	if recovery.NeedsReplay || recovery.PendingActionCount != 0 {
+		t.Fatalf("expected replayed actions to complete after restart recovery, got %+v", recovery)
+	}
+
+	replayed := 0
+	for _, action := range recovery.RecentActions {
+		if (action.Type == ledger.ConsensusActionProposal || action.Type == ledger.ConsensusActionVote) && action.ReplayAttempts > 0 {
+			replayed++
+		}
+	}
+	if replayed < 2 {
+		t.Fatalf("expected restarted proposer to replay persisted proposal and vote, got %+v", recovery.RecentActions)
+	}
+}
+
 func TestHandleBlockTemplateAndConsensusGatedProduceBlock(t *testing.T) {
 	proposer := newConsensusSigner(t)
 	voter := newConsensusSigner(t)

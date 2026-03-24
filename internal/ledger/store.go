@@ -94,6 +94,7 @@ type Snapshot struct {
 	Proposals               []consensus.Proposal    `json:"proposals"`
 	Votes                   []VoteRecord            `json:"votes"`
 	CommitCertificates      []CommitCertificate     `json:"commitCertificates"`
+	ConsensusActions        []ConsensusAction       `json:"consensusActions"`
 }
 
 type pendingState struct {
@@ -113,6 +114,7 @@ type persistedState struct {
 	Proposals               []consensus.Proposal    `json:"proposals"`
 	Votes                   []VoteRecord            `json:"votes"`
 	CommitCertificates      []CommitCertificate     `json:"commitCertificates"`
+	ConsensusActions        []ConsensusAction       `json:"consensusActions"`
 }
 
 type Store struct {
@@ -130,6 +132,7 @@ type Store struct {
 	proposals             []consensus.Proposal
 	votes                 []VoteRecord
 	commitCertificates    []CommitCertificate
+	consensusActions      []ConsensusAction
 }
 
 func NewStore(dataDir string) (*Store, error) {
@@ -155,6 +158,7 @@ func NewStore(dataDir string) (*Store, error) {
 		proposals:             make([]consensus.Proposal, 0),
 		votes:                 make([]VoteRecord, 0),
 		commitCertificates:    make([]CommitCertificate, 0),
+		consensusActions:      make([]ConsensusAction, 0),
 	}
 
 	if err := store.load(); err != nil {
@@ -280,6 +284,7 @@ func (s *Store) SetValidators(validators []dpos.Validator, config dpos.ElectionC
 	state.Proposals = make([]consensus.Proposal, 0)
 	state.Votes = make([]VoteRecord, 0)
 	state.CommitCertificates = make([]CommitCertificate, 0)
+	state.ConsensusActions = make([]ConsensusAction, 0)
 
 	if err := s.writeState(state); err != nil {
 		return ValidatorSnapshot{}, err
@@ -409,6 +414,7 @@ func (s *Store) ProduceBlockWithOptions(maxTransactions int, producedAt time.Tim
 		return Block{}, err
 	}
 
+	nextState = completeConsensusActionsForHeightInState(nextState, block.Height, time.Now().UTC(), "block committed")
 	if err := s.writeState(nextState); err != nil {
 		return Block{}, err
 	}
@@ -436,6 +442,7 @@ func (s *Store) ImportBlockWithOptions(block Block, requireConsensus bool) error
 		}
 	}
 
+	nextState = completeConsensusActionsForHeightInState(nextState, block.Height, time.Now().UTC(), "block imported")
 	if err := s.writeState(nextState); err != nil {
 		return err
 	}
@@ -493,6 +500,7 @@ func (s *Store) snapshotLocked() persistedState {
 		Proposals:               cloneProposals(s.proposals),
 		Votes:                   cloneVoteRecords(s.votes),
 		CommitCertificates:      cloneCommitCertificates(s.commitCertificates),
+		ConsensusActions:        cloneConsensusActions(s.consensusActions),
 	}
 }
 
@@ -506,6 +514,7 @@ func (s *Store) applyStateLocked(state persistedState) {
 	s.proposals = cloneProposals(state.Proposals)
 	s.votes = cloneVoteRecords(state.Votes)
 	s.commitCertificates = cloneCommitCertificates(state.CommitCertificates)
+	s.consensusActions = cloneConsensusActions(state.ConsensusActions)
 	s.committedTransactions = make(map[string]struct{}, len(state.CommittedTransactionIDs))
 	for _, id := range state.CommittedTransactionIDs {
 		s.committedTransactions[id] = struct{}{}
@@ -746,6 +755,7 @@ func normalizeState(state persistedState) persistedState {
 	if state.CommitCertificates == nil {
 		state.CommitCertificates = make([]CommitCertificate, 0)
 	}
+	state.ConsensusActions = normalizeConsensusActions(state.ConsensusActions)
 	state.ValidatorSnapshot = normalizeValidatorSnapshot(state.ValidatorSnapshot)
 	state.RoundState = normalizeConsensusRoundState(state.RoundState, state.Blocks)
 	state.CommittedTransactionIDs = uniqueSortedStrings(state.CommittedTransactionIDs)
@@ -766,6 +776,7 @@ func snapshotFromPersisted(state persistedState) Snapshot {
 		Proposals:               cloneProposals(state.Proposals),
 		Votes:                   cloneVoteRecords(state.Votes),
 		CommitCertificates:      cloneCommitCertificates(state.CommitCertificates),
+		ConsensusActions:        cloneConsensusActions(state.ConsensusActions),
 	}
 }
 
@@ -781,6 +792,7 @@ func persistedFromSnapshot(snapshot Snapshot) persistedState {
 		Proposals:               cloneProposals(snapshot.Proposals),
 		Votes:                   cloneVoteRecords(snapshot.Votes),
 		CommitCertificates:      cloneCommitCertificates(snapshot.CommitCertificates),
+		ConsensusActions:        cloneConsensusActions(snapshot.ConsensusActions),
 	})
 }
 

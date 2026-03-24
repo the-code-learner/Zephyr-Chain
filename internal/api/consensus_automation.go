@@ -97,8 +97,19 @@ func (s *Server) maybeAdvanceConsensusRound(now time.Time) error {
 		return nil
 	}
 
-	_, err := s.ledger.AdvanceRound(now)
-	return err
+	nextRound, err := s.ledger.AdvanceRound(now)
+	if err != nil {
+		return err
+	}
+	return s.ledger.RecordConsensusAction(ledger.ConsensusAction{
+		Type:       ledger.ConsensusActionRoundAdvance,
+		Height:     nextRound.Height,
+		Round:      nextRound.Round,
+		Validator:  s.config.ValidatorAddress,
+		RecordedAt: now,
+		Status:     ledger.ConsensusActionCompleted,
+		Note:       "advanced round after timeout",
+	})
 }
 
 func (s *Server) maybeAutomateProposal(now time.Time) (bool, error) {
@@ -140,7 +151,15 @@ func (s *Server) maybeAutomateProposal(now time.Time) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	if err := s.ledger.RecordProposal(signedProposal); err != nil {
+	if err := s.ledger.RecordProposalWithAction(signedProposal, &ledger.ConsensusAction{
+		Type:       ledger.ConsensusActionProposal,
+		Height:     signedProposal.Height,
+		Round:      signedProposal.Round,
+		BlockHash:  signedProposal.BlockHash,
+		Validator:  signedProposal.Proposer,
+		RecordedAt: signedProposal.ProposedAt,
+		Note:       "automated local proposal",
+	}); err != nil {
 		return false, err
 	}
 
@@ -170,7 +189,15 @@ func (s *Server) maybeAutomateVote(now time.Time) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	if _, _, err := s.ledger.RecordVote(vote); err != nil {
+	if _, _, err := s.ledger.RecordVoteWithAction(vote, &ledger.ConsensusAction{
+		Type:       ledger.ConsensusActionVote,
+		Height:     vote.Height,
+		Round:      vote.Round,
+		BlockHash:  vote.BlockHash,
+		Validator:  vote.Voter,
+		RecordedAt: vote.VotedAt,
+		Note:       "automated local vote",
+	}); err != nil {
 		return false, err
 	}
 
@@ -189,6 +216,9 @@ func (s *Server) maybeRebroadcastProposal() {
 	}
 
 	s.broadcastProposal(*proposal)
+	if err := s.ledger.MarkConsensusActionReplayed(ledger.ConsensusActionProposal, proposal.Height, proposal.Round, proposal.BlockHash, proposal.Proposer, time.Now().UTC()); err != nil {
+		recordPeerLog("consensus-wal-replay-proposal", err)
+	}
 }
 
 func (s *Server) maybeRebroadcastVote() {
@@ -202,6 +232,9 @@ func (s *Server) maybeRebroadcastVote() {
 	}
 
 	s.broadcastVote(*vote)
+	if err := s.ledger.MarkConsensusActionReplayed(ledger.ConsensusActionVote, vote.Height, vote.Round, vote.BlockHash, vote.Voter, time.Now().UTC()); err != nil {
+		recordPeerLog("consensus-wal-replay-vote", err)
+	}
 }
 
 func (s *Server) maybeAutomateCommit() error {
