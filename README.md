@@ -31,15 +31,15 @@ Implemented today:
 
 Implemented in this iteration:
 
-- `GET /v1/peers` now exposes per-peer sync telemetry including `syncState`, `heightDelta`, last sync attempt/success, last import failure, and last snapshot-restore metadata
-- background peer sync now distinguishes normal alignment, peer-behind, divergence repair, import-blocked, and snapshot-restored paths on the peer view instead of collapsing those cases into a generic sync success or failure
-- same-height divergence repair and consensus import repair now leave peer-specific operator evidence, including `peer_diverged` vs `import_repair` snapshot reasons and the last import error code for that peer
-- focused tests now cover same-height divergence repair telemetry and peer-sync import-repair telemetry in addition to the broader recovery and diagnostic preservation work
+- `GET /v1/peers` now exposes durable per-peer sync incident history through `recentIncidents` alongside the live `syncState`, `heightDelta`, last sync attempt/success, last import failure, and last snapshot-restore metadata
+- `GET /v1/status`, `GET /v1/consensus`, and `GET /v1/dev/block-template` now expose a durable `peerSyncHistory` surface so operators can correlate recent peer incidents across the node instead of relying only on live peer views
+- peer sync incidents are now durably recorded in the ledger, merged when the same peer failure repeats, preserved across restart, and preserved when peer snapshot repair replaces chain state
+- focused tests now cover same-height divergence repair telemetry, peer-sync import-repair telemetry, durable peer-incident persistence across restart, and preservation through peer snapshot restore
 
 Planned but not implemented yet:
 
 - authenticated peer discovery and replay-safe transport over libp2p on top of the new HTTP admission and binding policy
-- broader consensus recovery coverage beyond the current local proposal, vote, peer-import, snapshot-recovery, and per-peer sync-telemetry surfaces
+- broader consensus recovery coverage plus multi-peer incident aggregation, logs, and metrics beyond the current local proposal, vote, peer-import, snapshot-recovery, and durable peer-sync history surfaces
 - on-chain staking and governance-driven validator updates instead of ad hoc election API writes
 - deterministic WASM smart-contract runtime with native fee metering
 - confidential compute marketplace for encrypted off-chain jobs paid in native tokens
@@ -281,8 +281,8 @@ VITE_ZEPHYR_API_BASE=http://localhost:8080
 
 - the current multi-node layer is still HTTP-based under the new transport abstraction, not libp2p networking
 - peer admission and validator pinning can now be enforced over the current HTTP transport, but peer discovery is still static configuration rather than libp2p
-- the round engine now supports timeout-driven proposer rotation, latest-artifact rebroadcast after link recovery, richer `roundEvidence`, per-height `roundHistory`, `blockReadiness`, import-aware `recovery`, per-peer sync telemetry, bounded rejection diagnostics, and local consensus-action WAL replay across restart, but broader recovery tooling is still missing
-- crash recovery now persists active round metadata plus a bounded local consensus-action WAL, and peer snapshot restore preserves local recovery and diagnostics, but replay coverage is still centered on local proposal, vote, and import-repair paths rather than the full consensus lifecycle
+- the round engine now supports timeout-driven proposer rotation, latest-artifact rebroadcast after link recovery, richer `roundEvidence`, per-height `roundHistory`, `blockReadiness`, import-aware `recovery`, durable peer-sync incident history, bounded rejection diagnostics, and local consensus-action WAL replay across restart, but broader recovery tooling is still missing
+- crash recovery now persists active round metadata plus a bounded local consensus-action WAL, and peer snapshot restore preserves local recovery, diagnostics, and peer-sync incident history, but replay coverage is still centered on local proposal, vote, and import-repair paths rather than the full consensus lifecycle
 - DPoS elections still happen through an API call, not an on-chain staking/governance flow
 - snapshot restore is a state catch-up mechanism, not a trust-minimized proof-based sync protocol
 - WASM smart-contract execution is planned, but not implemented yet
@@ -298,7 +298,7 @@ The production roadmap now lives in [docs/roadmap.md](./docs/roadmap.md).
 Short version:
 
 1. Move the new enforced HTTP peer-admission and validator-binding policy toward authenticated libp2p discovery plus replay-safe transport behavior.
-2. Extend the new `blockReadiness`, `roundHistory`, `roundEvidence`, `recovery`, `diagnostics`, and per-peer sync telemetry into broader recovery, peer-import diagnosis, and production incident tooling.
+2. Extend the new `blockReadiness`, `roundHistory`, `roundEvidence`, `recovery`, `diagnostics`, `peerSyncHistory`, and per-peer `recentIncidents` into broader recovery, multi-peer diagnosis, and production incident tooling.
 3. Move validator lifecycle changes behind staking, delegation, slashing, and governance state transitions.
 4. Add deterministic WASM execution, native fee metering, and the confidential compute lane.
 5. Add production observability, recovery tooling, and public testnet operations.
@@ -315,6 +315,7 @@ Short version:
 ## License
 
 Zephyr Chain is licensed under the MIT License. See [LICENSE](./LICENSE).
+
 
 
 

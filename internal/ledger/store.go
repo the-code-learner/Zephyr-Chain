@@ -96,6 +96,7 @@ type Snapshot struct {
 	CommitCertificates      []CommitCertificate     `json:"commitCertificates"`
 	ConsensusActions        []ConsensusAction       `json:"consensusActions"`
 	ConsensusDiagnostics    []ConsensusDiagnostic   `json:"consensusDiagnostics"`
+	PeerSyncIncidents       []PeerSyncIncident      `json:"peerSyncIncidents"`
 }
 
 type pendingState struct {
@@ -117,6 +118,7 @@ type persistedState struct {
 	CommitCertificates      []CommitCertificate     `json:"commitCertificates"`
 	ConsensusActions        []ConsensusAction       `json:"consensusActions"`
 	ConsensusDiagnostics    []ConsensusDiagnostic   `json:"consensusDiagnostics"`
+	PeerSyncIncidents       []PeerSyncIncident      `json:"peerSyncIncidents"`
 }
 
 type Store struct {
@@ -136,6 +138,7 @@ type Store struct {
 	commitCertificates    []CommitCertificate
 	consensusActions      []ConsensusAction
 	consensusDiagnostics  []ConsensusDiagnostic
+	peerSyncIncidents     []PeerSyncIncident
 }
 
 func NewStore(dataDir string) (*Store, error) {
@@ -163,6 +166,7 @@ func NewStore(dataDir string) (*Store, error) {
 		commitCertificates:    make([]CommitCertificate, 0),
 		consensusActions:      make([]ConsensusAction, 0),
 		consensusDiagnostics:  make([]ConsensusDiagnostic, 0),
+		peerSyncIncidents:     make([]PeerSyncIncident, 0),
 	}
 
 	if err := store.load(); err != nil {
@@ -507,6 +511,7 @@ func (s *Store) snapshotLocked() persistedState {
 		CommitCertificates:      cloneCommitCertificates(s.commitCertificates),
 		ConsensusActions:        cloneConsensusActions(s.consensusActions),
 		ConsensusDiagnostics:    cloneConsensusDiagnostics(s.consensusDiagnostics),
+		PeerSyncIncidents:       clonePeerSyncIncidents(s.peerSyncIncidents),
 	}
 }
 
@@ -522,6 +527,7 @@ func (s *Store) applyStateLocked(state persistedState) {
 	s.commitCertificates = cloneCommitCertificates(state.CommitCertificates)
 	s.consensusActions = cloneConsensusActions(state.ConsensusActions)
 	s.consensusDiagnostics = cloneConsensusDiagnostics(state.ConsensusDiagnostics)
+	s.peerSyncIncidents = clonePeerSyncIncidents(state.PeerSyncIncidents)
 	s.committedTransactions = make(map[string]struct{}, len(state.CommittedTransactionIDs))
 	for _, id := range state.CommittedTransactionIDs {
 		s.committedTransactions[id] = struct{}{}
@@ -768,6 +774,7 @@ func normalizeState(state persistedState) persistedState {
 	}
 	state.ConsensusActions = normalizeConsensusActions(state.ConsensusActions)
 	state.ConsensusDiagnostics = normalizeConsensusDiagnostics(state.ConsensusDiagnostics)
+	state.PeerSyncIncidents = normalizePeerSyncIncidents(state.PeerSyncIncidents)
 	state.ValidatorSnapshot = normalizeValidatorSnapshot(state.ValidatorSnapshot)
 	state.RoundState = normalizeConsensusRoundState(state.RoundState, state.Blocks)
 	state.CommittedTransactionIDs = uniqueSortedStrings(state.CommittedTransactionIDs)
@@ -790,6 +797,7 @@ func snapshotFromPersisted(state persistedState) Snapshot {
 		CommitCertificates:      cloneCommitCertificates(state.CommitCertificates),
 		ConsensusActions:        cloneConsensusActions(state.ConsensusActions),
 		ConsensusDiagnostics:    cloneConsensusDiagnostics(state.ConsensusDiagnostics),
+		PeerSyncIncidents:       clonePeerSyncIncidents(state.PeerSyncIncidents),
 	}
 }
 
@@ -807,6 +815,7 @@ func persistedFromSnapshot(snapshot Snapshot) persistedState {
 		CommitCertificates:      cloneCommitCertificates(snapshot.CommitCertificates),
 		ConsensusActions:        cloneConsensusActions(snapshot.ConsensusActions),
 		ConsensusDiagnostics:    cloneConsensusDiagnostics(snapshot.ConsensusDiagnostics),
+		PeerSyncIncidents:       clonePeerSyncIncidents(snapshot.PeerSyncIncidents),
 	})
 }
 

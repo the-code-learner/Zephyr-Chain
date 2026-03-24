@@ -909,6 +909,18 @@ func TestStoreRestoreFromPeerSnapshotPreservesLocalRecoveryAndDiagnostics(t *tes
 	}); err != nil {
 		t.Fatalf("record diagnostic: %v", err)
 	}
+	if err := replica.RecordPeerSyncIncident(PeerSyncIncident{
+		PeerURL:         "http://producer.example",
+		State:           "unreachable",
+		LocalHeight:     0,
+		PeerHeight:      block.Height,
+		HeightDelta:     int64(block.Height),
+		ErrorMessage:    "dial tcp timeout",
+		FirstObservedAt: time.Date(2026, time.March, 24, 17, 1, 0, 0, time.UTC),
+		LastObservedAt:  time.Date(2026, time.March, 24, 17, 1, 0, 0, time.UTC),
+	}); err != nil {
+		t.Fatalf("record peer sync incident: %v", err)
+	}
 
 	restoredAt := time.Date(2026, time.March, 24, 17, 5, 0, 0, time.UTC)
 	if err := replica.RestoreFromPeerSnapshot(producer.Snapshot(), restoredAt); err != nil {
@@ -945,7 +957,89 @@ func TestStoreRestoreFromPeerSnapshotPreservesLocalRecoveryAndDiagnostics(t *tes
 	if diagnostics.Recent[0].Kind != "block_import_rejected" || diagnostics.Recent[0].Code != "proposal_required" || diagnostics.Recent[0].Source != "peer_sync" {
 		t.Fatalf("unexpected diagnostics after peer snapshot restore: %+v", diagnostics.Recent)
 	}
+
+	history := replica.PeerSyncHistory()
+	if len(history.Recent) == 0 {
+		t.Fatal("expected preserved peer sync history after peer snapshot restore")
+	}
+	if history.Recent[0].PeerURL != "http://producer.example" || history.Recent[0].State != "unreachable" {
+		t.Fatalf("unexpected peer sync history after peer snapshot restore: %+v", history.Recent)
+	}
 }
+
+func TestStorePeerSyncHistoryPersistsAcrossRestartAndMergesRepeatedIncidents(t *testing.T) {
+	dataDir := t.TempDir()
+	store, err := NewStore(dataDir)
+	if err != nil {
+		t.Fatalf("create store: %v", err)
+	}
+
+	firstObservedAt := time.Date(2026, time.March, 24, 19, 0, 0, 0, time.UTC)
+	secondObservedAt := firstObservedAt.Add(45 * time.Second)
+	thirdObservedAt := firstObservedAt.Add(90 * time.Second)
+	if err := store.RecordPeerSyncIncident(PeerSyncIncident{
+		PeerURL:         "http://peer-a.example",
+		State:           "unreachable",
+		LocalHeight:     3,
+		PeerHeight:      1,
+		HeightDelta:     -2,
+		ErrorMessage:    "dial tcp timeout",
+		FirstObservedAt: firstObservedAt,
+		LastObservedAt:  firstObservedAt,
+	}); err != nil {
+		t.Fatalf("record first peer incident: %v", err)
+	}
+	if err := store.RecordPeerSyncIncident(PeerSyncIncident{
+		PeerURL:         "http://peer-a.example",
+		State:           "unreachable",
+		LocalHeight:     3,
+		PeerHeight:      1,
+		HeightDelta:     -2,
+		ErrorMessage:    "dial tcp timeout",
+		FirstObservedAt: secondObservedAt,
+		LastObservedAt:  secondObservedAt,
+	}); err != nil {
+		t.Fatalf("record repeated peer incident: %v", err)
+	}
+	if err := store.RecordPeerSyncIncident(PeerSyncIncident{
+		PeerURL:         "http://peer-b.example",
+		State:           "snapshot_restored",
+		Reason:          "peer_diverged",
+		LocalHeight:     1,
+		PeerHeight:      1,
+		HeightDelta:     0,
+		BlockHash:       testHash("peer-sync-history"),
+		FirstObservedAt: thirdObservedAt,
+		LastObservedAt:  thirdObservedAt,
+	}); err != nil {
+		t.Fatalf("record snapshot peer incident: %v", err)
+	}
+
+	reopened, err := NewStore(dataDir)
+	if err != nil {
+		t.Fatalf("reopen store: %v", err)
+	}
+
+	history := reopened.PeerSyncHistory()
+	if len(history.Recent) != 2 {
+		t.Fatalf("expected 2 recent peer incidents, got %+v", history.Recent)
+	}
+	if history.Recent[0].PeerURL != "http://peer-b.example" || history.Recent[0].State != "snapshot_restored" || history.Recent[0].Reason != "peer_diverged" {
+		t.Fatalf("unexpected newest peer incident %+v", history.Recent[0])
+	}
+
+	peerA := reopened.PeerSyncIncidents("http://peer-a.example", 5)
+	if len(peerA) != 1 {
+		t.Fatalf("expected 1 merged peer-a incident, got %+v", peerA)
+	}
+	if peerA[0].Occurrences != 2 {
+		t.Fatalf("expected merged occurrence count 2, got %+v", peerA[0])
+	}
+	if !peerA[0].FirstObservedAt.Equal(firstObservedAt) || !peerA[0].LastObservedAt.Equal(secondObservedAt) {
+		t.Fatalf("unexpected merged incident timestamps %+v", peerA[0])
+	}
+}
+
 func newTestStore(t *testing.T) *Store {
 	t.Helper()
 

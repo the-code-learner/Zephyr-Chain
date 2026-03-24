@@ -12,7 +12,7 @@ Today the codebase is best suited for:
 
 - wallet, transaction, and settlement demos on a single node or a small admitted-peer devnet
 - validator scheduling, certificate-gated commit, and round-timeout recovery experiments
-- operator drills around peer identity, peer admission, delayed peer recovery, per-peer sync telemetry, partial quorum, reproposal, per-height round history, block readiness, pending import backlog, snapshot-restore history, rejection diagnostics, and state catch-up
+- operator drills around peer identity, peer admission, delayed peer recovery, durable per-peer incident history, partial quorum, reproposal, per-height round history, block readiness, pending import backlog, snapshot-restore history, rejection diagnostics, and state catch-up
 - product prototyping for applications that need auditable transfers plus predictable validator coordination
 - architecture work for teams that want to design on top of a Rust-first WASM and confidential-compute roadmap before those phases land
 
@@ -72,7 +72,7 @@ Why it fits:
 Production prerequisites:
 
 - stronger sync trust models
-- richer operator evidence and incident tooling
+- richer operator evidence, durable incident history, and production incident tooling
 - governance around validator membership changes
 
 ### Supply Chain, Provenance, And Shared Audit Trails
@@ -139,5 +139,6 @@ Zephyr is not yet a good production choice for:
 - environments that require mature slashing, governance, or crash-recovery guarantees right now
 
 Those are roadmap targets, not present-day claims.
+
 
 

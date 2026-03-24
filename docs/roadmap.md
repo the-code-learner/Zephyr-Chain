@@ -33,15 +33,16 @@ As of this iteration, the repository has:
 - `blockReadiness` on status, consensus, and block-template endpoints so operators can see whether the local template matches stored proposals and certificates for the pending height
 - latest local proposal and latest local vote rebroadcast for the pending height during delayed peer recovery
 - explicit pending `block_import` recovery actions plus durable `snapshot_restore` history for peer-import repair and snapshot catch-up
-- peer views that now expose `syncState`, `heightDelta`, last import failure, and last snapshot-restore metadata per configured peer
-- a bounded local consensus-action WAL with pending/completed status, replay-attempt metadata, restart-safe persistence, and explicit import-recovery plus snapshot-restore history
+- peer views that now expose `syncState`, `heightDelta`, last import failure, last snapshot-restore metadata, and durable per-peer `recentIncidents` history per configured peer
+- status, consensus, and block-template endpoints that now expose durable `peerSyncHistory` so operators can correlate recent peer incidents across the node
+- a bounded local consensus-action WAL with pending/completed status, replay-attempt metadata, restart-safe persistence, explicit import-recovery plus snapshot-restore history, and durable peer-sync incident history
 - bounded recent consensus diagnostics for rejected proposal, vote, commit, and import paths, including explicit `template_mismatch` and peer-sync import failures
 - a browser wallet that can create accounts, sign locally, and submit transactions
 
 What it still does not have:
 
 - authenticated peer discovery and replay-safe transport over libp2p
-- broader recovery and transport-facing incident evidence beyond the current local round history, block readiness, warnings, per-peer sync telemetry, import backlog, snapshot-restore history, and rejection history
+- broader recovery and transport-facing incident evidence beyond the current local round history, block readiness, warnings, durable peer-sync history, import backlog, snapshot-restore history, and rejection history with only lightweight cross-peer aggregation so far
 - broader recovery coverage beyond the current local proposal/vote WAL plus peer-import and snapshot-recovery path
 - on-chain staking/governance-driven validator updates
 - WASM contracts, fee metering, or compute markets
@@ -87,11 +88,11 @@ Status:
 - valid higher-round proposals and votes can move a node onto the newer round instead of being rejected just because the local timer had not fired yet
 - a first timeout-driven engine now exists: the scheduled proposer can self-propose, active validators can auto-vote, timeout can rotate the proposer, the next proposer can reuse the latest stored candidate body, and the proposer can auto-commit after quorum when certificate enforcement is enabled
 - proposal and vote broadcasts on the automation path are now sent in-order to avoid vote-before-proposal races on the happy path
-- the current automation path now has delayed-link proposal and vote recovery, richer round evidence, per-height round history, block readiness, import-aware recovery state, per-peer sync telemetry, bounded rejection diagnostics, and a restart-safe local proposal/vote WAL plus snapshot-repair history, but it still lacks broader recovery coverage and deeper cross-peer incident evidence
+- the current automation path now has delayed-link proposal and vote recovery, richer round evidence, per-height round history, block readiness, import-aware recovery state, durable peer-sync history, bounded rejection diagnostics, and a restart-safe local proposal/vote WAL plus snapshot-repair history, but it still lacks broader recovery coverage and deeper cross-peer incident evidence
 
 Next steps:
 
-1. Extend the new `blockReadiness`, `roundHistory`, `roundEvidence`, `recovery`, `diagnostics`, and per-peer sync telemetry into deeper peer-import, divergence, and broader recovery diagnosis flows.
+1. Extend the new `blockReadiness`, `roundHistory`, `roundEvidence`, `recovery`, `diagnostics`, `peerSyncHistory`, and per-peer `recentIncidents` into deeper peer-import, divergence, and broader multi-peer recovery diagnosis flows.
 2. Extend the current local proposal/vote WAL plus import-repair history into broader consensus recovery coverage where more in-flight actions can resume safely after restart.
 3. Add deterministic multi-node integration tests for certified happy path, conflicting proposals, timeout and re-proposal, restart during a round, rejection diagnostics, and recovery from partial quorum.
 4. Keep tightening the transport-backed consensus loop so proposal and vote recovery remain correct when peers reconnect after advancing rounds.
@@ -110,7 +111,7 @@ Status:
 - a transport abstraction now exists
 - the active transport is still static peer URLs over HTTP
 - validator nodes can attach signed identity proofs to replicated requests and expose the same proof through status
-- peer views can verify that proof, enforce strict peer admission, pin configured peers to expected validator identities, and expose per-peer sync/repair telemetry
+- peer views can verify that proof, enforce strict peer admission, pin configured peers to expected validator identities, and expose per-peer sync/repair telemetry plus durable peer-incident history
 - admitted-peer policy already gates current HTTP sync and replication behavior
 - proposal, vote, and certified-block replication already ride over that abstraction
 - the timeout-driven automation slice already uses that transport for proposal and vote dissemination
@@ -123,7 +124,7 @@ Next steps:
 2. Add transport-level duplicate suppression, replay-safe message handling, and explicit message identifiers for consensus artifacts.
 3. Separate dev snapshot restore from production state sync so operators can choose explicit trust models.
 4. Add checkpointing, snapshot metadata, and verification hooks for state transfer.
-5. Add structured logs, metrics, and health surfaces for validator, sync, admission, transport, automation, and multi-peer repair operations.
+5. Add structured logs, metrics, health surfaces, and multi-peer incident aggregation for validator, sync, admission, transport, automation, and repair operations.
 
 Exit criteria:
 
@@ -194,6 +195,9 @@ Broad direction:
 - upgrade strategy and rollback planning
 - monitoring, alerts, and SLOs for operators
 - staged path from devnet to public testnet to mainnet
+
+
+
 
 
 
