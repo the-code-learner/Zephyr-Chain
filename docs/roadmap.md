@@ -20,12 +20,13 @@ As of this iteration, the repository has:
 - signed proposal and vote messages validated with Zephyr addresses plus P-256 signatures
 - proposals that now commit to deterministic template fields: `previousHash`, `producedAt`, ordered `transactionIds`, and the derived `blockHash`
 - a shared hash function between consensus proposals and block production so both sides derive candidate hashes identically
+- signed validator transport-identity proofs derived from `ZEPHYR_VALIDATOR_PRIVATE_KEY` and surfaced through status plus peer verification views
 - optional certificate-gated local block commit and remote block import behind `ZEPHYR_REQUIRE_CONSENSUS_CERTIFICATES`
 - a browser wallet that can create accounts, sign locally, and submit transactions
 
 What it still does not have:
 
-- authenticated validator networking
+- strict peer admission and authenticated peer discovery built on top of the new transport-identity proof
 - proposal dissemination that carries enough candidate data for validators to verify without relying on local mempool mirroring alone
 - round timeout and re-proposal handling
 - restart-safe round recovery and operator evidence tooling
@@ -66,15 +67,16 @@ Status:
 - proposals now commit to concrete template fields, not only a loose block hash
 - quorum certificates are derived and persisted when vote power crosses quorum
 - nodes can optionally require a matching proposal and certificate before local block commit or remote block import
+- validator nodes can now prove which validator they represent over the current transport and peers surface verification state for that proof
 - the current proposal/certificate path is still an operator-driven dev flow, not a full round engine
 
 Next steps:
 
-1. Bind validator identity to network identity so a node can prove which validator it represents.
-2. Extend proposal dissemination so validators can verify a candidate from the proposal path itself instead of depending on local mempool convergence and out-of-band template fetches.
+1. Extend proposal dissemination so validators can verify a candidate from the proposal path itself instead of depending on local mempool convergence and out-of-band template fetches.
+2. Turn the new signed transport-identity proof into explicit peer admission rules and validator-to-peer binding checks.
 3. Add round timeout handling, proposer rotation within a round sequence, and re-proposal flows.
 4. Persist round state, evidence, and operator-facing recovery data for restart-safe recovery.
-5. Add deterministic integration tests for certified happy path, mismatched template fields, conflicting proposals, restart during a round, and recovery from partial quorum.
+5. Add deterministic integration tests for certified happy path, mismatched template fields, invalid identity proof, conflicting proposals, restart during a round, and recovery from partial quorum.
 
 Exit criteria:
 
@@ -88,6 +90,8 @@ Status:
 
 - a transport abstraction now exists
 - the active transport is still static peer URLs over HTTP
+- validator nodes can now attach signed identity proofs to replicated requests and expose the same proof through status
+- peer views can verify and surface that proof today, but admission is not enforced yet
 - certified block checks can already run over that abstraction
 - behind nodes can fetch blocks or restore full snapshots
 - sync is convenient, but not trust-minimized or production-safe
@@ -95,8 +99,8 @@ Status:
 Next steps:
 
 1. Replace static peer configuration with authenticated peer discovery over libp2p.
-2. Bind transport identity, validator identity, and peer admission rules together.
-3. Add transport-level authentication, duplicate suppression, and replay-safe message handling.
+2. Enforce peer admission rules that pin configured peers to the validator identity they prove.
+3. Add transport-level duplicate suppression, replay-safe message handling, and stricter policy for unsigned legacy peers.
 4. Separate dev snapshot restore from production state sync so operators can choose explicit trust models.
 5. Add checkpointing, snapshot metadata, and verification hooks for state transfer.
 6. Add structured logs, metrics, and health surfaces for validator, sync, and transport operations.
@@ -170,3 +174,4 @@ Broad direction:
 - upgrade strategy and rollback planning
 - monitoring, alerts, and SLOs for operators
 - staged path from devnet to public testnet to mainnet
+

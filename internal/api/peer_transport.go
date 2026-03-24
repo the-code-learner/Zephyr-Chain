@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/zephyr-chain/zephyr-chain/internal/consensus"
 	"github.com/zephyr-chain/zephyr-chain/internal/ledger"
@@ -23,12 +24,13 @@ type peerTransport interface {
 }
 
 type httpPeerTransport struct {
-	client     *http.Client
-	sourceNode string
+	client         *http.Client
+	sourceNode     string
+	identitySigner *transportIdentitySigner
 }
 
-func newHTTPPeerTransport(client *http.Client, sourceNode string) peerTransport {
-	return &httpPeerTransport{client: client, sourceNode: sourceNode}
+func newHTTPPeerTransport(client *http.Client, sourceNode string, identitySigner *transportIdentitySigner) peerTransport {
+	return &httpPeerTransport{client: client, sourceNode: sourceNode, identitySigner: identitySigner}
 }
 
 func (t *httpPeerTransport) FetchStatus(peerURL string) (StatusResponse, error) {
@@ -114,6 +116,17 @@ func (t *httpPeerTransport) postJSON(target string, payload any) error {
 	}
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set(sourceNodeHeader, t.sourceNode)
+	if t.identitySigner != nil {
+		identity, err := t.identitySigner.Build(time.Now().UTC())
+		if err != nil {
+			return err
+		}
+		request.Header.Set(sourceValidatorHeader, identity.ValidatorAddress)
+		request.Header.Set(sourceIdentityPayloadHeader, identity.Payload)
+		request.Header.Set(sourcePublicKeyHeader, identity.PublicKey)
+		request.Header.Set(sourceSignatureHeader, identity.Signature)
+		request.Header.Set(sourceSignedAtHeader, identity.SignedAt.UTC().Format(time.RFC3339Nano))
+	}
 
 	response, err := t.client.Do(request)
 	if err != nil {

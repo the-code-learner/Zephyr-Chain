@@ -18,7 +18,14 @@ import (
 	"github.com/zephyr-chain/zephyr-chain/internal/tx"
 )
 
-const sourceNodeHeader = "X-Zephyr-Source-Node"
+const (
+	sourceNodeHeader            = "X-Zephyr-Source-Node"
+	sourceValidatorHeader       = "X-Zephyr-Source-Validator"
+	sourceIdentityPayloadHeader = "X-Zephyr-Source-Identity-Payload"
+	sourcePublicKeyHeader       = "X-Zephyr-Source-Public-Key"
+	sourceSignatureHeader       = "X-Zephyr-Source-Signature"
+	sourceSignedAtHeader        = "X-Zephyr-Source-Signed-At"
+)
 
 var (
 	errBlockProductionDisabled  = errors.New("block production is disabled on this node")
@@ -30,6 +37,7 @@ type Config struct {
 	DataDir                      string
 	NodeID                       string
 	ValidatorAddress             string
+	ValidatorPrivateKey          string
 	PeerURLs                     []string
 	BlockInterval                time.Duration
 	SyncInterval                 time.Duration
@@ -101,6 +109,7 @@ type StatusResponse struct {
 	PeerSyncEnabled               bool                 `json:"peerSyncEnabled"`
 	ProposerScheduleEnforced      bool                 `json:"proposerScheduleEnforced"`
 	ConsensusCertificatesRequired bool                 `json:"consensusCertificatesRequired"`
+	Identity                      *TransportIdentity   `json:"identity,omitempty"`
 	Status                        ledger.StatusView    `json:"status"`
 	Consensus                     ledger.ConsensusView `json:"consensus"`
 }
@@ -142,17 +151,18 @@ type SnapshotResponse struct {
 }
 
 type Server struct {
-	mux        *http.ServeMux
-	ledger     *ledger.Store
-	config     Config
-	nodeID     string
-	httpClient *http.Client
-	transport  peerTransport
-	peerMu     sync.RWMutex
-	peerViews  map[string]PeerView
-	stopCh     chan struct{}
-	wg         sync.WaitGroup
-	closeOnce  sync.Once
+	mux            *http.ServeMux
+	ledger         *ledger.Store
+	config         Config
+	nodeID         string
+	httpClient     *http.Client
+	transport      peerTransport
+	identitySigner *transportIdentitySigner
+	peerMu         sync.RWMutex
+	peerViews      map[string]PeerView
+	stopCh         chan struct{}
+	wg             sync.WaitGroup
+	closeOnce      sync.Once
 }
 
 func NewServer() *Server {
@@ -166,6 +176,11 @@ func NewServer() *Server {
 func NewServerWithConfig(config Config) (*Server, error) {
 	config = normalizeConfig(config)
 
+	identitySigner, config, err := newTransportIdentitySigner(config)
+	if err != nil {
+		return nil, err
+	}
+
 	store, err := ledger.NewStore(config.DataDir)
 	if err != nil {
 		return nil, err
@@ -173,14 +188,15 @@ func NewServerWithConfig(config Config) (*Server, error) {
 
 	client := &http.Client{Timeout: 5 * time.Second}
 	server := &Server{
-		mux:        http.NewServeMux(),
-		ledger:     store,
-		config:     config,
-		nodeID:     config.NodeID,
-		httpClient: client,
-		transport:  newHTTPPeerTransport(client, config.NodeID),
-		peerViews:  make(map[string]PeerView),
-		stopCh:     make(chan struct{}),
+		mux:            http.NewServeMux(),
+		ledger:         store,
+		config:         config,
+		nodeID:         config.NodeID,
+		httpClient:     client,
+		transport:      newHTTPPeerTransport(client, config.NodeID, identitySigner),
+		identitySigner: identitySigner,
+		peerViews:      make(map[string]PeerView),
+		stopCh:         make(chan struct{}),
 	}
 
 	server.routes()
@@ -232,7 +248,7 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, StatusResponse{
+	response := StatusResponse{
 		NodeID:                        s.nodeID,
 		ValidatorAddress:              s.config.ValidatorAddress,
 		PeerCount:                     len(s.config.PeerURLs),
@@ -242,7 +258,15 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		ConsensusCertificatesRequired: s.config.RequireConsensusCertificates,
 		Status:                        s.ledger.Status(),
 		Consensus:                     s.ledger.Consensus(),
-	})
+	}
+	if s.identitySigner != nil {
+		identity, err := s.identitySigner.Build(time.Now().UTC())
+		if err == nil {
+			response.Identity = &identity
+		}
+	}
+
+	writeJSON(w, http.StatusOK, response)
 }
 
 func (s *Server) handlePeers(w http.ResponseWriter, r *http.Request) {
@@ -316,6 +340,10 @@ func (s *Server) handleValidators(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleBroadcastTransaction(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	if err := validateRequestTransportIdentity(r); err != nil {
+		writeJSON(w, statusForError(err), map[string]string{"error": err.Error()})
 		return
 	}
 
@@ -416,6 +444,10 @@ func (s *Server) handleFaucet(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return
 	}
+	if err := validateRequestTransportIdentity(r); err != nil {
+		writeJSON(w, statusForError(err), map[string]string{"error": err.Error()})
+		return
+	}
 
 	var request FaucetRequest
 	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
@@ -489,6 +521,10 @@ func (s *Server) handleProduceBlock(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleImportBlock(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	if err := validateRequestTransportIdentity(r); err != nil {
+		writeJSON(w, statusForError(err), map[string]string{"error": err.Error()})
 		return
 	}
 
@@ -591,6 +627,7 @@ func normalizeConfig(config Config) Config {
 		config.NodeID = "node-local"
 	}
 	config.ValidatorAddress = strings.TrimSpace(config.ValidatorAddress)
+	config.ValidatorPrivateKey = strings.TrimSpace(config.ValidatorPrivateKey)
 	config.PeerURLs = normalizePeerURLs(config.PeerURLs)
 	if config.MaxTransactionsPerBlock <= 0 {
 		config.MaxTransactionsPerBlock = 100
@@ -629,7 +666,15 @@ func statusForError(err error) int {
 		errors.Is(err, consensus.ErrInvalidHeight),
 		errors.Is(err, consensus.ErrInvalidProducedAt),
 		errors.Is(err, consensus.ErrInvalidTransactionID),
-		errors.Is(err, consensus.ErrHashMismatch):
+		errors.Is(err, consensus.ErrHashMismatch),
+		errors.Is(err, errMissingTransportIdentityFields),
+		errors.Is(err, errInvalidTransportIdentityPayload),
+		errors.Is(err, errTransportIdentityTimestamp),
+		errors.Is(err, errInvalidTransportIdentityPublicKey),
+		errors.Is(err, errTransportIdentityAddressMismatch),
+		errors.Is(err, errInvalidTransportIdentitySignature),
+		errors.Is(err, errTransportIdentityNodeMismatch),
+		errors.Is(err, errTransportIdentityValidatorMismatch):
 		return http.StatusBadRequest
 	case errors.Is(err, ledger.ErrDuplicateTransaction),
 		errors.Is(err, ledger.ErrInvalidNonce),

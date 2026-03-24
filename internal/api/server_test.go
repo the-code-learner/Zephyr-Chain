@@ -10,6 +10,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"math/big"
 	"net/http"
 	"net/http/httptest"
@@ -115,6 +116,98 @@ func TestHandleBroadcastTransactionAcceptsFundedTransaction(t *testing.T) {
 	server.Handler().ServeHTTP(recorder, request)
 	if recorder.Code != http.StatusAccepted {
 		t.Fatalf("expected status 202, got %d", recorder.Code)
+	}
+}
+
+func TestHandleStatusExposesSignedTransportIdentity(t *testing.T) {
+	signer := newConsensusSigner(t)
+	server := newTestServer(t, Config{
+		DataDir:               t.TempDir(),
+		NodeID:                "node-a",
+		ValidatorPrivateKey:   encodedPrivateKey(t, signer.privateKey),
+		BlockInterval:         0,
+		SyncInterval:          0,
+		EnableBlockProduction: false,
+		EnablePeerSync:        false,
+	})
+
+	request := httptest.NewRequest(http.MethodGet, "/v1/status", nil)
+	recorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", recorder.Code)
+	}
+
+	var response StatusResponse
+	if err := json.NewDecoder(recorder.Body).Decode(&response); err != nil {
+		t.Fatalf("decode status response: %v", err)
+	}
+	if response.ValidatorAddress != signer.address {
+		t.Fatalf("expected validator address %s, got %s", signer.address, response.ValidatorAddress)
+	}
+	if response.Identity == nil {
+		t.Fatal("expected signed transport identity in status response")
+	}
+	if response.Identity.NodeID != response.NodeID {
+		t.Fatalf("expected identity node %s, got %s", response.NodeID, response.Identity.NodeID)
+	}
+	if err := response.Identity.ValidateAt(time.Now().UTC()); err != nil {
+		t.Fatalf("validate transport identity: %v", err)
+	}
+}
+
+func TestNewServerWithConfigRejectsMismatchedValidatorIdentity(t *testing.T) {
+	signer := newConsensusSigner(t)
+	_, err := NewServerWithConfig(Config{
+		DataDir:               t.TempDir(),
+		NodeID:                "node-a",
+		ValidatorAddress:      "zph_other_validator",
+		ValidatorPrivateKey:   encodedPrivateKey(t, signer.privateKey),
+		BlockInterval:         0,
+		SyncInterval:          0,
+		EnableBlockProduction: false,
+		EnablePeerSync:        false,
+	})
+	if !errors.Is(err, errValidatorIdentityMismatch) {
+		t.Fatalf("expected validator identity mismatch error, got %v", err)
+	}
+}
+
+func TestHandleBroadcastTransactionRejectsInvalidTransportIdentity(t *testing.T) {
+	server := newTestServer(t, Config{
+		DataDir:                 t.TempDir(),
+		BlockInterval:           0,
+		SyncInterval:            0,
+		MaxTransactionsPerBlock: 10,
+		EnableBlockProduction:   true,
+		EnablePeerSync:          false,
+	})
+
+	envelope := signedEnvelope(t, 25, 1, "peer-identity")
+	if _, err := server.ledger.Credit(envelope.From, 100); err != nil {
+		t.Fatalf("credit sender: %v", err)
+	}
+	body, err := json.Marshal(envelope)
+	if err != nil {
+		t.Fatalf("marshal transaction: %v", err)
+	}
+
+	signer := newConsensusSigner(t)
+	identity := signedTransportIdentity(t, signer, "peer-node", time.Now().UTC())
+	identity.Signature = base64.StdEncoding.EncodeToString(make([]byte, 64))
+
+	request := httptest.NewRequest(http.MethodPost, "/v1/transactions", bytes.NewReader(body))
+	request.Header.Set(sourceNodeHeader, identity.NodeID)
+	request.Header.Set(sourceValidatorHeader, identity.ValidatorAddress)
+	request.Header.Set(sourceIdentityPayloadHeader, identity.Payload)
+	request.Header.Set(sourcePublicKeyHeader, identity.PublicKey)
+	request.Header.Set(sourceSignatureHeader, identity.Signature)
+	request.Header.Set(sourceSignedAtHeader, identity.SignedAt.UTC().Format(time.RFC3339Nano))
+	recorder := httptest.NewRecorder()
+
+	server.Handler().ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("expected status 400, got %d", recorder.Code)
 	}
 }
 
@@ -493,6 +586,52 @@ func TestHandleBlockTemplateAndConsensusGatedProduceBlock(t *testing.T) {
 		t.Fatalf("expected produced block hash %s, got %s", templateResponse.Block.Hash, produceResponse.Block.Hash)
 	}
 }
+func TestPeerSyncRecordsVerifiedTransportIdentity(t *testing.T) {
+	peerSigner := newConsensusSigner(t)
+	peerServer := newTestServer(t, Config{
+		DataDir:                 t.TempDir(),
+		NodeID:                  "node-b",
+		ValidatorPrivateKey:     encodedPrivateKey(t, peerSigner.privateKey),
+		BlockInterval:           0,
+		SyncInterval:            0,
+		MaxTransactionsPerBlock: 10,
+		EnableBlockProduction:   false,
+		EnablePeerSync:          false,
+	})
+	peerHTTP := httptest.NewServer(peerServer.Handler())
+	defer peerHTTP.Close()
+
+	mainServer := newTestServer(t, Config{
+		DataDir:                 t.TempDir(),
+		NodeID:                  "node-a",
+		PeerURLs:                []string{peerHTTP.URL},
+		BlockInterval:           0,
+		SyncInterval:            50 * time.Millisecond,
+		MaxTransactionsPerBlock: 10,
+		EnableBlockProduction:   false,
+		EnablePeerSync:          true,
+	})
+
+	waitFor(t, func() bool {
+		peers := mainServer.peerSnapshot()
+		return len(peers) == 1 && peers[0].IdentityVerified
+	})
+
+	peers := mainServer.peerSnapshot()
+	if len(peers) != 1 {
+		t.Fatalf("expected 1 peer view, got %d", len(peers))
+	}
+	if !peers[0].IdentityPresent || !peers[0].IdentityVerified {
+		t.Fatalf("expected verified transport identity, got %+v", peers[0])
+	}
+	if peers[0].ValidatorAddress != peerSigner.address {
+		t.Fatalf("expected peer validator %s, got %s", peerSigner.address, peers[0].ValidatorAddress)
+	}
+	if peers[0].IdentityError != "" {
+		t.Fatalf("expected empty identity error, got %q", peers[0].IdentityError)
+	}
+}
+
 func TestPeerReplicationPropagatesConsensusProposalAndVotes(t *testing.T) {
 	peerServer := newTestServer(t, Config{
 		DataDir:                 t.TempDir(),
@@ -1043,6 +1182,34 @@ func signedConsensusVote(t *testing.T, signer consensusSigner, height uint64, ro
 	vote.Payload = vote.CanonicalPayload()
 	vote.Signature = signPayload(t, signer.privateKey, vote.Payload)
 	return vote
+}
+
+func encodedPrivateKey(t *testing.T, privateKey *ecdsa.PrivateKey) string {
+	t.Helper()
+
+	encoded, err := x509.MarshalPKCS8PrivateKey(privateKey)
+	if err != nil {
+		t.Fatalf("marshal private key: %v", err)
+	}
+	return base64.StdEncoding.EncodeToString(encoded)
+}
+
+func signedTransportIdentity(t *testing.T, signer consensusSigner, nodeID string, signedAt time.Time) TransportIdentity {
+	t.Helper()
+
+	identity := TransportIdentity{
+		NodeID:           nodeID,
+		ValidatorAddress: signer.address,
+		PublicKey:        signer.publicKey,
+		SignedAt:         signedAt.UTC(),
+	}
+	identity.Payload = identity.CanonicalPayload()
+	signature, err := signTransportIdentityPayload(signer.privateKey, identity.Payload)
+	if err != nil {
+		t.Fatalf("sign transport identity: %v", err)
+	}
+	identity.Signature = signature
+	return identity
 }
 
 func consensusTestHash(seed string) string {
