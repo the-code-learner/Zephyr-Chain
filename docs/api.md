@@ -231,6 +231,22 @@ Current behavior:
 
 ## Consensus Endpoints
 
+### PeerSyncSummaryView
+
+`peerSyncSummary` is a bounded derived cross-peer incident summary exposed by `GET /v1/status`, `GET /v1/consensus`, and `GET /v1/dev/block-template`.
+
+Current fields include:
+
+- `incidentCount`, `affectedPeerCount`, `totalOccurrences`, and `latestObservedAt`
+- `states`, where each entry exposes `state`, `incidentCount`, `affectedPeerCount`, `totalOccurrences`, and `latestObservedAt`
+- `peers`, where each entry exposes `peerUrl`, `incidentCount`, `totalOccurrences`, `latestState`, `latestReason`, `latestErrorCode`, `latestBlockHash`, and `latestObservedAt`
+
+Current behavior:
+
+- repeated incidents for one peer increase `totalOccurrences` without inflating the distinct `incidentCount`
+- the summary is derived from the durable peer-sync incident history, so it survives restart and peer snapshot repair
+- state summaries are sorted by dominant total occurrences and peer summaries are sorted by latest observation time
+
 ### GET /v1/consensus
 
 Returns the durable validator snapshot, the latest consensus artifacts, and the derived consensus summary for the next height.
@@ -248,6 +264,7 @@ Current behavior:
 - `recovery` exposes the local consensus-action WAL, including pending replayable actions, pending import backlog, and recent replay, completion, plus snapshot-restore metadata
 - `diagnostics` exposes recent rejected proposal, vote, commit, and import events
 - `peerSyncHistory` exposes recent durable cross-peer sync incidents
+- `peerSyncSummary` exposes the derived cross-peer totals for those incidents
 
 ### POST /v1/consensus/proposals
 
@@ -306,6 +323,7 @@ Current behavior:
 - `recovery` exposes pending replayable local actions, pending import backlog, and recent replay/completion plus snapshot-restore metadata from the local consensus-action WAL
 - `diagnostics` exposes recent rejected proposal, vote, commit, and import events
 - `peerSyncHistory` exposes a durable recent history of cross-peer sync incidents, including repeated failures merged by occurrence count
+- `peerSyncSummary` exposes affected-peer totals, dominant states, and the latest incident summary across peers
 - when `ZEPHYR_VALIDATOR_PRIVATE_KEY` is configured, the response includes an `identity` object with a signed transport proof for the local validator
 - `peerIdentityRequired` is `true` when strict peer admission or explicit peer-validator binding is enabled
 
@@ -322,6 +340,7 @@ Current behavior:
 - `lastSyncAttemptAt` and `lastSyncSuccessAt` show the last peer-sync attempt and completion times for that peer
 - `lastImportErrorCode`, `lastImportErrorMessage`, `lastImportFailureAt`, `lastImportFailureHeight`, and `lastImportFailureBlockHash` show the most recent import-side failure observed while syncing from that peer
 - `lastSnapshotRestoreAt`, `lastSnapshotRestoreHeight`, `lastSnapshotRestoreBlockHash`, and `lastSnapshotRestoreReason` show the latest snapshot-based repair event for that peer, with reasons currently drawn from `fetch_fallback`, `import_repair`, and `peer_diverged`
+- `incidentCount`, `incidentOccurrences`, and `latestIncidentAt` expose the derived per-peer counters from the durable incident history
 - `recentIncidents` exposes the durable per-peer incident history the node kept on disk, including state, reason, local and peer heights, block hash, error details, first and last observation time, and merged occurrence count
 - when strict peer admission or peer binding is enabled, background sync and outgoing replication use only admitted peers
 
@@ -361,7 +380,7 @@ Current behavior:
 
 - the response includes the exact `blockHash`, `previousHash`, `producedAt`, full `transactions`, and ordered `transactionIds` validators should certify
 - operators can use that data directly when constructing a signed self-contained proposal
-- the response also includes the current consensus summary, `roundEvidence`, `roundHistory`, `blockReadiness`, `recovery`, `diagnostics`, `peerSyncHistory`, and latest durable artifacts for operator context
+- the response also includes the current consensus summary, `roundEvidence`, `roundHistory`, `blockReadiness`, `recovery`, `diagnostics`, `peerSyncHistory`, `peerSyncSummary`, and latest durable artifacts for operator context
 
 ### POST /v1/dev/produce-block
 
@@ -415,7 +434,9 @@ If proposals exist for that height but the imported block does not match any sto
 
 Returns the current durable node snapshot used for catch-up restore.
 
-When another node applies this snapshot through peer sync, it preserves its own local recovery, diagnostic, and peer-sync incident history instead of replacing that operator context with the peer's local WAL or diagnostics.
+When another node applies this snapshot through peer sync, it preserves its own local recovery, diagnostic, peer-sync incident history, and derived peer-sync summary context instead of replacing that operator context with the peer's local WAL or diagnostics.
+
+
 
 
 

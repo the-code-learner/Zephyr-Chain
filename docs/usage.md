@@ -63,7 +63,7 @@ What to expect:
 - Node A accepts wallet transactions and can produce blocks
 - Node B polls peer status on `ZEPHYR_SYNC_INTERVAL`
 - transactions, faucet credits, proposals, votes, and blocks are replicated over the current transport implementation
-- if validator private keys are configured, `GET /v1/status` exposes a signed identity proof and `GET /v1/peers` shows verification, admission state, per-peer sync telemetry, and durable `recentIncidents` history for configured peers
+- if validator private keys are configured, `GET /v1/status` exposes a signed identity proof, `peerSyncSummary`, and `GET /v1/peers` shows verification, admission state, per-peer sync telemetry, derived incident counters, and durable `recentIncidents` history for configured peers
 - if Node B starts late or misses a block import, it can recover from Node A's snapshot
 
 ## Inspect Validator Scheduling
@@ -115,7 +115,7 @@ go run ./cmd/node
 What to expect:
 
 - `GET /v1/status` reports `peerIdentityRequired=true`
-- `GET /v1/peers` shows `expectedValidator`, `admitted`, `admissionError`, `syncState`, `heightDelta`, the latest per-peer import or snapshot-repair metadata, and durable `recentIncidents` history for each configured peer
+- `GET /v1/peers` shows `expectedValidator`, `admitted`, `admissionError`, `syncState`, `heightDelta`, per-peer `incidentCount`, `incidentOccurrences`, `latestIncidentAt`, the latest import or snapshot-repair metadata, and durable `recentIncidents` history for each configured peer
 - background sync and outgoing replication use only admitted peers under this policy
 - replicated peer POST requests without a valid identity, or from validators outside the configured binding allowlist, are rejected with `403`
 
@@ -218,6 +218,7 @@ Expected behavior:
 - those same responses now expose `recovery`, which shows pending replayable local proposal or vote actions, pending import backlog, and recent replay/completion plus snapshot-restore metadata from the broader local consensus recovery surface
 - those same responses now expose `diagnostics`, which show recent rejected proposal, vote, commit, or import actions with stable error codes
 - those same responses now expose `peerSyncHistory`, which keeps recent cross-peer sync incidents visible even after restart
+- those same responses now expose `peerSyncSummary`, which rolls those incidents up by peer and state so operators can see the dominant network problem quickly
 - if a peer link drops and later returns, validators keep rebroadcasting their latest local proposal or vote for the pending height until the matching certificate exists
 - if a validator restarts mid-round after persisting a local proposal or vote, the node can replay that pending action from the persisted recovery state
 
@@ -251,12 +252,13 @@ Expected behavior:
 - inspect `blockReadiness` in those same responses to see whether the current local template matches a stored proposal, whether a matching certificate exists, and whether a certified stored proposal is already ready for commit or import
 - inspect `recovery` in those same responses to see whether the node still has pending replayable local proposal or vote actions, blocked peer-import heights, or a recent snapshot restore after a restart or dropped peer link
 - inspect `diagnostics` in those same responses to see whether recent failures were caused by stale rounds, unexpected proposers, missing proposals, template mismatch, missing certificates, or other rejected consensus actions
-- remember the current engine now supports timeout-driven proposer rotation, latest-artifact rebroadcast after peer recovery, restart-safe local proposal or vote replay, pending import recovery, snapshot-restore history, durable peer-incident history, per-height round history, block readiness inspection, and bounded rejection diagnostics, but broader recovery coverage is still limited
+- remember the current engine now supports timeout-driven proposer rotation, latest-artifact rebroadcast after peer recovery, restart-safe local proposal or vote replay, pending import recovery, snapshot-restore history, durable peer-incident history, cross-peer `peerSyncSummary`, per-height round history, block readiness inspection, and bounded rejection diagnostics, but broader recovery coverage is still limited
 
 ### Peer Sync Falls Back To Snapshot Restore
 
-- inspect `GET /v1/peers` first; `syncState=snapshot_restored` tells you a peer-specific repair happened, `lastSnapshotRestoreReason` distinguishes `peer_diverged`, `import_repair`, and `fetch_fallback`, and `recentIncidents` keeps that story available after restart
+- inspect `GET /v1/peers` first; `syncState=snapshot_restored` tells you a peer-specific repair happened, `lastSnapshotRestoreReason` distinguishes `peer_diverged`, `import_repair`, and `fetch_fallback`, and `recentIncidents` plus the per-peer counters keep that story available after restart
 - inspect `lastImportErrorCode`, `lastImportFailureHeight`, and `lastImportFailureBlockHash` on that peer view when the repair was triggered by a rejected block import
+- inspect `peerSyncSummary` in `GET /v1/status` or `GET /v1/consensus` to see whether the issue is isolated to one peer or part of a broader state like repeated `unreachable`, `import_blocked`, or `snapshot_restored` incidents across several peers
 - inspect `diagnostics` in `GET /v1/status` or `GET /v1/consensus`; if the latest `block_import_rejected` entry has `source=peer_sync`, the node hit a block-import problem during background sync before falling back to snapshot restore
 - inspect `recovery.pendingImportCount` and `recovery.pendingImportHeights` to see whether the node is still blocked on a peer-import path or whether that backlog has already been cleared
 - inspect `recovery.lastSnapshotRestoreAt`, `recovery.lastSnapshotRestoreHeight`, and `recovery.lastSnapshotRestoreBlockHash` to confirm that snapshot repair actually ran and which chain tip it restored
@@ -300,6 +302,8 @@ Expected behavior:
 13. Inspect the resulting block, vote tallies, and certificate on both nodes.
 14. Optionally restart a node and confirm the validator snapshot, round state, consensus artifacts, and `recovery` state survived.
 15. If the restarted node had a pending local proposal or vote, confirm the action is replayed and later marked completed once the block finalizes.
+
+
 
 
 

@@ -2653,6 +2653,12 @@ func TestPeerSyncHistoryPersistsAcrossServerRestart(t *testing.T) {
 	if incident.BlockHash != producerBlock.Hash {
 		t.Fatalf("expected restarted incident block hash %s, got %+v", producerBlock.Hash, incident)
 	}
+	if statusResponse.PeerSyncSummary.IncidentCount != 1 || statusResponse.PeerSyncSummary.AffectedPeerCount != 1 || statusResponse.PeerSyncSummary.TotalOccurrences != 1 {
+		t.Fatalf("unexpected restarted peer sync summary %+v", statusResponse.PeerSyncSummary)
+	}
+	if len(statusResponse.PeerSyncSummary.Peers) != 1 || statusResponse.PeerSyncSummary.Peers[0].PeerURL != producerHTTP.URL || statusResponse.PeerSyncSummary.Peers[0].LatestState != "snapshot_restored" {
+		t.Fatalf("unexpected restarted peer sync summary peers %+v", statusResponse.PeerSyncSummary.Peers)
+	}
 
 	peersRequest := httptest.NewRequest(http.MethodGet, "/v1/peers", nil)
 	peersRecorder := httptest.NewRecorder()
@@ -2671,8 +2677,113 @@ func TestPeerSyncHistoryPersistsAcrossServerRestart(t *testing.T) {
 	if len(peersResponse.Peers[0].RecentIncidents) == 0 {
 		t.Fatal("expected persisted per-peer incident history after restart")
 	}
+	if peersResponse.Peers[0].IncidentCount != 1 || peersResponse.Peers[0].IncidentOccurrences != 1 || peersResponse.Peers[0].LatestIncidentAt == nil {
+		t.Fatalf("unexpected per-peer incident counters after restart %+v", peersResponse.Peers[0])
+	}
 	if peersResponse.Peers[0].RecentIncidents[0].State != "snapshot_restored" || peersResponse.Peers[0].RecentIncidents[0].Reason != "peer_diverged" {
 		t.Fatalf("unexpected per-peer incident history after restart %+v", peersResponse.Peers[0].RecentIncidents)
+	}
+}
+
+func TestStatusExposesPeerSyncSummaryAcrossPeers(t *testing.T) {
+	server := newTestServer(t, Config{
+		DataDir:                 t.TempDir(),
+		PeerURLs:                []string{"http://peer-a.example", "http://peer-b.example"},
+		BlockInterval:           0,
+		SyncInterval:            0,
+		MaxTransactionsPerBlock: 10,
+		EnableBlockProduction:   false,
+		EnablePeerSync:          false,
+	})
+
+	firstObservedAt := time.Date(2026, time.March, 24, 20, 0, 0, 0, time.UTC)
+	secondObservedAt := firstObservedAt.Add(30 * time.Second)
+	thirdObservedAt := firstObservedAt.Add(90 * time.Second)
+	if err := server.ledger.RecordPeerSyncIncident(ledger.PeerSyncIncident{
+		PeerURL:         "http://peer-a.example",
+		State:           "unreachable",
+		LocalHeight:     5,
+		PeerHeight:      3,
+		HeightDelta:     -2,
+		ErrorMessage:    "dial tcp timeout",
+		FirstObservedAt: firstObservedAt,
+		LastObservedAt:  firstObservedAt,
+	}); err != nil {
+		t.Fatalf("record peer-a incident: %v", err)
+	}
+	if err := server.ledger.RecordPeerSyncIncident(ledger.PeerSyncIncident{
+		PeerURL:         "http://peer-a.example",
+		State:           "unreachable",
+		LocalHeight:     5,
+		PeerHeight:      3,
+		HeightDelta:     -2,
+		ErrorMessage:    "dial tcp timeout",
+		FirstObservedAt: secondObservedAt,
+		LastObservedAt:  secondObservedAt,
+	}); err != nil {
+		t.Fatalf("record repeated peer-a incident: %v", err)
+	}
+	if err := server.ledger.RecordPeerSyncIncident(ledger.PeerSyncIncident{
+		PeerURL:         "http://peer-b.example",
+		State:           "import_blocked",
+		LocalHeight:     5,
+		PeerHeight:      6,
+		HeightDelta:     1,
+		BlockHash:       consensusTestHash("peer-b-import-blocked"),
+		ErrorCode:       "proposal_required",
+		ErrorMessage:    "consensus proposal is required before block import",
+		FirstObservedAt: thirdObservedAt,
+		LastObservedAt:  thirdObservedAt,
+	}); err != nil {
+		t.Fatalf("record peer-b incident: %v", err)
+	}
+
+	statusRequest := httptest.NewRequest(http.MethodGet, "/v1/status", nil)
+	statusRecorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(statusRecorder, statusRequest)
+	if statusRecorder.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", statusRecorder.Code)
+	}
+
+	var statusResponse StatusResponse
+	if err := json.NewDecoder(statusRecorder.Body).Decode(&statusResponse); err != nil {
+		t.Fatalf("decode status response: %v", err)
+	}
+	if statusResponse.PeerSyncSummary.IncidentCount != 2 || statusResponse.PeerSyncSummary.AffectedPeerCount != 2 || statusResponse.PeerSyncSummary.TotalOccurrences != 3 {
+		t.Fatalf("unexpected peer sync summary %+v", statusResponse.PeerSyncSummary)
+	}
+	if statusResponse.PeerSyncSummary.LatestObservedAt == nil || !statusResponse.PeerSyncSummary.LatestObservedAt.Equal(thirdObservedAt) {
+		t.Fatalf("unexpected latest peer sync summary time %+v", statusResponse.PeerSyncSummary)
+	}
+	if len(statusResponse.PeerSyncSummary.States) != 2 || statusResponse.PeerSyncSummary.States[0].State != "unreachable" || statusResponse.PeerSyncSummary.States[0].TotalOccurrences != 2 {
+		t.Fatalf("unexpected peer sync state summaries %+v", statusResponse.PeerSyncSummary.States)
+	}
+	if len(statusResponse.PeerSyncSummary.Peers) != 2 || statusResponse.PeerSyncSummary.Peers[0].PeerURL != "http://peer-b.example" || statusResponse.PeerSyncSummary.Peers[0].LatestState != "import_blocked" {
+		t.Fatalf("unexpected peer sync peer summaries %+v", statusResponse.PeerSyncSummary.Peers)
+	}
+
+	peersRequest := httptest.NewRequest(http.MethodGet, "/v1/peers", nil)
+	peersRecorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(peersRecorder, peersRequest)
+	if peersRecorder.Code != http.StatusOK {
+		t.Fatalf("expected peers 200, got %d", peersRecorder.Code)
+	}
+
+	var peersResponse PeersResponse
+	if err := json.NewDecoder(peersRecorder.Body).Decode(&peersResponse); err != nil {
+		t.Fatalf("decode peers response: %v", err)
+	}
+	if len(peersResponse.Peers) != 2 {
+		t.Fatalf("expected 2 peer views, got %+v", peersResponse.Peers)
+	}
+	if peersResponse.Peers[0].IncidentCount != 1 || peersResponse.Peers[0].IncidentOccurrences != 2 || peersResponse.Peers[0].LatestIncidentAt == nil {
+		t.Fatalf("unexpected peer-a incident counters %+v", peersResponse.Peers[0])
+	}
+	if len(peersResponse.Peers[0].RecentIncidents) != 1 || peersResponse.Peers[0].RecentIncidents[0].Occurrences != 2 {
+		t.Fatalf("unexpected peer-a incident history %+v", peersResponse.Peers[0].RecentIncidents)
+	}
+	if peersResponse.Peers[1].IncidentCount != 1 || peersResponse.Peers[1].IncidentOccurrences != 1 || peersResponse.Peers[1].RecentIncidents[0].State != "import_blocked" {
+		t.Fatalf("unexpected peer-b incident data %+v", peersResponse.Peers[1])
 	}
 }
 

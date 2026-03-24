@@ -10,6 +10,10 @@ import (
 const peerIncidentLimitPerPeer = 5
 
 func (s *Server) enrichPeerView(view PeerView) PeerView {
+	peerSummary := s.ledger.PeerSyncPeerSummary(view.URL)
+	view.IncidentCount = peerSummary.IncidentCount
+	view.IncidentOccurrences = peerSummary.TotalOccurrences
+	view.LatestIncidentAt = cloneAPITimePointer(peerSummary.LatestObservedAt)
 	view.RecentIncidents = s.ledger.PeerSyncIncidents(view.URL, peerIncidentLimitPerPeer)
 	return view
 }
