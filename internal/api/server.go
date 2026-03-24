@@ -113,35 +113,37 @@ type AccountResponse struct {
 }
 
 type StatusResponse struct {
-	NodeID                        string                       `json:"nodeId"`
-	ValidatorAddress              string                       `json:"validatorAddress,omitempty"`
-	PeerCount                     int                          `json:"peerCount"`
-	BlockProduction               bool                         `json:"blockProduction"`
-	ConsensusAutomationEnabled    bool                         `json:"consensusAutomationEnabled"`
-	PeerSyncEnabled               bool                         `json:"peerSyncEnabled"`
-	PeerIdentityRequired          bool                         `json:"peerIdentityRequired"`
-	ProposerScheduleEnforced      bool                         `json:"proposerScheduleEnforced"`
-	ConsensusCertificatesRequired bool                         `json:"consensusCertificatesRequired"`
-	Identity                      *TransportIdentity           `json:"identity,omitempty"`
-	Status                        ledger.StatusView            `json:"status"`
-	Consensus                     ledger.ConsensusView         `json:"consensus"`
-	RoundEvidence                 RoundEvidence                   `json:"roundEvidence"`
-	Recovery                      ledger.ConsensusRecoveryView    `json:"recovery"`
-	Diagnostics                   ledger.ConsensusDiagnosticsView `json:"diagnostics"`
+	NodeID                        string                           `json:"nodeId"`
+	ValidatorAddress              string                           `json:"validatorAddress,omitempty"`
+	PeerCount                     int                              `json:"peerCount"`
+	BlockProduction               bool                             `json:"blockProduction"`
+	ConsensusAutomationEnabled    bool                             `json:"consensusAutomationEnabled"`
+	PeerSyncEnabled               bool                             `json:"peerSyncEnabled"`
+	PeerIdentityRequired          bool                             `json:"peerIdentityRequired"`
+	ProposerScheduleEnforced      bool                             `json:"proposerScheduleEnforced"`
+	ConsensusCertificatesRequired bool                             `json:"consensusCertificatesRequired"`
+	Identity                      *TransportIdentity               `json:"identity,omitempty"`
+	Status                        ledger.StatusView                `json:"status"`
+	Consensus                     ledger.ConsensusView             `json:"consensus"`
+	RoundEvidence                 RoundEvidence                    `json:"roundEvidence"`
+	RoundHistory                  ledger.ConsensusRoundHistoryView `json:"roundHistory"`
+	Recovery                      ledger.ConsensusRecoveryView     `json:"recovery"`
+	Diagnostics                   ledger.ConsensusDiagnosticsView  `json:"diagnostics"`
 }
 
 type ConsensusResponse struct {
-	NodeID                        string                        `json:"nodeId"`
-	ValidatorAddress              string                        `json:"validatorAddress,omitempty"`
-	ConsensusAutomationEnabled    bool                          `json:"consensusAutomationEnabled"`
-	ProposerScheduleEnforced      bool                          `json:"proposerScheduleEnforced"`
-	ConsensusCertificatesRequired bool                          `json:"consensusCertificatesRequired"`
-	ValidatorSet                  ledger.ValidatorSnapshot      `json:"validatorSet"`
-	Artifacts                     ledger.ConsensusArtifactsView `json:"artifacts"`
-	Consensus                     ledger.ConsensusView          `json:"consensus"`
-	RoundEvidence                 RoundEvidence                   `json:"roundEvidence"`
-	Recovery                      ledger.ConsensusRecoveryView    `json:"recovery"`
-	Diagnostics                   ledger.ConsensusDiagnosticsView `json:"diagnostics"`
+	NodeID                        string                           `json:"nodeId"`
+	ValidatorAddress              string                           `json:"validatorAddress,omitempty"`
+	ConsensusAutomationEnabled    bool                             `json:"consensusAutomationEnabled"`
+	ProposerScheduleEnforced      bool                             `json:"proposerScheduleEnforced"`
+	ConsensusCertificatesRequired bool                             `json:"consensusCertificatesRequired"`
+	ValidatorSet                  ledger.ValidatorSnapshot         `json:"validatorSet"`
+	Artifacts                     ledger.ConsensusArtifactsView    `json:"artifacts"`
+	Consensus                     ledger.ConsensusView             `json:"consensus"`
+	RoundEvidence                 RoundEvidence                    `json:"roundEvidence"`
+	RoundHistory                  ledger.ConsensusRoundHistoryView `json:"roundHistory"`
+	Recovery                      ledger.ConsensusRecoveryView     `json:"recovery"`
+	Diagnostics                   ledger.ConsensusDiagnosticsView  `json:"diagnostics"`
 }
 
 type LatestBlockResponse struct {
@@ -149,12 +151,13 @@ type LatestBlockResponse struct {
 }
 
 type BlockTemplateResponse struct {
-	Block         ledger.Block                  `json:"block"`
-	Artifacts     ledger.ConsensusArtifactsView `json:"artifacts"`
-	Consensus     ledger.ConsensusView          `json:"consensus"`
-	RoundEvidence RoundEvidence                   `json:"roundEvidence"`
-	Recovery      ledger.ConsensusRecoveryView    `json:"recovery"`
-	Diagnostics   ledger.ConsensusDiagnosticsView `json:"diagnostics"`
+	Block         ledger.Block                     `json:"block"`
+	Artifacts     ledger.ConsensusArtifactsView    `json:"artifacts"`
+	Consensus     ledger.ConsensusView             `json:"consensus"`
+	RoundEvidence RoundEvidence                    `json:"roundEvidence"`
+	RoundHistory  ledger.ConsensusRoundHistoryView `json:"roundHistory"`
+	Recovery      ledger.ConsensusRecoveryView     `json:"recovery"`
+	Diagnostics   ledger.ConsensusDiagnosticsView  `json:"diagnostics"`
 }
 
 type ProduceBlockRequest struct {
@@ -275,6 +278,7 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	}
 
 	now := time.Now().UTC()
+	consensusView := s.ledger.Consensus()
 	response := StatusResponse{
 		NodeID:                        s.nodeID,
 		ValidatorAddress:              s.config.ValidatorAddress,
@@ -286,8 +290,9 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		ProposerScheduleEnforced:      s.config.EnforceProposerSchedule,
 		ConsensusCertificatesRequired: s.config.RequireConsensusCertificates,
 		Status:                        s.ledger.Status(),
-		Consensus:                     s.ledger.Consensus(),
+		Consensus:                     consensusView,
 		RoundEvidence:                 s.buildRoundEvidence(now),
+		RoundHistory:                  s.ledger.RoundHistory(consensusView.NextHeight),
 		Recovery:                      s.ledger.ConsensusRecovery(),
 		Diagnostics:                   s.ledger.ConsensusDiagnostics(),
 	}
@@ -316,6 +321,7 @@ func (s *Server) handleConsensus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	consensusView := s.ledger.Consensus()
 	writeJSON(w, http.StatusOK, ConsensusResponse{
 		NodeID:                        s.nodeID,
 		ValidatorAddress:              s.config.ValidatorAddress,
@@ -324,8 +330,9 @@ func (s *Server) handleConsensus(w http.ResponseWriter, r *http.Request) {
 		ConsensusCertificatesRequired: s.config.RequireConsensusCertificates,
 		ValidatorSet:                  s.ledger.ValidatorSet(),
 		Artifacts:                     s.ledger.ConsensusArtifacts(),
-		Consensus:                     s.ledger.Consensus(),
+		Consensus:                     consensusView,
 		RoundEvidence:                 s.buildRoundEvidence(time.Now().UTC()),
+		RoundHistory:                  s.ledger.RoundHistory(consensusView.NextHeight),
 		Recovery:                      s.ledger.ConsensusRecovery(),
 		Diagnostics:                   s.ledger.ConsensusDiagnostics(),
 	})
@@ -522,11 +529,13 @@ func (s *Server) handleBlockTemplate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	consensusView := s.ledger.Consensus()
 	writeJSON(w, http.StatusOK, BlockTemplateResponse{
 		Block:         block,
 		Artifacts:     s.ledger.ConsensusArtifacts(),
-		Consensus:     s.ledger.Consensus(),
+		Consensus:     consensusView,
 		RoundEvidence: s.buildRoundEvidence(time.Now().UTC()),
+		RoundHistory:  s.ledger.RoundHistory(consensusView.NextHeight),
 		Recovery:      s.ledger.ConsensusRecovery(),
 		Diagnostics:   s.ledger.ConsensusDiagnostics(),
 	})
@@ -768,5 +777,3 @@ func writeJSON(w http.ResponseWriter, status int, payload any) {
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(payload)
 }
-
-

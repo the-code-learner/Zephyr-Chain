@@ -139,6 +139,22 @@ Current fields include:
 - `certificatePresent` and `certificateBlockHash` when the active round already has a matching quorum certificate
 - `warnings`, currently drawn from `timeout_elapsed`, `partial_quorum`, `reproposal_pending`, `replay_pending`, and `proposal_not_from_scheduled_proposer`
 
+### ConsensusRoundHistoryView
+
+`roundHistory` is a derived per-height view exposed by `GET /v1/status`, `GET /v1/consensus`, and `GET /v1/dev/block-template`.
+
+Current fields include:
+
+- `height`, which is currently the pending `nextHeight`
+- `rounds`, sorted by round number for that height
+- each round entry exposes `round`, `active`, `startedAt`, `scheduledProposer`, `proposalPresent`, `proposalBlockHash`, `proposalProposer`, `voteTallies`, `certificatePresent`, and `certificateBlockHash`
+
+Current behavior:
+
+- the active round is always included for the pending height, even if that round has no stored proposal yet
+- prior rounds remain visible when the node advances after timeout or accepts higher-round messages
+- operators can compare round-0 and round-1 proposal, vote, and certificate state directly without reconstructing it from logs or diagnostics
+
 ### ConsensusRecoveryView
 
 `recovery` is the durable local consensus-action recovery view exposed by `GET /v1/status`, `GET /v1/consensus`, `GET /v1/dev/block-template`, and local proposal or vote submissions.
@@ -187,6 +203,7 @@ Current behavior:
 - `consensus` now includes `currentRound` and `currentRoundStartedAt` in addition to `nextHeight`, `nextProposer`, total voting power, and quorum target
 - `nextProposer` reflects the active round, not only the next height
 - `roundEvidence` exposes the round deadline, proposal presence, vote tallies, leading vote, quorum remaining, replay backlog, warnings, local vote, and certificate state for operator inspection
+- `roundHistory` exposes the pending height across rounds so operators can compare prior and active proposer attempts side by side
 - `recovery` exposes the local consensus-action WAL, including pending replayable actions and recent replay/completion metadata
 - `diagnostics` exposes recent rejected proposal, vote, commit, and import events
 
@@ -242,6 +259,7 @@ Current behavior:
 - the response includes `consensusAutomationEnabled`
 - the embedded `consensus` view now exposes `currentRound`, `currentRoundStartedAt`, and the active-round `nextProposer`
 - `roundEvidence` exposes the active round deadline, state, vote tallies, leading vote, quorum remaining, replay backlog, warnings, proposal presence, local vote, and certificate visibility for operators
+- `roundHistory` exposes the pending height across rounds so operators can inspect round-0, round-1, and later attempts together
 - `recovery` exposes pending replayable local actions plus recent replay/completion metadata from the local consensus-action WAL
 - `diagnostics` exposes recent rejected proposal, vote, commit, and import events with stable error codes
 - when `ZEPHYR_VALIDATOR_PRIVATE_KEY` is configured, the response includes an `identity` object with a signed transport proof for the local validator
@@ -294,7 +312,7 @@ Current behavior:
 
 - the response includes the exact `blockHash`, `previousHash`, `producedAt`, full `transactions`, and ordered `transactionIds` validators should certify
 - operators can use that data directly when constructing a signed self-contained proposal
-- the response also includes the current consensus summary, `roundEvidence`, `recovery`, `diagnostics`, and latest durable artifacts for operator context
+- the response also includes the current consensus summary, `roundEvidence`, `roundHistory`, `recovery`, `diagnostics`, and latest durable artifacts for operator context
 
 ### POST /v1/dev/produce-block
 
