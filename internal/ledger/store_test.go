@@ -608,8 +608,8 @@ func TestStoreProduceBlockWithConsensusRequiresProposalAndCertificate(t *testing
 		t.Fatalf("record voter vote: %v", err)
 	}
 
-	if _, err := store.ProduceBlockWithOptions(10, producedAt.Add(time.Second), true); !errors.Is(err, ErrConsensusProposalRequired) {
-		t.Fatalf("expected proposal required error for mismatched producedAt, got %v", err)
+	if _, err := store.ProduceBlockWithOptions(10, producedAt.Add(time.Second), true); !errors.Is(err, ErrConsensusTemplateMismatch) {
+		t.Fatalf("expected template mismatch error for mismatched producedAt, got %v", err)
 	}
 
 	block, err := store.ProduceBlockWithOptions(10, producedAt, true)
@@ -732,6 +732,12 @@ func TestStoreImportBlockWithConsensusRequiresProposalAndCertificate(t *testing.
 	}
 	if _, _, err := replica.RecordVote(signedVoteWithSigner(t, voter, template.Height, 0, template.Hash)); err != nil {
 		t.Fatalf("record replica voter vote: %v", err)
+	}
+	mismatchedBlock := block
+	mismatchedBlock.ProducedAt = block.ProducedAt.Add(time.Second)
+	mismatchedBlock.Hash = consensus.BlockHash(mismatchedBlock.Height, mismatchedBlock.PreviousHash, mismatchedBlock.ProducedAt, mismatchedBlock.TransactionIDs)
+	if err := replica.ImportBlockWithOptions(mismatchedBlock, true); !errors.Is(err, ErrConsensusTemplateMismatch) {
+		t.Fatalf("expected template mismatch error for mismatched import, got %v", err)
 	}
 	if err := replica.ImportBlockWithOptions(block, true); err != nil {
 		t.Fatalf("import certified block: %v", err)

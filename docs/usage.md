@@ -214,6 +214,7 @@ Expected behavior:
 - admitted peers replicate the proposal, vote, certificate, and committed block over the current HTTP transport
 - `GET /v1/status`, `GET /v1/consensus`, and `GET /v1/dev/block-template` now expose `roundEvidence` so operators can see the active round deadline, proposal presence, leading vote power, quorum remaining, replay backlog, warnings, and certificate state
 - those same responses now expose `roundHistory`, which shows the pending height across prior and active rounds so operators can inspect proposer rotation and stalled rounds side by side
+- those same responses now expose `blockReadiness`, which shows whether the local template matches stored proposals and certificates and whether commit or import can proceed from stored certified artifacts
 - those same responses now expose `recovery`, which shows pending replayable local proposal or vote actions plus recent replay/completion metadata from the local consensus-action WAL
 - those same responses now expose `diagnostics`, which show recent rejected proposal, vote, commit, or import actions with stable error codes
 - if a peer link drops and later returns, validators keep rebroadcasting their latest local proposal or vote for the pending height until the matching certificate exists
@@ -232,7 +233,7 @@ Expected behavior:
 - confirm the proposal `producedAt`, full `transactions`, and ordered `transactionIds` come from the same `GET /v1/dev/block-template` response as `blockHash`
 - confirm votes reference the same `blockHash`, `height`, and `round` as a known proposal
 - confirm the signed payload still matches the visible request fields exactly
-- inspect `diagnostics` in `GET /v1/status` or `GET /v1/consensus` after a rejection; common codes now include `unexpected_proposer`, `stale_round`, `conflicting_proposal`, and `unknown_proposal`
+- inspect `diagnostics` in `GET /v1/status` or `GET /v1/consensus` after a rejection; common codes now include `unexpected_proposer`, `stale_round`, `conflicting_proposal`, `unknown_proposal`, and `template_mismatch`
 
 ### Consensus Automation Does Not Fire
 
@@ -246,9 +247,10 @@ Expected behavior:
 - inspect `roundEvidence` in `GET /v1/status`, `GET /v1/consensus`, or `GET /v1/dev/block-template` to see whether the node is waiting for a proposal, collecting votes, timed out, waiting for reproposal, or already certified
 - use `leadingVotePower`, `quorumRemaining`, `pendingReplayRounds`, and `warnings` inside `roundEvidence` to separate partial quorum, timeout, replay backlog, and proposer-schedule problems
 - inspect `roundHistory` in those same responses to compare round-0, round-1, and later proposer attempts for the pending height without losing visibility into earlier rounds
+- inspect `blockReadiness` in those same responses to see whether the current local template matches a stored proposal, whether a matching certificate exists, and whether a certified stored proposal is already ready for commit or import
 - inspect `recovery` in those same responses to see whether the node still has pending replayable local proposal or vote actions after a restart or dropped peer link
-- inspect `diagnostics` in those same responses to see whether recent failures were caused by stale rounds, unexpected proposers, missing proposals, missing certificates, or other rejected consensus actions
-- remember the current engine now supports timeout-driven proposer rotation, latest-artifact rebroadcast after peer recovery, restart-safe local proposal or vote replay, per-height round history, and bounded rejection diagnostics, but broader recovery coverage is still limited
+- inspect `diagnostics` in those same responses to see whether recent failures were caused by stale rounds, unexpected proposers, missing proposals, template mismatch, missing certificates, or other rejected consensus actions
+- remember the current engine now supports timeout-driven proposer rotation, latest-artifact rebroadcast after peer recovery, restart-safe local proposal or vote replay, per-height round history, block readiness inspection, and bounded rejection diagnostics, but broader recovery coverage is still limited
 
 ### Peer Identity Verification Or Admission Fails
 
@@ -266,7 +268,8 @@ Expected behavior:
 - confirm `GET /v1/dev/block-template` and your proposal use the same `blockHash`, `previousHash`, `producedAt`, full `transactions`, and `transactionIds`
 - confirm `GET /v1/consensus` shows a latest certificate for that same `height`, `round`, and `blockHash`
 - confirm you replay `POST /v1/dev/produce-block` with the same `producedAt` used by the certified template when you are using the manual path
-- inspect `diagnostics` in `GET /v1/status` or `GET /v1/consensus`; common commit-side codes now include `proposal_required`, `certificate_required`, and `not_scheduled_proposer`
+- inspect `blockReadiness` in `GET /v1/status`, `GET /v1/consensus`, or `GET /v1/dev/block-template`; common warnings now include `proposal_missing`, `local_template_mismatch`, `certificate_missing`, and `certified_proposal_differs_from_local_template`
+- inspect `diagnostics` in `GET /v1/status` or `GET /v1/consensus`; common commit-side codes now include `proposal_required`, `template_mismatch`, `certificate_required`, and `not_scheduled_proposer`
 - disable `ZEPHYR_REQUIRE_CONSENSUS_CERTIFICATES` only if you intentionally want a looser local dev flow
 
 ## Recommended Local Demo Flow

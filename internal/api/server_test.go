@@ -971,6 +971,237 @@ func TestHandleStatusRecordsConsensusDiagnosticForMissingCertificate(t *testing.
 	}
 }
 
+func TestHandleBlockTemplateExposesBlockReadinessAcrossCertificateLifecycle(t *testing.T) {
+	proposer := newConsensusSigner(t)
+	voter := newConsensusSigner(t)
+	server := newTestServer(t, Config{
+		DataDir:                      t.TempDir(),
+		NodeID:                       "node-a",
+		ValidatorAddress:             proposer.address,
+		BlockInterval:                0,
+		SyncInterval:                 0,
+		MaxTransactionsPerBlock:      10,
+		EnableBlockProduction:        true,
+		EnablePeerSync:               false,
+		EnforceProposerSchedule:      true,
+		RequireConsensusCertificates: true,
+	})
+
+	if _, err := server.ledger.SetValidators([]dpos.Validator{
+		{Rank: 1, Address: proposer.address, VotingPower: 60, SelfStake: 40, DelegatedStake: 20},
+		{Rank: 2, Address: voter.address, VotingPower: 40, SelfStake: 25, DelegatedStake: 15},
+	}, dpos.ElectionConfig{MaxValidators: 2}); err != nil {
+		t.Fatalf("set validators: %v", err)
+	}
+	envelope := signedEnvelope(t, 25, 1, "readiness-lifecycle")
+	if _, err := server.ledger.Credit(envelope.From, 100); err != nil {
+		t.Fatalf("credit sender: %v", err)
+	}
+	if _, err := server.ledger.Accept(envelope); err != nil {
+		t.Fatalf("accept tx: %v", err)
+	}
+
+	templateRequest := httptest.NewRequest(http.MethodGet, "/v1/dev/block-template", nil)
+	templateRecorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(templateRecorder, templateRequest)
+	if templateRecorder.Code != http.StatusOK {
+		t.Fatalf("expected template status 200, got %d", templateRecorder.Code)
+	}
+
+	var templateResponse BlockTemplateResponse
+	if err := json.NewDecoder(templateRecorder.Body).Decode(&templateResponse); err != nil {
+		t.Fatalf("decode template response: %v", err)
+	}
+	if !templateResponse.BlockReadiness.LocalTemplateAvailable || templateResponse.BlockReadiness.StoredProposalCount != 0 {
+		t.Fatalf("unexpected initial block readiness %+v", templateResponse.BlockReadiness)
+	}
+	foundProposalMissing := false
+	for _, warning := range templateResponse.BlockReadiness.Warnings {
+		if warning == "proposal_missing" {
+			foundProposalMissing = true
+		}
+	}
+	if !foundProposalMissing {
+		t.Fatalf("expected proposal_missing warning, got %+v", templateResponse.BlockReadiness.Warnings)
+	}
+
+	proposal := signedConsensusProposal(t, proposer, templateResponse.Block.Height, 0, templateResponse.Block.PreviousHash, templateResponse.Block.ProducedAt, templateResponse.Block.Transactions)
+	proposalBody, err := json.Marshal(proposal)
+	if err != nil {
+		t.Fatalf("marshal proposal: %v", err)
+	}
+	proposalRequest := httptest.NewRequest(http.MethodPost, "/v1/consensus/proposals", bytes.NewReader(proposalBody))
+	proposalRecorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(proposalRecorder, proposalRequest)
+	if proposalRecorder.Code != http.StatusAccepted {
+		t.Fatalf("expected proposal status 202, got %d", proposalRecorder.Code)
+	}
+
+	consensusRequest := httptest.NewRequest(http.MethodGet, "/v1/consensus", nil)
+	consensusRecorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(consensusRecorder, consensusRequest)
+	if consensusRecorder.Code != http.StatusOK {
+		t.Fatalf("expected consensus status 200, got %d", consensusRecorder.Code)
+	}
+
+	var consensusResponse ConsensusResponse
+	if err := json.NewDecoder(consensusRecorder.Body).Decode(&consensusResponse); err != nil {
+		t.Fatalf("decode consensus response: %v", err)
+	}
+	if consensusResponse.BlockReadiness.MatchingLocalProposalRound == nil || *consensusResponse.BlockReadiness.MatchingLocalProposalRound != 0 {
+		t.Fatalf("expected matching local proposal round 0, got %+v", consensusResponse.BlockReadiness)
+	}
+	if consensusResponse.BlockReadiness.MatchingLocalCertificate {
+		t.Fatalf("expected certificate to still be missing, got %+v", consensusResponse.BlockReadiness)
+	}
+	foundCertificateMissing := false
+	for _, warning := range consensusResponse.BlockReadiness.Warnings {
+		if warning == "certificate_missing" {
+			foundCertificateMissing = true
+		}
+	}
+	if !foundCertificateMissing {
+		t.Fatalf("expected certificate_missing warning, got %+v", consensusResponse.BlockReadiness.Warnings)
+	}
+
+	for _, vote := range []consensus.Vote{
+		signedConsensusVote(t, proposer, templateResponse.Block.Height, 0, templateResponse.Block.Hash),
+		signedConsensusVote(t, voter, templateResponse.Block.Height, 0, templateResponse.Block.Hash),
+	} {
+		voteBody, err := json.Marshal(vote)
+		if err != nil {
+			t.Fatalf("marshal vote: %v", err)
+		}
+		voteRequest := httptest.NewRequest(http.MethodPost, "/v1/consensus/votes", bytes.NewReader(voteBody))
+		voteRecorder := httptest.NewRecorder()
+		server.Handler().ServeHTTP(voteRecorder, voteRequest)
+		if voteRecorder.Code != http.StatusAccepted {
+			t.Fatalf("expected vote status 202, got %d", voteRecorder.Code)
+		}
+	}
+
+	statusRequest := httptest.NewRequest(http.MethodGet, "/v1/status", nil)
+	statusRecorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(statusRecorder, statusRequest)
+	if statusRecorder.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", statusRecorder.Code)
+	}
+
+	var statusResponse StatusResponse
+	if err := json.NewDecoder(statusRecorder.Body).Decode(&statusResponse); err != nil {
+		t.Fatalf("decode status response: %v", err)
+	}
+	if !statusResponse.BlockReadiness.ReadyToCommitLocalTemplate || !statusResponse.BlockReadiness.ReadyToCommitStoredProposal || !statusResponse.BlockReadiness.ReadyToImportCertifiedBlock {
+		t.Fatalf("expected ready certified block readiness, got %+v", statusResponse.BlockReadiness)
+	}
+	if !statusResponse.BlockReadiness.MatchingLocalCertificate {
+		t.Fatalf("expected matching local certificate, got %+v", statusResponse.BlockReadiness)
+	}
+	if statusResponse.BlockReadiness.LatestCertifiedRound == nil || *statusResponse.BlockReadiness.LatestCertifiedRound != 0 {
+		t.Fatalf("expected latest certified round 0, got %+v", statusResponse.BlockReadiness)
+	}
+}
+
+func TestHandleStatusRecordsConsensusDiagnosticForTemplateMismatch(t *testing.T) {
+	proposer := newConsensusSigner(t)
+	voter := newConsensusSigner(t)
+	server := newTestServer(t, Config{
+		DataDir:                      t.TempDir(),
+		NodeID:                       "node-a",
+		ValidatorAddress:             proposer.address,
+		BlockInterval:                0,
+		SyncInterval:                 0,
+		MaxTransactionsPerBlock:      10,
+		EnableBlockProduction:        true,
+		EnablePeerSync:               false,
+		EnforceProposerSchedule:      true,
+		RequireConsensusCertificates: true,
+	})
+
+	if _, err := server.ledger.SetValidators([]dpos.Validator{
+		{Rank: 1, Address: proposer.address, VotingPower: 60, SelfStake: 40, DelegatedStake: 20},
+		{Rank: 2, Address: voter.address, VotingPower: 40, SelfStake: 25, DelegatedStake: 15},
+	}, dpos.ElectionConfig{MaxValidators: 2}); err != nil {
+		t.Fatalf("set validators: %v", err)
+	}
+	envelope := signedEnvelope(t, 25, 1, "template-mismatch")
+	if _, err := server.ledger.Credit(envelope.From, 100); err != nil {
+		t.Fatalf("credit sender: %v", err)
+	}
+	if _, err := server.ledger.Accept(envelope); err != nil {
+		t.Fatalf("accept tx: %v", err)
+	}
+
+	templateRequest := httptest.NewRequest(http.MethodGet, "/v1/dev/block-template", nil)
+	templateRecorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(templateRecorder, templateRequest)
+	if templateRecorder.Code != http.StatusOK {
+		t.Fatalf("expected template status 200, got %d", templateRecorder.Code)
+	}
+
+	var templateResponse BlockTemplateResponse
+	if err := json.NewDecoder(templateRecorder.Body).Decode(&templateResponse); err != nil {
+		t.Fatalf("decode template response: %v", err)
+	}
+	proposal := signedConsensusProposal(t, proposer, templateResponse.Block.Height, 0, templateResponse.Block.PreviousHash, templateResponse.Block.ProducedAt, templateResponse.Block.Transactions)
+	proposalBody, err := json.Marshal(proposal)
+	if err != nil {
+		t.Fatalf("marshal proposal: %v", err)
+	}
+	proposalRequest := httptest.NewRequest(http.MethodPost, "/v1/consensus/proposals", bytes.NewReader(proposalBody))
+	proposalRecorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(proposalRecorder, proposalRequest)
+	if proposalRecorder.Code != http.StatusAccepted {
+		t.Fatalf("expected proposal status 202, got %d", proposalRecorder.Code)
+	}
+	for _, vote := range []consensus.Vote{
+		signedConsensusVote(t, proposer, templateResponse.Block.Height, 0, templateResponse.Block.Hash),
+		signedConsensusVote(t, voter, templateResponse.Block.Height, 0, templateResponse.Block.Hash),
+	} {
+		voteBody, err := json.Marshal(vote)
+		if err != nil {
+			t.Fatalf("marshal vote: %v", err)
+		}
+		voteRequest := httptest.NewRequest(http.MethodPost, "/v1/consensus/votes", bytes.NewReader(voteBody))
+		voteRecorder := httptest.NewRecorder()
+		server.Handler().ServeHTTP(voteRecorder, voteRequest)
+		if voteRecorder.Code != http.StatusAccepted {
+			t.Fatalf("expected vote status 202, got %d", voteRecorder.Code)
+		}
+	}
+
+	wrongProducedAt := templateResponse.Block.ProducedAt.Add(time.Second)
+	wrongProduceBody, err := json.Marshal(ProduceBlockRequest{ProducedAt: &wrongProducedAt})
+	if err != nil {
+		t.Fatalf("marshal wrong produce request: %v", err)
+	}
+	wrongProduceRequest := httptest.NewRequest(http.MethodPost, "/v1/dev/produce-block", bytes.NewReader(wrongProduceBody))
+	wrongProduceRecorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(wrongProduceRecorder, wrongProduceRequest)
+	if wrongProduceRecorder.Code != http.StatusConflict {
+		t.Fatalf("expected produce status 409 for mismatched producedAt, got %d", wrongProduceRecorder.Code)
+	}
+
+	statusRequest := httptest.NewRequest(http.MethodGet, "/v1/status", nil)
+	statusRecorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(statusRecorder, statusRequest)
+	if statusRecorder.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", statusRecorder.Code)
+	}
+
+	var statusResponse StatusResponse
+	if err := json.NewDecoder(statusRecorder.Body).Decode(&statusResponse); err != nil {
+		t.Fatalf("decode status response: %v", err)
+	}
+	if len(statusResponse.Diagnostics.Recent) == 0 {
+		t.Fatal("expected recent diagnostics after template mismatch")
+	}
+	diagnostic := statusResponse.Diagnostics.Recent[0]
+	if diagnostic.Kind != "block_commit_rejected" || diagnostic.Code != "template_mismatch" || diagnostic.Source != "local_api" {
+		t.Fatalf("unexpected diagnostic %+v", diagnostic)
+	}
+}
+
 func TestConsensusAutomationRebroadcastsProposalAfterPeerLinkRestored(t *testing.T) {
 	proposer := newConsensusSigner(t)
 	voter := newConsensusSigner(t)

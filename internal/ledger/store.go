@@ -721,9 +721,13 @@ func validateBlockConsensus(state persistedState, block Block, requireCertificat
 		return ErrNoValidatorSet
 	}
 
-	proposal := matchProposalForBlock(state.Proposals, block)
-	if proposal == nil {
+	heightProposals := proposalsForHeight(state.Proposals, block.Height)
+	if len(heightProposals) == 0 {
 		return ErrConsensusProposalRequired
+	}
+	proposal := matchProposalForBlock(heightProposals, block)
+	if proposal == nil {
+		return ErrConsensusTemplateMismatch
 	}
 	if proposal.PreviousHash != block.PreviousHash {
 		return ErrConsensusPreviousHash
@@ -981,4 +985,3 @@ func containsString(values []string, target string) bool {
 func blockHash(block Block) string {
 	return consensus.BlockHash(block.Height, block.PreviousHash, block.ProducedAt, block.TransactionIDs)
 }
-

@@ -127,6 +127,7 @@ type StatusResponse struct {
 	Consensus                     ledger.ConsensusView             `json:"consensus"`
 	RoundEvidence                 RoundEvidence                    `json:"roundEvidence"`
 	RoundHistory                  ledger.ConsensusRoundHistoryView `json:"roundHistory"`
+	BlockReadiness                BlockReadiness                   `json:"blockReadiness"`
 	Recovery                      ledger.ConsensusRecoveryView     `json:"recovery"`
 	Diagnostics                   ledger.ConsensusDiagnosticsView  `json:"diagnostics"`
 }
@@ -142,6 +143,7 @@ type ConsensusResponse struct {
 	Consensus                     ledger.ConsensusView             `json:"consensus"`
 	RoundEvidence                 RoundEvidence                    `json:"roundEvidence"`
 	RoundHistory                  ledger.ConsensusRoundHistoryView `json:"roundHistory"`
+	BlockReadiness                BlockReadiness                   `json:"blockReadiness"`
 	Recovery                      ledger.ConsensusRecoveryView     `json:"recovery"`
 	Diagnostics                   ledger.ConsensusDiagnosticsView  `json:"diagnostics"`
 }
@@ -151,13 +153,14 @@ type LatestBlockResponse struct {
 }
 
 type BlockTemplateResponse struct {
-	Block         ledger.Block                     `json:"block"`
-	Artifacts     ledger.ConsensusArtifactsView    `json:"artifacts"`
-	Consensus     ledger.ConsensusView             `json:"consensus"`
-	RoundEvidence RoundEvidence                    `json:"roundEvidence"`
-	RoundHistory  ledger.ConsensusRoundHistoryView `json:"roundHistory"`
-	Recovery      ledger.ConsensusRecoveryView     `json:"recovery"`
-	Diagnostics   ledger.ConsensusDiagnosticsView  `json:"diagnostics"`
+	Block          ledger.Block                     `json:"block"`
+	Artifacts      ledger.ConsensusArtifactsView    `json:"artifacts"`
+	Consensus      ledger.ConsensusView             `json:"consensus"`
+	RoundEvidence  RoundEvidence                    `json:"roundEvidence"`
+	RoundHistory   ledger.ConsensusRoundHistoryView `json:"roundHistory"`
+	BlockReadiness BlockReadiness                   `json:"blockReadiness"`
+	Recovery       ledger.ConsensusRecoveryView     `json:"recovery"`
+	Diagnostics    ledger.ConsensusDiagnosticsView  `json:"diagnostics"`
 }
 
 type ProduceBlockRequest struct {
@@ -293,6 +296,7 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		Consensus:                     consensusView,
 		RoundEvidence:                 s.buildRoundEvidence(now),
 		RoundHistory:                  s.ledger.RoundHistory(consensusView.NextHeight),
+		BlockReadiness:                s.buildBlockReadiness(now),
 		Recovery:                      s.ledger.ConsensusRecovery(),
 		Diagnostics:                   s.ledger.ConsensusDiagnostics(),
 	}
@@ -321,6 +325,7 @@ func (s *Server) handleConsensus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	now := time.Now().UTC()
 	consensusView := s.ledger.Consensus()
 	writeJSON(w, http.StatusOK, ConsensusResponse{
 		NodeID:                        s.nodeID,
@@ -331,8 +336,9 @@ func (s *Server) handleConsensus(w http.ResponseWriter, r *http.Request) {
 		ValidatorSet:                  s.ledger.ValidatorSet(),
 		Artifacts:                     s.ledger.ConsensusArtifacts(),
 		Consensus:                     consensusView,
-		RoundEvidence:                 s.buildRoundEvidence(time.Now().UTC()),
+		RoundEvidence:                 s.buildRoundEvidence(now),
 		RoundHistory:                  s.ledger.RoundHistory(consensusView.NextHeight),
+		BlockReadiness:                s.buildBlockReadiness(now),
 		Recovery:                      s.ledger.ConsensusRecovery(),
 		Diagnostics:                   s.ledger.ConsensusDiagnostics(),
 	})
@@ -523,7 +529,8 @@ func (s *Server) handleBlockTemplate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	block, err := s.ledger.BuildNextBlock(s.config.MaxTransactionsPerBlock, time.Now().UTC())
+	now := time.Now().UTC()
+	block, err := s.ledger.BuildNextBlock(s.config.MaxTransactionsPerBlock, now)
 	if err != nil {
 		writeJSON(w, statusForError(err), map[string]string{"error": err.Error()})
 		return
@@ -531,13 +538,14 @@ func (s *Server) handleBlockTemplate(w http.ResponseWriter, r *http.Request) {
 
 	consensusView := s.ledger.Consensus()
 	writeJSON(w, http.StatusOK, BlockTemplateResponse{
-		Block:         block,
-		Artifacts:     s.ledger.ConsensusArtifacts(),
-		Consensus:     consensusView,
-		RoundEvidence: s.buildRoundEvidence(time.Now().UTC()),
-		RoundHistory:  s.ledger.RoundHistory(consensusView.NextHeight),
-		Recovery:      s.ledger.ConsensusRecovery(),
-		Diagnostics:   s.ledger.ConsensusDiagnostics(),
+		Block:          block,
+		Artifacts:      s.ledger.ConsensusArtifacts(),
+		Consensus:      consensusView,
+		RoundEvidence:  s.buildRoundEvidence(now),
+		RoundHistory:   s.ledger.RoundHistory(consensusView.NextHeight),
+		BlockReadiness: s.buildBlockReadiness(now),
+		Recovery:       s.ledger.ConsensusRecovery(),
+		Diagnostics:    s.ledger.ConsensusDiagnostics(),
 	})
 }
 
@@ -756,6 +764,7 @@ func statusForError(err error) int {
 		errors.Is(err, ledger.ErrConsensusRoundMismatch),
 		errors.Is(err, ledger.ErrConsensusPreviousHash),
 		errors.Is(err, ledger.ErrConsensusProposalRequired),
+		errors.Is(err, ledger.ErrConsensusTemplateMismatch),
 		errors.Is(err, ledger.ErrConsensusCertificateRequired),
 		errors.Is(err, ledger.ErrConflictingProposal),
 		errors.Is(err, ledger.ErrUnknownProposal),

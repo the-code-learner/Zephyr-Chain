@@ -24,6 +24,16 @@ func latestProposalForHeight(proposals []consensus.Proposal, height uint64) *con
 	return nil
 }
 
+func proposalsForHeight(proposals []consensus.Proposal, height uint64) []consensus.Proposal {
+	filtered := make([]consensus.Proposal, 0)
+	for _, proposal := range proposals {
+		if proposal.Height != height {
+			continue
+		}
+		filtered = append(filtered, cloneProposal(proposal))
+	}
+	return filtered
+}
 func findVoteByValidator(votes []VoteRecord, height uint64, round uint64, voter string) *consensus.Vote {
 	for _, vote := range votes {
 		if vote.Vote.Height == height && vote.Vote.Round == round && vote.Vote.Voter == voter {
@@ -55,6 +65,16 @@ func hasVoteFromValidator(votes []VoteRecord, height uint64, round uint64, voter
 	return false
 }
 
+func certificatesForHeight(certificates []CommitCertificate, height uint64) []CommitCertificate {
+	filtered := make([]CommitCertificate, 0)
+	for _, certificate := range certificates {
+		if certificate.Height != height {
+			continue
+		}
+		filtered = append(filtered, cloneCommitCertificate(certificate))
+	}
+	return filtered
+}
 func latestCertificateForHeightRound(certificates []CommitCertificate, height uint64, round uint64) *CommitCertificate {
 	for index := len(certificates) - 1; index >= 0; index-- {
 		certificate := certificates[index]
