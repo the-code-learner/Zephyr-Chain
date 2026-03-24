@@ -21,3 +21,8 @@ data/
 
 # Go build cache
 .gocache/
+
+
+
+
+.gitignore
