@@ -28,15 +28,16 @@ As of this iteration, the repository has:
 - a first timeout-driven automation slice behind `ZEPHYR_ENABLE_CONSENSUS_AUTOMATION`, `ZEPHYR_CONSENSUS_INTERVAL`, and `ZEPHYR_CONSENSUS_ROUND_TIMEOUT`
 - scheduled proposer self-proposal, active-validator auto-vote, timeout-driven round advance, proposer rotation, stored-candidate reproposal, and proposer-side certified auto-commit on the current devnet path
 - in-order automated proposal and vote dissemination on the validator path to avoid the vote-before-proposal race
-- operator-facing `roundEvidence` on status, consensus, and block-template endpoints
+- operator-facing `roundEvidence` on status, consensus, and block-template endpoints, including leading tally, quorum remaining, pending replay rounds, and warning flags
 - latest local proposal and latest local vote rebroadcast for the pending height during delayed peer recovery
 - a bounded local consensus-action WAL with pending/completed status, replay-attempt metadata, and restart-safe persistence
+- bounded recent consensus diagnostics for rejected proposal, vote, commit, and import paths
 - a browser wallet that can create accounts, sign locally, and submit transactions
 
 What it still does not have:
 
 - authenticated peer discovery and replay-safe transport over libp2p
-- richer operator evidence for conflicting rounds, partial quorum, and timeout diagnosis
+- broader multi-round recovery and transport-facing incident evidence beyond the current local round warnings and rejection history
 - broader recovery coverage beyond the current local proposal/vote WAL path
 - on-chain staking/governance-driven validator updates
 - WASM contracts, fee metering, or compute markets
@@ -82,15 +83,15 @@ Status:
 - valid higher-round proposals and votes can move a node onto the newer round instead of being rejected just because the local timer had not fired yet
 - a first timeout-driven engine now exists: the scheduled proposer can self-propose, active validators can auto-vote, timeout can rotate the proposer, the next proposer can reuse the latest stored candidate body, and the proposer can auto-commit after quorum when certificate enforcement is enabled
 - proposal and vote broadcasts on the automation path are now sent in-order to avoid vote-before-proposal races on the happy path
-- the current automation path now has delayed-link proposal and vote recovery, operator-visible round evidence, and a restart-safe local proposal/vote WAL, but it still lacks deeper conflicting-round diagnostics and broader recovery coverage
+- the current automation path now has delayed-link proposal and vote recovery, richer round evidence, bounded rejection diagnostics, and a restart-safe local proposal/vote WAL, but it still lacks broader recovery coverage and deeper multi-round conflict evidence
 
 Next steps:
 
-1. Add richer round-change and operator evidence for timeout, stale round, conflicting proposer, partial quorum, and multi-round recovery scenarios.
-2. Make commit and import surfaces expose clearer operator evidence for template mismatch, partial quorum, stale round, timeout, and re-proposal scenarios.
-3. Add deterministic multi-node integration tests for certified happy path, conflicting proposals, timeout and re-proposal, restart during a round, and recovery from partial quorum.
+1. Extend the new `roundEvidence` and `diagnostics` surfaces into explicit multi-round conflict, template-mismatch, and peer-import diagnosis flows.
+2. Extend the current local proposal and vote WAL into broader consensus recovery coverage where more in-flight actions can resume safely after restart.
+3. Add deterministic multi-node integration tests for certified happy path, conflicting proposals, timeout and re-proposal, restart during a round, rejection diagnostics, and recovery from partial quorum.
 4. Keep tightening the transport-backed consensus loop so proposal and vote recovery remain correct when peers reconnect after advancing rounds.
-5. Extend the current local proposal/vote WAL into broader consensus recovery coverage where more in-flight actions can resume safely after restart.
+5. Carry the same operator evidence into structured logs and metrics once the transport and recovery paths are more complete.
 
 Exit criteria:
 

@@ -12,7 +12,7 @@ Today the codebase is best suited for:
 
 - wallet, transaction, and settlement demos on a single node or a small admitted-peer devnet
 - validator scheduling, certificate-gated commit, and round-timeout recovery experiments
-- operator drills around peer identity, peer admission, delayed peer recovery, and state catch-up
+- operator drills around peer identity, peer admission, delayed peer recovery, partial quorum, reproposal, rejection diagnostics, and state catch-up
 - product prototyping for applications that need auditable transfers plus predictable validator coordination
 - architecture work for teams that want to design on top of a Rust-first WASM and confidential-compute roadmap before those phases land
 

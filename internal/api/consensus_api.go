@@ -62,6 +62,11 @@ func (s *Server) handleConsensusProposal(w http.ResponseWriter, r *http.Request)
 		err = s.ledger.RecordProposal(request)
 	}
 	if err != nil {
+		source := "local_api"
+		if sourceNode != "" {
+			source = "peer"
+		}
+		s.recordConsensusDiagnostic("proposal_rejected", source, err, request.Height, request.Round, request.BlockHash, request.Proposer)
 		writeJSON(w, statusForError(err), map[string]string{"error": err.Error()})
 		return
 	}
@@ -118,6 +123,11 @@ func (s *Server) handleConsensusVote(w http.ResponseWriter, r *http.Request) {
 		tally, certificate, err = s.ledger.RecordVote(request)
 	}
 	if err != nil {
+		source := "local_api"
+		if sourceNode != "" {
+			source = "peer"
+		}
+		s.recordConsensusDiagnostic("vote_rejected", source, err, request.Height, request.Round, request.BlockHash, request.Voter)
 		writeJSON(w, statusForError(err), map[string]string{"error": err.Error()})
 		return
 	}

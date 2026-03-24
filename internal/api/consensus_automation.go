@@ -256,6 +256,9 @@ func (s *Server) maybeAutomateCommit() error {
 	}
 
 	_, err := s.produceLocalBlock(proposal.ProducedAt)
+	if err != nil {
+		s.recordConsensusDiagnostic("block_commit_rejected", "automation", err, proposal.Height, proposal.Round, proposal.BlockHash, proposal.Proposer)
+	}
 	return err
 }
 
@@ -291,3 +294,4 @@ func ignoreConsensusAutomationError(err error) bool {
 		return false
 	}
 }
+

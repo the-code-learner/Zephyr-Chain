@@ -125,8 +125,9 @@ type StatusResponse struct {
 	Identity                      *TransportIdentity           `json:"identity,omitempty"`
 	Status                        ledger.StatusView            `json:"status"`
 	Consensus                     ledger.ConsensusView         `json:"consensus"`
-	RoundEvidence                 RoundEvidence                `json:"roundEvidence"`
-	Recovery                      ledger.ConsensusRecoveryView `json:"recovery"`
+	RoundEvidence                 RoundEvidence                   `json:"roundEvidence"`
+	Recovery                      ledger.ConsensusRecoveryView    `json:"recovery"`
+	Diagnostics                   ledger.ConsensusDiagnosticsView `json:"diagnostics"`
 }
 
 type ConsensusResponse struct {
@@ -138,8 +139,9 @@ type ConsensusResponse struct {
 	ValidatorSet                  ledger.ValidatorSnapshot      `json:"validatorSet"`
 	Artifacts                     ledger.ConsensusArtifactsView `json:"artifacts"`
 	Consensus                     ledger.ConsensusView          `json:"consensus"`
-	RoundEvidence                 RoundEvidence                 `json:"roundEvidence"`
-	Recovery                      ledger.ConsensusRecoveryView  `json:"recovery"`
+	RoundEvidence                 RoundEvidence                   `json:"roundEvidence"`
+	Recovery                      ledger.ConsensusRecoveryView    `json:"recovery"`
+	Diagnostics                   ledger.ConsensusDiagnosticsView `json:"diagnostics"`
 }
 
 type LatestBlockResponse struct {
@@ -150,8 +152,9 @@ type BlockTemplateResponse struct {
 	Block         ledger.Block                  `json:"block"`
 	Artifacts     ledger.ConsensusArtifactsView `json:"artifacts"`
 	Consensus     ledger.ConsensusView          `json:"consensus"`
-	RoundEvidence RoundEvidence                 `json:"roundEvidence"`
-	Recovery      ledger.ConsensusRecoveryView  `json:"recovery"`
+	RoundEvidence RoundEvidence                   `json:"roundEvidence"`
+	Recovery      ledger.ConsensusRecoveryView    `json:"recovery"`
+	Diagnostics   ledger.ConsensusDiagnosticsView `json:"diagnostics"`
 }
 
 type ProduceBlockRequest struct {
@@ -286,6 +289,7 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		Consensus:                     s.ledger.Consensus(),
 		RoundEvidence:                 s.buildRoundEvidence(now),
 		Recovery:                      s.ledger.ConsensusRecovery(),
+		Diagnostics:                   s.ledger.ConsensusDiagnostics(),
 	}
 	if s.identitySigner != nil {
 		identity, err := s.identitySigner.Build(now)
@@ -323,6 +327,7 @@ func (s *Server) handleConsensus(w http.ResponseWriter, r *http.Request) {
 		Consensus:                     s.ledger.Consensus(),
 		RoundEvidence:                 s.buildRoundEvidence(time.Now().UTC()),
 		Recovery:                      s.ledger.ConsensusRecovery(),
+		Diagnostics:                   s.ledger.ConsensusDiagnostics(),
 	})
 }
 
@@ -523,6 +528,7 @@ func (s *Server) handleBlockTemplate(w http.ResponseWriter, r *http.Request) {
 		Consensus:     s.ledger.Consensus(),
 		RoundEvidence: s.buildRoundEvidence(time.Now().UTC()),
 		Recovery:      s.ledger.ConsensusRecovery(),
+		Diagnostics:   s.ledger.ConsensusDiagnostics(),
 	})
 }
 
@@ -544,6 +550,8 @@ func (s *Server) handleProduceBlock(w http.ResponseWriter, r *http.Request) {
 	}
 	block, err := s.produceLocalBlock(producedAt)
 	if err != nil {
+		consensus := s.ledger.Consensus()
+		s.recordConsensusDiagnostic("block_commit_rejected", "local_api", err, consensus.NextHeight, consensus.CurrentRound, "", s.config.ValidatorAddress)
 		writeJSON(w, statusForError(err), map[string]string{"error": err.Error()})
 		return
 	}
@@ -568,6 +576,7 @@ func (s *Server) handleImportBlock(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.ledger.ImportBlockWithOptions(request, s.config.RequireConsensusCertificates); err != nil {
+		s.recordConsensusDiagnostic("block_import_rejected", "peer", err, request.Height, 0, request.Hash, "")
 		writeJSON(w, statusForError(err), map[string]string{"error": err.Error()})
 		return
 	}
@@ -759,3 +768,5 @@ func writeJSON(w http.ResponseWriter, status int, payload any) {
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(payload)
 }
+
+

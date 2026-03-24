@@ -128,12 +128,16 @@ Current meaning:
 Current fields include:
 
 - `height`, `round`, `nextProposer`, `startedAt`, `deadlineAt`, and `timedOut`
+- `quorumVotingPower`, the target voting power required for certification in the active round
 - `state`, which is currently one of `no_validator_set`, `idle`, `waiting_for_proposal`, `waiting_for_reproposal`, `collecting_votes`, or `certified`
 - `proposalPresent`, `proposalBlockHash`, and `proposalProposer` for the active round
 - `latestKnownProposalRound` and `latestKnownProposalBlockHash` when the node has seen a newer stored proposal for the same height than the currently active round
 - `voteTallies` for the active round
+- `leadingVoteBlockHash`, `leadingVotePower`, `leadingVoteCount`, `quorumRemaining`, and `partialQuorum` so operators can see whether a round is converging or stalled below quorum
 - `localVotePresent` and `localVoteBlockHash` for the local validator when configured
+- `pendingReplayCount` and `pendingReplayRounds` to show whether the local node still has replayable actions for the active height
 - `certificatePresent` and `certificateBlockHash` when the active round already has a matching quorum certificate
+- `warnings`, currently drawn from `timeout_elapsed`, `partial_quorum`, `reproposal_pending`, `replay_pending`, and `proposal_not_from_scheduled_proposer`
 
 ### ConsensusRecoveryView
 
@@ -152,6 +156,23 @@ Current behavior:
 - when automation rebroadcasts a stored local proposal or vote, the matching action updates `replayAttempts` and `lastReplayAt`
 - when a block is committed locally or imported for that height, pending proposal and vote actions for that height are marked completed
 
+### ConsensusDiagnosticsView
+
+`diagnostics` is a bounded recent rejection-history view exposed by `GET /v1/status`, `GET /v1/consensus`, and `GET /v1/dev/block-template`.
+
+Current fields include:
+
+- `recent`, newest first
+- each diagnostic exposes `kind`, `code`, `message`, `height`, `round`, `blockHash`, `validator`, `source`, and `observedAt`
+
+Current behavior:
+
+- rejected proposal submissions append a `proposal_rejected` diagnostic
+- rejected vote submissions append a `vote_rejected` diagnostic
+- rejected local commit attempts append a `block_commit_rejected` diagnostic
+- rejected peer block imports append a `block_import_rejected` diagnostic
+- `code` is a stable operator-facing category such as `unexpected_proposer`, `stale_round`, `conflicting_proposal`, `conflicting_vote`, `proposal_required`, `certificate_required`, or `not_scheduled_proposer`
+
 ## Consensus Endpoints
 
 ### GET /v1/consensus
@@ -165,8 +186,9 @@ Current behavior:
 - `artifacts` exposes the latest stored proposal, votes, and certificate
 - `consensus` now includes `currentRound` and `currentRoundStartedAt` in addition to `nextHeight`, `nextProposer`, total voting power, and quorum target
 - `nextProposer` reflects the active round, not only the next height
-- `roundEvidence` exposes the round deadline, proposal presence, vote tallies, local vote, and certificate state for operator inspection
+- `roundEvidence` exposes the round deadline, proposal presence, vote tallies, leading vote, quorum remaining, replay backlog, warnings, local vote, and certificate state for operator inspection
 - `recovery` exposes the local consensus-action WAL, including pending replayable actions and recent replay/completion metadata
+- `diagnostics` exposes recent rejected proposal, vote, commit, and import events
 
 ### POST /v1/consensus/proposals
 
@@ -185,6 +207,7 @@ Current behavior:
 - when automation is enabled, the scheduled proposer uses the same validation path internally before broadcasting the proposal
 - when the proposal is authored by the node's configured local validator, the node persists a local recovery action for restart replay
 - when automation is enabled and a peer link comes back, the proposer can rebroadcast its latest stored proposal for the pending height until a matching certificate exists
+- rejected proposals are appended to the diagnostic history exposed by status and consensus surfaces
 
 ### POST /v1/consensus/votes
 
@@ -202,6 +225,7 @@ Current behavior:
 - when automation is enabled, active validators use the same validation path internally before broadcasting their vote
 - when the vote is authored by the node's configured local validator, the node persists a local recovery action for restart replay
 - when automation is enabled and a peer link comes back, validators can rebroadcast their latest stored vote for the pending height until the matching certificate exists
+- rejected votes are appended to the diagnostic history exposed by status and consensus surfaces
 
 ## Runtime And Ledger Endpoints
 
@@ -217,8 +241,9 @@ Current behavior:
 
 - the response includes `consensusAutomationEnabled`
 - the embedded `consensus` view now exposes `currentRound`, `currentRoundStartedAt`, and the active-round `nextProposer`
-- `roundEvidence` exposes the active round deadline, state, vote tallies, proposal presence, local vote, and certificate visibility for operators
+- `roundEvidence` exposes the active round deadline, state, vote tallies, leading vote, quorum remaining, replay backlog, warnings, proposal presence, local vote, and certificate visibility for operators
 - `recovery` exposes pending replayable local actions plus recent replay/completion metadata from the local consensus-action WAL
+- `diagnostics` exposes recent rejected proposal, vote, commit, and import events with stable error codes
 - when `ZEPHYR_VALIDATOR_PRIVATE_KEY` is configured, the response includes an `identity` object with a signed transport proof for the local validator
 - `peerIdentityRequired` is `true` when strict peer admission or explicit peer-validator binding is enabled
 
@@ -269,7 +294,7 @@ Current behavior:
 
 - the response includes the exact `blockHash`, `previousHash`, `producedAt`, full `transactions`, and ordered `transactionIds` validators should certify
 - operators can use that data directly when constructing a signed self-contained proposal
-- the response also includes the current consensus summary, `roundEvidence`, `recovery`, and latest durable artifacts for operator context
+- the response also includes the current consensus summary, `roundEvidence`, `recovery`, `diagnostics`, and latest durable artifacts for operator context
 
 ### POST /v1/dev/produce-block
 
@@ -283,6 +308,7 @@ Behavior:
 - if certificate enforcement is enabled, the endpoint returns `409` unless the resulting block exactly matches a stored proposal template and quorum certificate
 - when certificate enforcement is enabled and a matching certified proposal exists, the node can commit from the stored proposal body even if the local mempool no longer contains those transactions
 - when automation is enabled, the scheduled proposer may reach the same commit path without an operator POST as soon as quorum exists for its current round proposal
+- rejected local commit attempts are appended to the diagnostic history exposed by status and consensus surfaces
 
 ## Internal Node-To-Node Endpoints
 
@@ -311,6 +337,8 @@ Current behavior:
 Imports a committed block from another node.
 
 If certificate enforcement is enabled on the receiving node, the imported block must match a stored proposal template and quorum certificate or the import is rejected.
+
+Rejected imports are appended to the diagnostic history exposed by status and consensus surfaces.
 
 ### GET /v1/internal/snapshot
 
