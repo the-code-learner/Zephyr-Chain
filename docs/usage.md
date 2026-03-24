@@ -213,6 +213,7 @@ Expected behavior:
 - if the active proposer stalls past `ZEPHYR_CONSENSUS_ROUND_TIMEOUT`, the node advances `currentRound`, rotates `nextProposer`, and the new proposer can reuse the latest stored candidate body for that same height
 - admitted peers replicate the proposal, vote, certificate, and committed block over the current HTTP transport
 - `GET /v1/status`, `GET /v1/consensus`, and `GET /v1/dev/block-template` now expose `roundEvidence` so operators can see the active round deadline, proposal presence, leading vote power, quorum remaining, replay backlog, warnings, and certificate state
+- those same responses now expose `roundHistory`, which shows the pending height across prior and active rounds so operators can inspect proposer rotation and stalled rounds side by side
 - those same responses now expose `recovery`, which shows pending replayable local proposal or vote actions plus recent replay/completion metadata from the local consensus-action WAL
 - those same responses now expose `diagnostics`, which show recent rejected proposal, vote, commit, or import actions with stable error codes
 - if a peer link drops and later returns, validators keep rebroadcasting their latest local proposal or vote for the pending height until the matching certificate exists
@@ -244,9 +245,10 @@ Expected behavior:
 - confirm there is at least one queued transaction or a previously stored proposal body when you expect automatic proposal generation
 - inspect `roundEvidence` in `GET /v1/status`, `GET /v1/consensus`, or `GET /v1/dev/block-template` to see whether the node is waiting for a proposal, collecting votes, timed out, waiting for reproposal, or already certified
 - use `leadingVotePower`, `quorumRemaining`, `pendingReplayRounds`, and `warnings` inside `roundEvidence` to separate partial quorum, timeout, replay backlog, and proposer-schedule problems
+- inspect `roundHistory` in those same responses to compare round-0, round-1, and later proposer attempts for the pending height without losing visibility into earlier rounds
 - inspect `recovery` in those same responses to see whether the node still has pending replayable local proposal or vote actions after a restart or dropped peer link
 - inspect `diagnostics` in those same responses to see whether recent failures were caused by stale rounds, unexpected proposers, missing proposals, missing certificates, or other rejected consensus actions
-- remember the current engine now supports timeout-driven proposer rotation, latest-artifact rebroadcast after peer recovery, restart-safe local proposal or vote replay, and bounded rejection diagnostics, but broader recovery coverage is still limited
+- remember the current engine now supports timeout-driven proposer rotation, latest-artifact rebroadcast after peer recovery, restart-safe local proposal or vote replay, per-height round history, and bounded rejection diagnostics, but broader recovery coverage is still limited
 
 ### Peer Identity Verification Or Admission Fails
 

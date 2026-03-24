@@ -706,6 +706,97 @@ func TestHandleConsensusExposesReproposalAndTimeoutWarnings(t *testing.T) {
 	}
 }
 
+func TestHandleConsensusExposesRoundHistoryAcrossRounds(t *testing.T) {
+	proposer := newConsensusSigner(t)
+	nextProposer := newConsensusSigner(t)
+	server := newTestServer(t, Config{
+		DataDir:                   t.TempDir(),
+		NodeID:                    "node-a",
+		ValidatorPrivateKey:       encodedPrivateKey(t, proposer.privateKey),
+		ConsensusRoundTimeout:     30 * time.Second,
+		BlockInterval:             0,
+		SyncInterval:              0,
+		MaxTransactionsPerBlock:   10,
+		EnableBlockProduction:     false,
+		EnableConsensusAutomation: false,
+		EnablePeerSync:            false,
+	})
+
+	if _, err := server.ledger.SetValidators([]dpos.Validator{
+		{Rank: 1, Address: proposer.address, VotingPower: 60, SelfStake: 40, DelegatedStake: 20},
+		{Rank: 2, Address: nextProposer.address, VotingPower: 40, SelfStake: 25, DelegatedStake: 15},
+	}, dpos.ElectionConfig{MaxValidators: 2}); err != nil {
+		t.Fatalf("set validators: %v", err)
+	}
+	roundZeroStarted := time.Date(2026, time.March, 24, 16, 0, 0, 0, time.UTC)
+	if _, err := server.ledger.EnsureRoundStarted(roundZeroStarted); err != nil {
+		t.Fatalf("ensure round started: %v", err)
+	}
+
+	proposalRound0 := signedConsensusProposal(t, proposer, 1, 0, "", roundZeroStarted.Add(5*time.Second), []tx.Envelope{signedEnvelope(t, 5, 1, "history-round-0")})
+	if err := server.ledger.RecordProposal(proposalRound0); err != nil {
+		t.Fatalf("record round 0 proposal: %v", err)
+	}
+	if _, _, err := server.ledger.RecordVote(signedConsensusVote(t, proposer, 1, 0, proposalRound0.BlockHash)); err != nil {
+		t.Fatalf("record round 0 vote: %v", err)
+	}
+
+	roundOneStarted := roundZeroStarted.Add(45 * time.Second)
+	if _, err := server.ledger.AdvanceRound(roundOneStarted); err != nil {
+		t.Fatalf("advance round: %v", err)
+	}
+	proposalRound1 := signedConsensusProposal(t, nextProposer, 1, 1, "", roundOneStarted.Add(5*time.Second), []tx.Envelope{signedEnvelope(t, 6, 1, "history-round-1")})
+	if err := server.ledger.RecordProposal(proposalRound1); err != nil {
+		t.Fatalf("record round 1 proposal: %v", err)
+	}
+
+	request := httptest.NewRequest(http.MethodGet, "/v1/consensus", nil)
+	recorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", recorder.Code)
+	}
+
+	var response ConsensusResponse
+	if err := json.NewDecoder(recorder.Body).Decode(&response); err != nil {
+		t.Fatalf("decode consensus response: %v", err)
+	}
+	if response.RoundHistory.Height != 1 {
+		t.Fatalf("expected round history height 1, got %+v", response.RoundHistory)
+	}
+	if len(response.RoundHistory.Rounds) != 2 {
+		t.Fatalf("expected two rounds in round history, got %+v", response.RoundHistory)
+	}
+
+	round0 := response.RoundHistory.Rounds[0]
+	if round0.Round != 0 || round0.Active || round0.ScheduledProposer != proposer.address {
+		t.Fatalf("unexpected round 0 history %+v", round0)
+	}
+	if !round0.ProposalPresent || round0.ProposalBlockHash != proposalRound0.BlockHash || round0.ProposalProposer != proposer.address {
+		t.Fatalf("unexpected round 0 proposal history %+v", round0)
+	}
+	if len(round0.VoteTallies) != 1 || round0.VoteTallies[0].VotingPower != 60 || round0.VoteTallies[0].BlockHash != proposalRound0.BlockHash {
+		t.Fatalf("unexpected round 0 tallies %+v", round0.VoteTallies)
+	}
+
+	round1 := response.RoundHistory.Rounds[1]
+	if round1.Round != 1 || !round1.Active || round1.ScheduledProposer != nextProposer.address {
+		t.Fatalf("unexpected round 1 history %+v", round1)
+	}
+	if round1.StartedAt == nil || !round1.StartedAt.Equal(roundOneStarted) {
+		t.Fatalf("expected round 1 started at %s, got %+v", roundOneStarted, round1)
+	}
+	if !round1.ProposalPresent || round1.ProposalBlockHash != proposalRound1.BlockHash || round1.ProposalProposer != nextProposer.address {
+		t.Fatalf("unexpected round 1 proposal history %+v", round1)
+	}
+	if len(round1.VoteTallies) != 0 {
+		t.Fatalf("expected no round 1 votes yet, got %+v", round1.VoteTallies)
+	}
+	if round1.CertificatePresent {
+		t.Fatalf("expected no round 1 certificate, got %+v", round1)
+	}
+}
+
 func TestHandleStatusExposesConsensusRecovery(t *testing.T) {
 	validator := newConsensusSigner(t)
 	server := newTestServer(t, Config{
@@ -2390,5 +2481,3 @@ func consensusTestHash(seed string) string {
 	sum := sha256.Sum256([]byte(seed))
 	return hex.EncodeToString(sum[:])
 }
-
-

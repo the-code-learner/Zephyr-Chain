@@ -31,15 +31,15 @@ Implemented today:
 
 Implemented in this iteration:
 
-- `roundEvidence` now exposes leading vote power, quorum remaining, pending replay rounds, and explicit warnings for timeout, partial quorum, reproposal, replay backlog, and proposer-schedule mismatch
-- `GET /v1/status`, `GET /v1/consensus`, and `GET /v1/dev/block-template` now expose a bounded recent `diagnostics` view alongside `roundEvidence` and `recovery`
-- rejected proposal, vote, commit, and import paths now persist stable consensus diagnostics so operators can inspect what failed after the fact instead of relying only on the immediate HTTP error
-- focused tests now cover partial-quorum visibility, timeout and reproposal warnings, and diagnostic persistence after rejected consensus actions
+- `roundHistory` now exposes the pending height across rounds, including the active round marker, scheduled proposer, stored proposal, vote tallies, and certificate state for each seen round
+- `GET /v1/status`, `GET /v1/consensus`, and `GET /v1/dev/block-template` now expose `roundHistory` alongside `roundEvidence`, `recovery`, and `diagnostics`
+- operators can now inspect round-0 to round-1 evolution directly after timeout or reproposal instead of inferring it only from the latest warning and artifact
+- focused tests now cover multi-round history visibility across timeout-driven proposer rotation in addition to the existing evidence and diagnostic coverage
 
 Planned but not implemented yet:
 
 - authenticated peer discovery and replay-safe transport over libp2p on top of the new HTTP admission and binding policy
-- broader consensus recovery coverage beyond the current local proposal, vote, timeout-history, and rejection-diagnostic surfaces
+- broader consensus recovery coverage beyond the current local proposal, vote, per-height round-history, and rejection-diagnostic surfaces
 - on-chain staking and governance-driven validator updates instead of ad hoc election API writes
 - deterministic WASM smart-contract runtime with native fee metering
 - confidential compute marketplace for encrypted off-chain jobs paid in native tokens
@@ -281,7 +281,7 @@ VITE_ZEPHYR_API_BASE=http://localhost:8080
 
 - the current multi-node layer is still HTTP-based under the new transport abstraction, not libp2p networking
 - peer admission and validator pinning can now be enforced over the current HTTP transport, but peer discovery is still static configuration rather than libp2p
-- the round engine now supports timeout-driven proposer rotation, latest-artifact rebroadcast after link recovery, richer `roundEvidence`, bounded rejection diagnostics, and local consensus-action WAL replay across restart, but broader multi-round recovery tooling is still missing
+- the round engine now supports timeout-driven proposer rotation, latest-artifact rebroadcast after link recovery, richer `roundEvidence`, per-height `roundHistory`, bounded rejection diagnostics, and local consensus-action WAL replay across restart, but broader recovery tooling is still missing
 - crash recovery now persists active round metadata plus a bounded local consensus-action WAL, but replay coverage is still centered on local proposal and vote actions rather than the full consensus lifecycle
 - DPoS elections still happen through an API call, not an on-chain staking/governance flow
 - snapshot restore is a state catch-up mechanism, not a trust-minimized proof-based sync protocol
@@ -298,7 +298,7 @@ The production roadmap now lives in [docs/roadmap.md](./docs/roadmap.md).
 Short version:
 
 1. Move the new enforced HTTP peer-admission and validator-binding policy toward authenticated libp2p discovery plus replay-safe transport behavior.
-2. Extend the new `roundEvidence` and `diagnostics` surfaces into broader multi-round recovery, peer-import diagnosis, and production incident tooling.
+2. Extend the new `roundHistory`, `roundEvidence`, and `diagnostics` surfaces into broader recovery, peer-import diagnosis, and production incident tooling.
 3. Move validator lifecycle changes behind staking, delegation, slashing, and governance state transitions.
 4. Add deterministic WASM execution, native fee metering, and the confidential compute lane.
 5. Add production observability, recovery tooling, and public testnet operations.
