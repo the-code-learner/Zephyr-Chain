@@ -62,6 +62,7 @@ What to expect:
 - Node A accepts wallet transactions and can produce blocks
 - Node B polls peer status on `ZEPHYR_SYNC_INTERVAL`
 - transactions, faucet credits, proposals, votes, and blocks are replicated over the current transport implementation
+- if validator private keys are configured, `GET /v1/status` exposes a signed identity proof and `GET /v1/peers` shows whether peer identity verification succeeded
 - if Node B starts late or misses a block import, it can recover from Node A's snapshot
 
 ## Inspect Validator Scheduling
@@ -87,6 +88,29 @@ You should see:
 - the persisted validator list and normalized election config
 - `totalVotingPower`, `quorumVotingPower`, and `nextProposer`
 
+## Inspect Signed Validator Identity
+
+If you want the node to prove which validator it represents over the current HTTP transport, start it with a validator private key:
+
+```powershell
+$env:ZEPHYR_NODE_ID="node-a"
+$env:ZEPHYR_VALIDATOR_PRIVATE_KEY="<base64-pkcs8-p256-private-key>"
+go run ./cmd/node
+```
+
+Then inspect:
+
+```powershell
+Invoke-RestMethod http://localhost:8080/v1/status
+Invoke-RestMethod http://localhost:8080/v1/peers
+```
+
+What to expect:
+
+- `GET /v1/status` includes an `identity` object signed by the validator key
+- the node derives `validatorAddress` from that key unless you also set `ZEPHYR_VALIDATOR_ADDRESS`, in which case startup rejects mismatches
+- `GET /v1/peers` shows `identityPresent`, `identityVerified`, and `identityError` for configured peers
+
 ## Run A Certificate-Gated Commit Flow
 
 This is the closest current path to production-style block acceptance.
@@ -96,6 +120,7 @@ This is the closest current path to production-style block acceptance.
 ```powershell
 $env:ZEPHYR_NODE_ID="node-a"
 $env:ZEPHYR_VALIDATOR_ADDRESS="zph_validator_a"
+$env:ZEPHYR_VALIDATOR_PRIVATE_KEY="<base64-pkcs8-p256-private-key>"
 $env:ZEPHYR_ENFORCE_PROPOSER_SCHEDULE="true"
 $env:ZEPHYR_REQUIRE_CONSENSUS_CERTIFICATES="true"
 go run ./cmd/node
@@ -157,6 +182,14 @@ After an election is stored, `POST /v1/dev/produce-block` returns `409` if the l
 - confirm votes reference the same `blockHash`, `height`, and `round` as a known proposal
 - confirm the signed payload still matches the visible request fields exactly
 
+### Peer Identity Verification Fails
+
+- confirm the peer validator node is started with `ZEPHYR_VALIDATOR_PRIVATE_KEY`
+- confirm the private key is a base64-encoded PKCS#8 P-256 key
+- confirm `GET /v1/status` on the remote node includes an `identity` object
+- confirm `GET /v1/peers` shows the expected `validatorAddress` and read `identityError` for the exact verification failure
+- if you intentionally run unsigned legacy peers during development, expect `identityPresent=false`
+
 ### Certified Block Production Is Rejected
 
 - confirm `GET /v1/consensus` shows a non-empty validator set
@@ -177,8 +210,12 @@ After an election is stored, `POST /v1/dev/produce-block` returns `409` if the l
 6. Sign and broadcast a sample transaction.
 7. Produce a block on Node A.
 8. Inspect `GET /v1/status`, `GET /v1/peers`, `GET /v1/blocks/latest`, and `GET /v1/accounts/{address}` on both nodes.
-9. Submit a validator election and inspect `GET /v1/validators` plus `GET /v1/consensus`.
-10. Fetch a block template, submit a matching signed proposal and validator votes, and wait for the certificate to appear.
-11. Produce the certified block with the same `producedAt` timestamp.
-12. Inspect the resulting block, vote tallies, and certificate on both nodes.
-13. Optionally restart a node and confirm the validator snapshot and consensus artifacts survived.
+9. If validator private keys are configured, confirm peer identity verification succeeds in `GET /v1/peers`.
+10. Submit a validator election and inspect `GET /v1/validators` plus `GET /v1/consensus`.
+11. Fetch a block template, submit a matching signed proposal and validator votes, and wait for the certificate to appear.
+12. Produce the certified block with the same `producedAt` timestamp.
+13. Inspect the resulting block, vote tallies, and certificate on both nodes.
+14. Optionally restart a node and confirm the validator snapshot and consensus artifacts survived.
+
+
+

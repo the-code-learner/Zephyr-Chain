@@ -12,15 +12,19 @@ import (
 )
 
 type PeerView struct {
-	URL             string     `json:"url"`
-	NodeID          string     `json:"nodeId,omitempty"`
-	Height          uint64     `json:"height"`
-	LatestBlockHash string     `json:"latestBlockHash,omitempty"`
-	MempoolSize     int        `json:"mempoolSize"`
-	BlockProduction bool       `json:"blockProduction"`
-	LastSeenAt      *time.Time `json:"lastSeenAt,omitempty"`
-	Reachable       bool       `json:"reachable"`
-	Error           string     `json:"error,omitempty"`
+	URL              string     `json:"url"`
+	NodeID           string     `json:"nodeId,omitempty"`
+	ValidatorAddress string     `json:"validatorAddress,omitempty"`
+	Height           uint64     `json:"height"`
+	LatestBlockHash  string     `json:"latestBlockHash,omitempty"`
+	MempoolSize      int        `json:"mempoolSize"`
+	BlockProduction  bool       `json:"blockProduction"`
+	IdentityPresent  bool       `json:"identityPresent"`
+	IdentityVerified bool       `json:"identityVerified"`
+	IdentityError    string     `json:"identityError,omitempty"`
+	LastSeenAt       *time.Time `json:"lastSeenAt,omitempty"`
+	Reachable        bool       `json:"reachable"`
+	Error            string     `json:"error,omitempty"`
 }
 
 type PeersResponse struct {
@@ -54,15 +58,20 @@ func (s *Server) syncPeers() {
 		}
 
 		now := time.Now().UTC()
+		identityVerified, identityError := verifyPeerTransportIdentity(status, now)
 		view := PeerView{
-			URL:             peerURL,
-			NodeID:          status.NodeID,
-			Height:          status.Status.Height,
-			LatestBlockHash: status.Status.LatestBlockHash,
-			MempoolSize:     status.Status.MempoolSize,
-			BlockProduction: status.BlockProduction,
-			LastSeenAt:      &now,
-			Reachable:       true,
+			URL:              peerURL,
+			NodeID:           status.NodeID,
+			ValidatorAddress: status.ValidatorAddress,
+			Height:           status.Status.Height,
+			LatestBlockHash:  status.Status.LatestBlockHash,
+			MempoolSize:      status.Status.MempoolSize,
+			BlockProduction:  status.BlockProduction,
+			IdentityPresent:  status.Identity != nil,
+			IdentityVerified: identityVerified,
+			IdentityError:    identityError,
+			LastSeenAt:       &now,
+			Reachable:        true,
 		}
 		localStatus := s.ledger.Status()
 		needsSync := status.Status.Height > localStatus.Height

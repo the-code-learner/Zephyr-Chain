@@ -18,7 +18,7 @@ The current consensus-artifact flow is:
 
 `validator election -> durable validator snapshot -> block template -> signed proposal -> signed votes -> quorum certificate -> optional gated block commit/import`
 
-This is still a development-stage system. It now has an enforceable certified commit/import path with richer proposal commitments, but it is not yet a complete validator finality protocol.
+This is still a development-stage system. It now has an enforceable certified commit/import path with richer proposal commitments plus signed validator transport identity proofs, but it is not yet a complete validator finality protocol.
 
 ## Components
 
@@ -58,8 +58,9 @@ Today the concrete implementation still uses static HTTP peer URLs, but the rest
 - status fetches
 - block fetches by height
 - snapshot fetches for catch-up restore
+- signed validator transport-identity headers on replicated POSTs when a validator private key is configured
 
-This is an important production-preparation step because it gives the codebase a seam where authenticated libp2p networking can later replace the HTTP implementation.
+This is an important production-preparation step because it gives the codebase a seam where authenticated libp2p networking can later replace the HTTP implementation. The current HTTP layer can already expose and verify validator identity proofs, even though it does not enforce peer admission yet.
 
 ### Durable Ledger
 
@@ -106,13 +107,16 @@ When a vote set for a block hash reaches the `>2/3` voting-power threshold, the 
 
 If `ZEPHYR_REQUIRE_CONSENSUS_CERTIFICATES=true`, the node uses those artifacts to gate both local block commit and remote block import. The gate now checks the exact proposal template fields through the shared block hash path, not just an opaque hash string.
 
+If `ZEPHYR_VALIDATOR_PRIVATE_KEY` is configured, the API layer also derives a signed transport identity for the local validator and verifies peer proofs exposed through `GET /v1/status`.
+
 ## Current Production Gap
 
 The repository has moved from consensus-preparation-only into certificate-gated commit/import with concrete template commitments, but it still falls short of production finality in several important ways:
 
-- validator identity is not authenticated at the network layer
+- validator nodes can now prove identity over the current transport, but peer admission and discovery do not enforce that proof yet
 - the current proposal flow still depends on local template fetches or local mempool convergence instead of a fuller self-contained distributed proposal object
 - there is no timeout, round-change, or crash-recovery protocol yet
 - the current operator flow is still manual or externally driven rather than a fully autonomous validator engine
 
 That is why the project has moved beyond replicated prototype, but it is still not a production blockchain.
+

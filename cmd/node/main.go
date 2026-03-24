@@ -24,6 +24,9 @@ func main() {
 	if validatorAddress := os.Getenv("ZEPHYR_VALIDATOR_ADDRESS"); validatorAddress != "" {
 		config.ValidatorAddress = validatorAddress
 	}
+	if validatorPrivateKey := os.Getenv("ZEPHYR_VALIDATOR_PRIVATE_KEY"); validatorPrivateKey != "" {
+		config.ValidatorPrivateKey = validatorPrivateKey
+	}
 	if dataDir := os.Getenv("ZEPHYR_DATA_DIR"); dataDir != "" {
 		config.DataDir = dataDir
 	}

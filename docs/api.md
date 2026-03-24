@@ -15,6 +15,7 @@ Change it with `ZEPHYR_HTTP_ADDR` when starting the node.
 - `ZEPHYR_HTTP_ADDR`: HTTP bind address, default `:8080`
 - `ZEPHYR_NODE_ID`: node identifier, default `node-local`
 - `ZEPHYR_VALIDATOR_ADDRESS`: local validator address for proposer-schedule enforcement, default empty
+- `ZEPHYR_VALIDATOR_PRIVATE_KEY`: base64-encoded PKCS#8 P-256 private key used to derive and sign the node transport identity, default empty
 - `ZEPHYR_DATA_DIR`: durable node state directory, default `var/node`
 - `ZEPHYR_PEERS`: comma-separated peer base URLs, default empty
 - `ZEPHYR_BLOCK_INTERVAL`: automatic block-production interval, default `15s`
@@ -83,6 +84,25 @@ Current meaning:
 }
 ```
 
+### TransportIdentity
+
+```json
+{
+  "nodeId": "node-a",
+  "validatorAddress": "zph_validator_a",
+  "payload": "{\"nodeId\":\"node-a\",\"signedAt\":\"2026-03-24T09:15:00Z\",\"validatorAddress\":\"zph_validator_a\"}",
+  "publicKey": "<base64-spki-public-key>",
+  "signature": "<base64-signature>",
+  "signedAt": "2026-03-24T09:15:00Z"
+}
+```
+
+Current meaning:
+
+- this proof exists when `ZEPHYR_VALIDATOR_PRIVATE_KEY` is configured
+- the node derives the validator address from that key or rejects startup if it conflicts with `ZEPHYR_VALIDATOR_ADDRESS`
+- peers verify the proof when reading `GET /v1/status`, and validator nodes attach the same proof to replicated POST requests
+
 ## Consensus Endpoints
 
 ### GET /v1/consensus
@@ -124,9 +144,19 @@ Returns a simple liveness response.
 
 Returns the local runtime status for the current node, including consensus summary and whether proposer or certificate enforcement is enabled.
 
+Current behavior:
+
+- when `ZEPHYR_VALIDATOR_PRIVATE_KEY` is configured, the response includes an `identity` object with a signed transport proof for the local validator
+- if `ZEPHYR_VALIDATOR_ADDRESS` is also configured, startup rejects mismatches between the configured address and the private key-derived address
+
 ### GET /v1/peers
 
 Returns the latest known view of configured peers.
+
+Current behavior:
+
+- each peer view now includes the remote `validatorAddress` when advertised
+- `identityPresent`, `identityVerified`, and `identityError` show whether the peer exposed a signed transport identity and whether local verification succeeded
 
 ### POST /v1/election
 
@@ -181,6 +211,20 @@ Behavior:
 
 These endpoints are used by the current devnet sync layer. They exist for node replication, not wallet clients.
 
+When `ZEPHYR_VALIDATOR_PRIVATE_KEY` is configured, replicated POST requests carry these signed source headers:
+
+- `X-Zephyr-Source-Node`
+- `X-Zephyr-Source-Validator`
+- `X-Zephyr-Source-Identity-Payload`
+- `X-Zephyr-Source-Public-Key`
+- `X-Zephyr-Source-Signature`
+- `X-Zephyr-Source-Signed-At`
+
+Current behavior:
+
+- the receiving node still accepts unsigned legacy devnet requests
+- if signed transport-identity headers are present, they must be complete and valid or the request is rejected with `400`
+
 ### POST /v1/internal/blocks
 
 Imports a committed block from another node.
@@ -190,3 +234,4 @@ If certificate enforcement is enabled on the receiving node, the imported block 
 ### GET /v1/internal/snapshot
 
 Returns the current durable node snapshot used for catch-up restore.
+

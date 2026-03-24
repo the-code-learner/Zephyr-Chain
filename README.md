@@ -19,21 +19,21 @@ Implemented today:
 - optional certificate-gated local block commit and remote block import when consensus enforcement is enabled
 - transport-backed peer replication in `internal/api` with the current implementation running over HTTP
 - peer status tracking, block fetch by height, block import, snapshot-based catch-up, and consensus artifact replication for late joiners
+- signed validator transport-identity proofs in status responses and peer verification views when a validator private key is configured
 - consensus visibility endpoints for status, validator snapshots, proposer schedule inspection, latest consensus artifacts, and next-block template preview
 - Vue wallet in `apps/wallet`
 - wallet account generation, import/export, local signing, account inspection, faucet funding, and transaction broadcast
 
 Implemented in this iteration:
 
-- proposals now sign the concrete next-block template fields, not just a free-floating hash: `previousHash`, `producedAt`, and ordered `transactionIds`
-- the ledger block builder and the consensus layer now share the same block-hash function, so proposals and committed blocks derive hashes identically
-- certificate-gated commit/import now proves an exact block template match, so using the wrong `producedAt` or transaction ordering fails even if a certificate exists for another candidate
-- `GET /v1/dev/block-template` is now the canonical source for the proposal fields validators should certify
-- focused tests now cover richer proposal validation plus template-mismatch rejection after certification
+- validator nodes can derive and expose a signed transport identity from `ZEPHYR_VALIDATOR_PRIVATE_KEY`, and the node derives or validates the configured validator address from that key
+- `GET /v1/status` now exposes that signed validator identity, and `GET /v1/peers` reports whether a configured peer's identity proof was present and verified
+- transport-backed replication now attaches signed source-identity headers for validator nodes, and malformed proofs are rejected on replicated POST paths
+- focused tests now cover signed status exposure, peer-side identity verification, mismatched validator-key startup rejection, and invalid transport-signature rejection
 
 Planned but not implemented yet:
 
-- authenticated validator identity binding and peer discovery over libp2p
+- strict peer admission and peer discovery over libp2p on top of the new signed transport-identity proof
 - proposal dissemination that carries enough data for validators to verify a candidate without relying on local mempool mirroring alone
 - round timeout handling, re-proposal rules, and consensus write-ahead recovery
 - on-chain staking and governance-driven validator updates instead of ad hoc election API writes
@@ -134,6 +134,7 @@ For production-style consensus enforcement on the current devnet flow, run a nod
 ```powershell
 $env:ZEPHYR_NODE_ID="node-a"
 $env:ZEPHYR_VALIDATOR_ADDRESS="zph_validator_a"
+$env:ZEPHYR_VALIDATOR_PRIVATE_KEY="<base64-pkcs8-p256-private-key>"
 $env:ZEPHYR_ENFORCE_PROPOSER_SCHEDULE="true"
 $env:ZEPHYR_REQUIRE_CONSENSUS_CERTIFICATES="true"
 go run ./cmd/node
@@ -142,11 +143,12 @@ go run ./cmd/node
 Then use:
 
 ```powershell
+Invoke-RestMethod http://localhost:8080/v1/status
 Invoke-RestMethod http://localhost:8080/v1/dev/block-template
 Invoke-RestMethod http://localhost:8080/v1/consensus
 ```
 
-The template response gives you the exact `height`, `previousHash`, `producedAt`, `transactionIds`, and `blockHash` that a signed proposal must certify. Once a matching quorum certificate exists, `POST /v1/dev/produce-block` can commit that exact block candidate.
+`GET /v1/status` now exposes the node's signed transport identity when `ZEPHYR_VALIDATOR_PRIVATE_KEY` is configured. The template response gives you the exact `height`, `previousHash`, `producedAt`, `transactionIds`, and `blockHash` that a signed proposal must certify. Once a matching quorum certificate exists, `POST /v1/dev/produce-block` can commit that exact block candidate.
 
 ## Runtime Configuration
 
@@ -155,6 +157,7 @@ The template response gives you the exact `height`, `previousHash`, `producedAt`
 - `ZEPHYR_HTTP_ADDR`: HTTP bind address for the Go node
 - `ZEPHYR_NODE_ID`: human-readable node identifier used in peer replication headers and status output
 - `ZEPHYR_VALIDATOR_ADDRESS`: chain-level validator address used for proposer-schedule enforcement and status reporting
+- `ZEPHYR_VALIDATOR_PRIVATE_KEY`: base64-encoded PKCS#8 P-256 private key used to derive and sign the node's validator transport identity
 - `ZEPHYR_DATA_DIR`: local directory used for durable node state
 - `ZEPHYR_PEERS`: comma-separated peer base URLs such as `http://localhost:8081,http://localhost:8082`
 - `ZEPHYR_BLOCK_INTERVAL`: automatic block-production interval such as `15s`
@@ -170,6 +173,7 @@ Default values:
 - `ZEPHYR_HTTP_ADDR`: `:8080`
 - `ZEPHYR_NODE_ID`: `node-local`
 - `ZEPHYR_VALIDATOR_ADDRESS`: empty
+- `ZEPHYR_VALIDATOR_PRIVATE_KEY`: empty
 - `ZEPHYR_DATA_DIR`: `var/node`
 - `ZEPHYR_PEERS`: empty
 - `ZEPHYR_BLOCK_INTERVAL`: `15s`
@@ -205,12 +209,13 @@ VITE_ZEPHYR_API_BASE=http://localhost:8080
 10. Validators submit signed votes for the certified `blockHash`, and once vote power crosses quorum the node stores a durable commit certificate artifact for that height and round.
 11. If proposer-schedule enforcement is enabled, a node can refuse to produce a block unless its configured validator address matches the scheduled proposer for the next height.
 12. If consensus-certificate enforcement is enabled, local block commit and remote block import both require a proposal and quorum certificate for the exact block template being committed.
-13. Configured peer nodes receive transactions, consensus artifacts, and blocks over the current transport implementation, import them when possible, and fall back to snapshot restore when they need catch-up.
+13. If a validator private key is configured, the node derives a signed transport identity for its validator address and exposes that proof in runtime status.
+14. Configured peer nodes receive transactions, consensus artifacts, and blocks over the current transport implementation, verify peer identity proofs when available, import blocks when possible, and fall back to snapshot restore when they need catch-up.
 
 ## Current Limitations
 
 - the current multi-node layer is still HTTP-based under the new transport abstraction, not libp2p networking
-- validator identities are not yet authenticated at the network layer
+- validator nodes can now prove identity over the current transport, but peer admission and discovery do not enforce that proof yet
 - the current proposal flow signs ordered transaction IDs and `producedAt`, but it still does not distribute a fuller self-contained proposal body or autonomous round engine
 - round timeout, round change, and crash-recovery behavior are not implemented yet
 - DPoS elections still happen through an API call, not an on-chain staking/governance flow
@@ -227,7 +232,7 @@ The production roadmap now lives in [docs/roadmap.md](./docs/roadmap.md).
 
 Short version:
 
-1. Bind validator identity to network identity and move the transport abstraction from HTTP-only behavior toward authenticated libp2p networking.
+1. Turn the new signed validator transport identity into strict peer admission rules and move the transport abstraction from HTTP-only behavior toward authenticated libp2p networking.
 2. Extend the certified flow from template commitment into fuller proposal dissemination, timeout handling, and restart-safe round recovery.
 3. Move validator lifecycle changes behind staking, delegation, slashing, and governance state transitions.
 4. Add deterministic WASM execution, native fee metering, and the confidential compute lane.
@@ -244,3 +249,4 @@ Short version:
 ## License
 
 Zephyr Chain is licensed under the MIT License. See [LICENSE](./LICENSE).
+
