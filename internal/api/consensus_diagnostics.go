@@ -11,7 +11,7 @@ func (s *Server) recordConsensusDiagnostic(kind string, source string, err error
 	if err == nil {
 		return
 	}
-	if recordErr := s.ledger.RecordConsensusDiagnostic(ledger.ConsensusDiagnostic{
+	diagnostic := ledger.ConsensusDiagnostic{
 		Kind:       kind,
 		Code:       consensusDiagnosticCode(err),
 		Message:    err.Error(),
@@ -21,9 +21,12 @@ func (s *Server) recordConsensusDiagnostic(kind string, source string, err error
 		Validator:  validator,
 		Source:     source,
 		ObservedAt: time.Now().UTC(),
-	}); recordErr != nil {
-		recordPeerLog("consensus-diagnostic", recordErr)
 	}
+	if recordErr := s.ledger.RecordConsensusDiagnostic(diagnostic); recordErr != nil {
+		recordPeerLog("consensus-diagnostic", recordErr)
+		return
+	}
+	s.eventLogger.logConsensusDiagnostic(diagnostic)
 }
 
 func consensusDiagnosticCode(err error) string {

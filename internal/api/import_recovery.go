@@ -61,7 +61,9 @@ func (s *Server) recordSnapshotRestore(peerLabel string, snapshot ledger.Snapsho
 		CompletedAt: cloneTimeValue(now),
 	}); err != nil {
 		recordPeerLog("consensus-recovery-snapshot", err)
+		return
 	}
+	s.eventLogger.logSnapshotRestore(peerLabel, height, blockHash, now)
 }
 
 func (s *Server) consensusContextForBlock(block ledger.Block) (uint64, string) {

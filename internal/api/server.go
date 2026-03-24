@@ -49,6 +49,8 @@ type Config struct {
 	EnableBlockProduction        bool
 	EnableConsensusAutomation    bool
 	EnablePeerSync               bool
+	EnableStructuredLogs         bool
+	StructuredLogWriter          io.Writer
 	RequirePeerIdentity          bool
 	EnforceProposerSchedule      bool
 	RequireConsensusCertificates bool
@@ -69,6 +71,8 @@ func DefaultConfig() Config {
 		EnableBlockProduction:        true,
 		EnableConsensusAutomation:    false,
 		EnablePeerSync:               true,
+		EnableStructuredLogs:         false,
+		StructuredLogWriter:          nil,
 		RequirePeerIdentity:          false,
 		EnforceProposerSchedule:      false,
 		RequireConsensusCertificates: false,
@@ -119,6 +123,7 @@ type StatusResponse struct {
 	BlockProduction               bool                             `json:"blockProduction"`
 	ConsensusAutomationEnabled    bool                             `json:"consensusAutomationEnabled"`
 	PeerSyncEnabled               bool                             `json:"peerSyncEnabled"`
+	StructuredLogsEnabled         bool                             `json:"structuredLogsEnabled"`
 	PeerIdentityRequired          bool                             `json:"peerIdentityRequired"`
 	ProposerScheduleEnforced      bool                             `json:"proposerScheduleEnforced"`
 	ConsensusCertificatesRequired bool                             `json:"consensusCertificatesRequired"`
@@ -138,6 +143,7 @@ type ConsensusResponse struct {
 	NodeID                        string                           `json:"nodeId"`
 	ValidatorAddress              string                           `json:"validatorAddress,omitempty"`
 	ConsensusAutomationEnabled    bool                             `json:"consensusAutomationEnabled"`
+	StructuredLogsEnabled         bool                             `json:"structuredLogsEnabled"`
 	ProposerScheduleEnforced      bool                             `json:"proposerScheduleEnforced"`
 	ConsensusCertificatesRequired bool                             `json:"consensusCertificatesRequired"`
 	ValidatorSet                  ledger.ValidatorSnapshot         `json:"validatorSet"`
@@ -193,6 +199,7 @@ type MetricsResponse struct {
 	BlockProduction               bool                                  `json:"blockProduction"`
 	ConsensusAutomationEnabled    bool                                  `json:"consensusAutomationEnabled"`
 	PeerSyncEnabled               bool                                  `json:"peerSyncEnabled"`
+	StructuredLogsEnabled         bool                                  `json:"structuredLogsEnabled"`
 	PeerIdentityRequired          bool                                  `json:"peerIdentityRequired"`
 	ProposerScheduleEnforced      bool                                  `json:"proposerScheduleEnforced"`
 	ConsensusCertificatesRequired bool                                  `json:"consensusCertificatesRequired"`
@@ -213,6 +220,7 @@ type Server struct {
 	httpClient     *http.Client
 	transport      peerTransport
 	identitySigner *transportIdentitySigner
+	eventLogger    *structuredEventLogger
 	peerMu         sync.RWMutex
 	peerViews      map[string]PeerView
 	stopCh         chan struct{}
@@ -253,6 +261,7 @@ func NewServerWithConfig(config Config) (*Server, error) {
 		httpClient:     client,
 		transport:      newHTTPPeerTransport(client, config.NodeID, identitySigner),
 		identitySigner: identitySigner,
+		eventLogger:    newStructuredEventLogger(config),
 		peerViews:      make(map[string]PeerView),
 		stopCh:         make(chan struct{}),
 	}
@@ -316,6 +325,7 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		BlockProduction:               s.config.EnableBlockProduction,
 		ConsensusAutomationEnabled:    s.config.EnableConsensusAutomation,
 		PeerSyncEnabled:               s.config.EnablePeerSync,
+		StructuredLogsEnabled:         s.config.EnableStructuredLogs,
 		PeerIdentityRequired:          s.peerIdentityRequired(),
 		ProposerScheduleEnforced:      s.config.EnforceProposerSchedule,
 		ConsensusCertificatesRequired: s.config.RequireConsensusCertificates,
@@ -365,6 +375,7 @@ func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
 		BlockProduction:               s.config.EnableBlockProduction,
 		ConsensusAutomationEnabled:    s.config.EnableConsensusAutomation,
 		PeerSyncEnabled:               s.config.EnablePeerSync,
+		StructuredLogsEnabled:         s.config.EnableStructuredLogs,
 		PeerIdentityRequired:          s.peerIdentityRequired(),
 		ProposerScheduleEnforced:      s.config.EnforceProposerSchedule,
 		ConsensusCertificatesRequired: s.config.RequireConsensusCertificates,
@@ -390,6 +401,7 @@ func (s *Server) handleConsensus(w http.ResponseWriter, r *http.Request) {
 		NodeID:                        s.nodeID,
 		ValidatorAddress:              s.config.ValidatorAddress,
 		ConsensusAutomationEnabled:    s.config.EnableConsensusAutomation,
+		StructuredLogsEnabled:         s.config.EnableStructuredLogs,
 		ProposerScheduleEnforced:      s.config.EnforceProposerSchedule,
 		ConsensusCertificatesRequired: s.config.RequireConsensusCertificates,
 		ValidatorSet:                  s.ledger.ValidatorSet(),
