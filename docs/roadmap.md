@@ -34,8 +34,8 @@ As of this iteration, the repository has:
 - latest local proposal and latest local vote rebroadcast for the pending height during delayed peer recovery
 - explicit pending `block_import` recovery actions plus durable `snapshot_restore` history for peer-import repair and snapshot catch-up
 - peer views that now expose `syncState`, `heightDelta`, last import failure, last snapshot-restore metadata, durable per-peer `recentIncidents` history, and derived incident counters per configured peer
-- status, consensus, and block-template endpoints that now expose durable `peerSyncHistory` plus derived `peerSyncSummary` so operators can correlate recent peer incidents across the node and see affected-peer totals by dominant failure state
-- a machine-readable `GET /v1/metrics` surface that rolls up consensus-action counts, rejection-diagnostic buckets, durable peer-sync summary state, and live peer runtime counts by sync state
+- status, consensus, and block-template endpoints that now expose durable `peerSyncHistory` plus derived `peerSyncSummary` so operators can correlate recent peer incidents across the node and see affected-peer totals by dominant failure state, reason, and error code
+- a machine-readable `GET /v1/metrics` surface that rolls up consensus-action counts, rejection-diagnostic buckets, durable peer-sync summary state by peer, state, reason, and error code, and live peer runtime counts by sync state
 - optional structured JSON event logs for consensus diagnostics, peer-sync incidents, and snapshot-restore recovery behind `ZEPHYR_ENABLE_STRUCTURED_LOGS`
 - an operator-facing `GET /v1/health` readiness surface that derives pass, warn, and fail checks from validator-set availability, recovery backlog, consensus warnings, peer runtime, and recent diagnostics
 - a Prometheus-style `GET /metrics` export adapter that projects the same readiness, consensus, diagnostic, recovery, and peer signals into scrape-friendly text metrics
@@ -130,7 +130,7 @@ Status:
 - `GET /v1/slo` now exposes SLO-oriented objective summaries on top of those same signals for dashboards, operators, and automation
 - `GET /v1/alert-rules` and `GET /v1/alert-rules/prometheus` now turn those same metrics and objectives into recommended monitoring bundles for JSON and Prometheus-oriented workflows
 - `GET /v1/recording-rules` and `GET /v1/recording-rules/prometheus` now turn those same metrics and objectives into recommended dashboard and aggregation rollups for JSON and Prometheus-oriented workflows
-- `GET /v1/dashboards` and `GET /v1/dashboards/grafana` now turn those same metrics, rollups, and objectives into recommended operator dashboard bundles and Grafana-oriented export
+- `GET /v1/dashboards` and `GET /v1/dashboards/grafana` now turn those same metrics, rollups, and objectives into recommended operator dashboard bundles and Grafana-oriented export, including peer incident error-code diagnosis in the peer-sync bundle
 - optional structured JSON event logs already expose consensus diagnostics, peer incidents, and snapshot recovery as line-oriented runtime events
 - the timeout-driven automation slice already uses that transport for proposal and vote dissemination
 - behind nodes can fetch blocks or restore full snapshots
@@ -213,6 +213,8 @@ Broad direction:
 - upgrade strategy and rollback planning
 - monitoring, alerts, and SLOs for operators
 - staged path from devnet to public testnet to mainnet
+
+
 
 
 

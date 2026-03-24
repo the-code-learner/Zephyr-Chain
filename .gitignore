@@ -22,5 +22,5 @@ data/
 # Go build cache
 .gocache/
 
-
+# Private manuscript workspace
 paper/

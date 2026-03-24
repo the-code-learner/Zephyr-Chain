@@ -14,6 +14,22 @@ type PeerSyncStateSummary struct {
 	LatestObservedAt  *time.Time `json:"latestObservedAt,omitempty"`
 }
 
+type PeerSyncReasonSummary struct {
+	Reason            string     `json:"reason"`
+	IncidentCount     int        `json:"incidentCount"`
+	AffectedPeerCount int        `json:"affectedPeerCount"`
+	TotalOccurrences  int        `json:"totalOccurrences"`
+	LatestObservedAt  *time.Time `json:"latestObservedAt,omitempty"`
+}
+
+type PeerSyncErrorCodeSummary struct {
+	ErrorCode         string     `json:"errorCode"`
+	IncidentCount     int        `json:"incidentCount"`
+	AffectedPeerCount int        `json:"affectedPeerCount"`
+	TotalOccurrences  int        `json:"totalOccurrences"`
+	LatestObservedAt  *time.Time `json:"latestObservedAt,omitempty"`
+}
+
 type PeerSyncPeerSummary struct {
 	PeerURL          string     `json:"peerUrl"`
 	IncidentCount    int        `json:"incidentCount"`
@@ -26,12 +42,14 @@ type PeerSyncPeerSummary struct {
 }
 
 type PeerSyncSummaryView struct {
-	IncidentCount     int                    `json:"incidentCount"`
-	AffectedPeerCount int                    `json:"affectedPeerCount"`
-	TotalOccurrences  int                    `json:"totalOccurrences"`
-	LatestObservedAt  *time.Time             `json:"latestObservedAt,omitempty"`
-	States            []PeerSyncStateSummary `json:"states"`
-	Peers             []PeerSyncPeerSummary  `json:"peers"`
+	IncidentCount     int                        `json:"incidentCount"`
+	AffectedPeerCount int                        `json:"affectedPeerCount"`
+	TotalOccurrences  int                        `json:"totalOccurrences"`
+	LatestObservedAt  *time.Time                 `json:"latestObservedAt,omitempty"`
+	States            []PeerSyncStateSummary     `json:"states"`
+	Reasons           []PeerSyncReasonSummary    `json:"reasons"`
+	ErrorCodes        []PeerSyncErrorCodeSummary `json:"errorCodes"`
+	Peers             []PeerSyncPeerSummary      `json:"peers"`
 }
 
 func (s *Store) PeerSyncSummary() PeerSyncSummaryView {
@@ -51,8 +69,10 @@ func (s *Store) PeerSyncPeerSummary(peerURL string) PeerSyncPeerSummary {
 func peerSyncSummaryFromState(state persistedState) PeerSyncSummaryView {
 	state = normalizeState(state)
 	view := PeerSyncSummaryView{
-		States: make([]PeerSyncStateSummary, 0),
-		Peers:  make([]PeerSyncPeerSummary, 0),
+		States:     make([]PeerSyncStateSummary, 0),
+		Reasons:    make([]PeerSyncReasonSummary, 0),
+		ErrorCodes: make([]PeerSyncErrorCodeSummary, 0),
+		Peers:      make([]PeerSyncPeerSummary, 0),
 	}
 	if len(state.PeerSyncIncidents) == 0 {
 		return view
@@ -63,7 +83,19 @@ func peerSyncSummaryFromState(state persistedState) PeerSyncSummaryView {
 		peers   map[string]struct{}
 	}
 
+	type reasonAggregate struct {
+		summary PeerSyncReasonSummary
+		peers   map[string]struct{}
+	}
+
+	type errorCodeAggregate struct {
+		summary PeerSyncErrorCodeSummary
+		peers   map[string]struct{}
+	}
+
 	stateSummaries := make(map[string]*stateAggregate)
+	reasonSummaries := make(map[string]*reasonAggregate)
+	errorCodeSummaries := make(map[string]*errorCodeAggregate)
 	peerSummaries := make(map[string]*PeerSyncPeerSummary)
 
 	for _, incident := range state.PeerSyncIncidents {
@@ -72,23 +104,52 @@ func peerSyncSummaryFromState(state persistedState) PeerSyncSummaryView {
 		view.TotalOccurrences += incident.Occurrences
 		updateLatestObservedAt(&view.LatestObservedAt, incident.LastObservedAt)
 
-		stateKey := strings.TrimSpace(incident.State)
-		if stateKey == "" {
-			stateKey = "unknown"
-		}
-		aggregate, ok := stateSummaries[stateKey]
+		stateKey := peerSyncSummaryLabel(incident.State)
+		stateSummaryAggregate, ok := stateSummaries[stateKey]
 		if !ok {
-			aggregate = &stateAggregate{
+			stateSummaryAggregate = &stateAggregate{
 				summary: PeerSyncStateSummary{State: stateKey},
 				peers:   make(map[string]struct{}),
 			}
-			stateSummaries[stateKey] = aggregate
+			stateSummaries[stateKey] = stateSummaryAggregate
 		}
-		aggregate.summary.IncidentCount++
-		aggregate.summary.TotalOccurrences += incident.Occurrences
-		updateLatestObservedAt(&aggregate.summary.LatestObservedAt, incident.LastObservedAt)
+		stateSummaryAggregate.summary.IncidentCount++
+		stateSummaryAggregate.summary.TotalOccurrences += incident.Occurrences
+		updateLatestObservedAt(&stateSummaryAggregate.summary.LatestObservedAt, incident.LastObservedAt)
 		if incident.PeerURL != "" {
-			aggregate.peers[incident.PeerURL] = struct{}{}
+			stateSummaryAggregate.peers[incident.PeerURL] = struct{}{}
+		}
+
+		reasonKey := peerSyncSummaryLabel(incident.Reason)
+		reasonSummaryAggregate, ok := reasonSummaries[reasonKey]
+		if !ok {
+			reasonSummaryAggregate = &reasonAggregate{
+				summary: PeerSyncReasonSummary{Reason: reasonKey},
+				peers:   make(map[string]struct{}),
+			}
+			reasonSummaries[reasonKey] = reasonSummaryAggregate
+		}
+		reasonSummaryAggregate.summary.IncidentCount++
+		reasonSummaryAggregate.summary.TotalOccurrences += incident.Occurrences
+		updateLatestObservedAt(&reasonSummaryAggregate.summary.LatestObservedAt, incident.LastObservedAt)
+		if incident.PeerURL != "" {
+			reasonSummaryAggregate.peers[incident.PeerURL] = struct{}{}
+		}
+
+		errorCodeKey := peerSyncSummaryLabel(incident.ErrorCode)
+		errorCodeSummaryAggregate, ok := errorCodeSummaries[errorCodeKey]
+		if !ok {
+			errorCodeSummaryAggregate = &errorCodeAggregate{
+				summary: PeerSyncErrorCodeSummary{ErrorCode: errorCodeKey},
+				peers:   make(map[string]struct{}),
+			}
+			errorCodeSummaries[errorCodeKey] = errorCodeSummaryAggregate
+		}
+		errorCodeSummaryAggregate.summary.IncidentCount++
+		errorCodeSummaryAggregate.summary.TotalOccurrences += incident.Occurrences
+		updateLatestObservedAt(&errorCodeSummaryAggregate.summary.LatestObservedAt, incident.LastObservedAt)
+		if incident.PeerURL != "" {
+			errorCodeSummaryAggregate.peers[incident.PeerURL] = struct{}{}
 		}
 
 		peerSummary, ok := peerSummaries[incident.PeerURL]
@@ -112,6 +173,14 @@ func peerSyncSummaryFromState(state persistedState) PeerSyncSummaryView {
 		aggregate.summary.AffectedPeerCount = len(aggregate.peers)
 		view.States = append(view.States, aggregate.summary)
 	}
+	for _, aggregate := range reasonSummaries {
+		aggregate.summary.AffectedPeerCount = len(aggregate.peers)
+		view.Reasons = append(view.Reasons, aggregate.summary)
+	}
+	for _, aggregate := range errorCodeSummaries {
+		aggregate.summary.AffectedPeerCount = len(aggregate.peers)
+		view.ErrorCodes = append(view.ErrorCodes, aggregate.summary)
+	}
 	for _, peerSummary := range peerSummaries {
 		view.Peers = append(view.Peers, *peerSummary)
 	}
@@ -121,6 +190,18 @@ func peerSyncSummaryFromState(state persistedState) PeerSyncSummaryView {
 			return view.States[i].State < view.States[j].State
 		}
 		return view.States[i].TotalOccurrences > view.States[j].TotalOccurrences
+	})
+	sort.Slice(view.Reasons, func(i, j int) bool {
+		if view.Reasons[i].TotalOccurrences == view.Reasons[j].TotalOccurrences {
+			return view.Reasons[i].Reason < view.Reasons[j].Reason
+		}
+		return view.Reasons[i].TotalOccurrences > view.Reasons[j].TotalOccurrences
+	})
+	sort.Slice(view.ErrorCodes, func(i, j int) bool {
+		if view.ErrorCodes[i].TotalOccurrences == view.ErrorCodes[j].TotalOccurrences {
+			return view.ErrorCodes[i].ErrorCode < view.ErrorCodes[j].ErrorCode
+		}
+		return view.ErrorCodes[i].TotalOccurrences > view.ErrorCodes[j].TotalOccurrences
 	})
 	sort.Slice(view.Peers, func(i, j int) bool {
 		left := view.Peers[i].LatestObservedAt
@@ -153,6 +234,14 @@ func peerSyncPeerSummaryFromState(state persistedState, peerURL string) PeerSync
 		}
 	}
 	return PeerSyncPeerSummary{PeerURL: peerURL}
+}
+
+func peerSyncSummaryLabel(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "unknown"
+	}
+	return value
 }
 
 func updateLatestObservedAt(target **time.Time, candidate time.Time) {

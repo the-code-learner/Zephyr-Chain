@@ -240,13 +240,16 @@ Current fields include:
 
 - `incidentCount`, `affectedPeerCount`, `totalOccurrences`, and `latestObservedAt`
 - `states`, where each entry exposes `state`, `incidentCount`, `affectedPeerCount`, `totalOccurrences`, and `latestObservedAt`
+- `reasons`, where each entry exposes `reason`, `incidentCount`, `affectedPeerCount`, `totalOccurrences`, and `latestObservedAt`
+- `errorCodes`, where each entry exposes `errorCode`, `incidentCount`, `affectedPeerCount`, `totalOccurrences`, and `latestObservedAt`
 - `peers`, where each entry exposes `peerUrl`, `incidentCount`, `totalOccurrences`, `latestState`, `latestReason`, `latestErrorCode`, `latestBlockHash`, and `latestObservedAt`
 
 Current behavior:
 
 - repeated incidents for one peer increase `totalOccurrences` without inflating the distinct `incidentCount`
 - the summary is derived from the durable peer-sync incident history, so it survives restart and peer snapshot repair
-- state summaries are sorted by dominant total occurrences and peer summaries are sorted by latest observation time
+- blank peer incident reasons or error codes are normalized to `unknown` for cross-peer aggregation and metrics export
+- state, reason, and error-code summaries are sorted by dominant total occurrences and peer summaries are sorted by latest observation time
 
 ### GET /v1/consensus
 
@@ -417,7 +420,7 @@ Returns a machine-readable recommended dashboard bundle derived from the current
 Current behavior:
 
 - the top-level response includes `generatedAt`, node identity, optional validator address, peer count, `peerSyncEnabled`, `structuredLogsEnabled`, current health or objective summary counts, total dashboard counts, total panel counts, and the current dashboard list
-- dashboards are currently grouped into operator overview, consensus-and-recovery, and peer-sync bundles
+- dashboards are currently grouped into operator overview, consensus-and-recovery, and peer-sync bundles, and the peer-sync bundle includes incident-by-state plus incident-by-error-code panels
 - each panel includes a stable panel `id`, `kind`, `summary`, `description`, PromQL queries, source metrics, source endpoints, related recording rules, related alert codes or objectives, and whether the panel is currently enabled for the node's runtime configuration
 - the peer-sync dashboard stays visible in the JSON surface even when peer sync is disabled or no peers are configured; in those cases it includes `enabled=false` plus a `disabledReason` and the same disabled reason is reflected on its panels
 - the current bundle is intentionally opinionated: it is a recommended starting point for Grafana or other dashboard tooling built on `GET /metrics`, the recording-rule bundle, and the higher-level health, alert, or SLO projections
@@ -447,7 +450,7 @@ Current behavior:
 - `recovery` exposes pending replayable local actions, pending import backlog, and recent replay/completion plus snapshot-restore metadata from the local consensus-action WAL
 - `diagnostics` exposes recent rejected proposal, vote, commit, and import events
 - `peerSyncHistory` exposes a durable recent history of cross-peer sync incidents, including repeated failures merged by occurrence count
-- `peerSyncSummary` exposes affected-peer totals, dominant states, and the latest incident summary across peers
+- `peerSyncSummary` exposes affected-peer totals, dominant states, dominant reasons, dominant error codes, and the latest incident summary across peers
 - `GET /v1/metrics` offers a machine-readable roll-up of that durable summary plus live peer runtime counts
 - `GET /metrics` offers a Prometheus-style text projection of the same operator signals for scrape-based monitoring and alerting
 - `GET /v1/health` offers a pass, warn, or fail readiness summary derived from the same durable and live operator signals; unlike `/health`, it can return HTTP `503` when fail checks are active
@@ -471,7 +474,7 @@ Current behavior:
 - `peerSyncSummary` reuses the durable cross-peer incident summary also exposed by status, consensus, and block-template responses
 - `peerRuntime` reflects the current configured peer set and live `syncState` distribution, including reachable or admitted counts versus unreachable or unadmitted counts
 - unlike `peerSyncSummary`, `peerRuntime` is derived from the latest in-memory peer view and may reset on process restart until peers are seen again
-- `GET /metrics` reuses these same rollups in Prometheus-compatible text form, including readiness gauges such as `zephyr_node_ready` and `zephyr_health_check_status`, alert gauges such as `zephyr_alert_count` and `zephyr_alert_active`, and SLO gauges such as `zephyr_slo_status_count` and `zephyr_slo_objective_status`
+- `GET /metrics` reuses these same rollups in Prometheus-compatible text form, including readiness gauges such as `zephyr_node_ready` and `zephyr_health_check_status`, alert gauges such as `zephyr_alert_count` and `zephyr_alert_active`, SLO gauges such as `zephyr_slo_status_count` and `zephyr_slo_objective_status`, and peer-incident gauges such as `zephyr_peer_sync_reason_occurrence_count` and `zephyr_peer_sync_error_code_occurrence_count`
 - `GET /v1/dashboards` and `GET /v1/dashboards/grafana` build directly on these same Prometheus-facing rollups plus the recording-rule bundle when operators want prewired dashboard panels instead of only raw metrics
 
 ### Structured Event Logs
@@ -594,6 +597,10 @@ If proposals exist for that height but the imported block does not match any sto
 Returns the current durable node snapshot used for catch-up restore.
 
 When another node applies this snapshot through peer sync, it preserves its own local recovery, diagnostic, peer-sync incident history, and derived peer-sync summary context instead of replacing that operator context with the peer's local WAL or diagnostics.
+
+
+
+
 
 
 

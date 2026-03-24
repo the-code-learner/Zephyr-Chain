@@ -2,7 +2,7 @@
 
 Zephyr Chain is an early-stage blockchain node and wallet stack focused on a production path toward validator-driven consensus, deterministic WASM execution, and a confidential compute marketplace.
 
-The long-term product vision lives in [Zaphyr-chain_manifesto.md](./Zaphyr-chain_manifesto.md). Application and use-case framing lives in [docs/applications.md](./docs/applications.md). Academic paper materials live in [paper/README.md](./paper/README.md). This `README` stays practical: what works now, what changed in the latest iteration, and what comes next.
+The long-term product vision lives in [Zaphyr-chain_manifesto.md](./Zaphyr-chain_manifesto.md). Application and use-case framing lives in [docs/applications.md](./docs/applications.md). Academic paper materials are maintained locally under `paper/` and kept private via `.gitignore`. This `README` stays practical: what works now, what changed in the latest iteration, and what comes next.
 
 ## Current Status
 
@@ -32,10 +32,11 @@ Implemented today:
 
 Implemented in this iteration:
 
-- `GET /v1/dashboards` now exposes recommended dashboard bundles for overview, consensus-and-recovery, and peer-sync operations, including disabled dashboards and panels when the current runtime configuration makes them inapplicable
-- `GET /v1/dashboards/grafana` now exports the enabled subset as Grafana dashboard JSON built on top of the current `/metrics` and recording-rule surfaces
-- the README, roadmap, API, architecture, usage, and paper docs now extend the observability flow from recording rules into dashboard bundles and Grafana export so the operator and manuscript views stay aligned
-- focused tests now cover both the JSON dashboard bundle and the Grafana dashboard export
+- `peerSyncSummary` and `GET /v1/metrics` now roll durable peer incidents up by state, reason, error code, and peer so operators can separate transport loss, admission failures, and import-blocked consensus faults
+- `GET /metrics` now exports matching `zephyr_peer_sync_reason_*` and `zephyr_peer_sync_error_code_*` gauges for Prometheus-based dashboards and alerts
+- `GET /v1/dashboards` and `GET /v1/dashboards/grafana` now include a peer incident error-code panel in the peer-sync bundle so Grafana imports surface repair causes, not only state totals
+- the README, roadmap, API, architecture, usage, applications, and private paper docs now keep that richer observability slice aligned end to end
+- focused tests now cover durable peer-sync reason and error-code rollups across status, JSON metrics, Prometheus metrics, and dashboard export
 
 Planned but not implemented yet:
 
@@ -56,7 +57,7 @@ Planned but not implemented yet:
 - `internal/tx`: transaction envelope validation, address derivation, and signature verification
 - `apps/wallet`: reference light wallet built with Vue 3, Vite, and Tailwind CSS
 - `docs/`: architecture, API, usage, roadmap, and applications guides
-- `paper/`: academic paper workspace, draft manuscript materials, and evaluation planning notes
+- `paper/`: private local academic paper workspace, draft manuscript materials, and evaluation planning notes kept out of git via `.gitignore`
 - `var/`: default local runtime state directory for the node, ignored by git
 
 ## Prerequisites
@@ -337,6 +338,9 @@ Short version:
 ## License
 
 Zephyr Chain is licensed under the MIT License. See [LICENSE](./LICENSE).
+
+
+
 
 
 
