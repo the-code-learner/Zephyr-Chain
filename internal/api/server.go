@@ -287,6 +287,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/health", s.handleHealth)
 	s.mux.HandleFunc("/v1/health", s.handleNodeHealth)
 	s.mux.HandleFunc("/v1/alerts", s.handleAlerts)
+	s.mux.HandleFunc("/v1/slo", s.handleSLO)
 	s.mux.HandleFunc("/v1/status", s.handleStatus)
 	s.mux.HandleFunc("/v1/metrics", s.handleMetrics)
 	s.mux.HandleFunc("/v1/peers", s.handlePeers)

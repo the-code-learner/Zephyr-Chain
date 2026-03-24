@@ -44,6 +44,7 @@ func (s *Server) buildPrometheusMetrics(now time.Time) string {
 	peerRuntime := buildPeerRuntimeMetrics(s.peerSnapshot())
 	health := s.buildHealthResponse(now)
 	alerts := s.buildAlertsResponse(now)
+	slo := s.buildSLOSummary(now)
 
 	writer := newPrometheusMetricWriter()
 
@@ -96,6 +97,23 @@ func (s *Server) buildPrometheusMetrics(now time.Time) string {
 		writer.gauge("zephyr_alert_active", "Currently active derived alerts grouped by code, severity, and component.", 1, labels...)
 		if alert.ObservedAt != nil {
 			writer.gauge("zephyr_alert_observed_at_seconds", "Unix timestamp of the latest observation behind each active derived alert.", unixSeconds(*alert.ObservedAt), labels...)
+		}
+	}
+
+	writer.gauge("zephyr_slo_objective_count", "Number of current SLO-oriented objectives exposed by /v1/slo.", float64(slo.ObjectiveCount))
+	writer.gauge("zephyr_slo_status_count", "Number of current SLO-oriented objectives grouped by status.", float64(slo.MeetingCount), prometheusLabel{Name: "status", Value: sloStatusMeeting})
+	writer.gauge("zephyr_slo_status_count", "Number of current SLO-oriented objectives grouped by status.", float64(slo.AtRiskCount), prometheusLabel{Name: "status", Value: sloStatusAtRisk})
+	writer.gauge("zephyr_slo_status_count", "Number of current SLO-oriented objectives grouped by status.", float64(slo.BreachedCount), prometheusLabel{Name: "status", Value: sloStatusBreached})
+	writer.gauge("zephyr_slo_status_count", "Number of current SLO-oriented objectives grouped by status.", float64(slo.NotApplicableCount), prometheusLabel{Name: "status", Value: sloStatusNotApplicable})
+	for _, objective := range slo.Objectives {
+		for _, statusLabel := range []string{sloStatusMeeting, sloStatusAtRisk, sloStatusBreached, sloStatusNotApplicable} {
+			writer.gauge(
+				"zephyr_slo_objective_status",
+				"Current SLO-oriented objective status projected as mutually exclusive objective and status labels.",
+				boolMetric(objective.Status == statusLabel),
+				prometheusLabel{Name: "objective", Value: objective.Name},
+				prometheusLabel{Name: "status", Value: statusLabel},
+			)
 		}
 	}
 
