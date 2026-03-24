@@ -44,11 +44,19 @@ func (s *Server) runConsensusAutomation() error {
 	if err := s.maybeAdvanceConsensusRound(now); err != nil {
 		return err
 	}
-	if err := s.maybeAutomateProposal(now); err != nil {
+	proposalCreated, err := s.maybeAutomateProposal(now)
+	if err != nil {
 		return err
 	}
-	if err := s.maybeAutomateVote(now); err != nil {
+	voteCreated, err := s.maybeAutomateVote(now)
+	if err != nil {
 		return err
+	}
+	if !proposalCreated {
+		s.maybeRebroadcastProposal()
+	}
+	if !voteCreated {
+		s.maybeRebroadcastVote()
 	}
 	if err := s.maybeAutomateCommit(); err != nil {
 		return err
@@ -93,17 +101,17 @@ func (s *Server) maybeAdvanceConsensusRound(now time.Time) error {
 	return err
 }
 
-func (s *Server) maybeAutomateProposal(now time.Time) error {
+func (s *Server) maybeAutomateProposal(now time.Time) (bool, error) {
 	if !s.config.EnableBlockProduction {
-		return nil
+		return false, nil
 	}
 
 	consensusView := s.ledger.Consensus()
 	if consensusView.ValidatorCount == 0 || consensusView.NextProposer == "" || consensusView.NextProposer != s.config.ValidatorAddress {
-		return nil
+		return false, nil
 	}
 	if _, exists := s.ledger.ProposalAt(consensusView.NextHeight, consensusView.CurrentRound); exists {
-		return nil
+		return false, nil
 	}
 
 	proposal := consensus.Proposal{
@@ -119,7 +127,7 @@ func (s *Server) maybeAutomateProposal(now time.Time) error {
 	} else {
 		block, err := s.ledger.BuildNextBlock(s.config.MaxTransactionsPerBlock, now)
 		if err != nil {
-			return err
+			return false, err
 		}
 		proposal.BlockHash = block.Hash
 		proposal.PreviousHash = block.PreviousHash
@@ -130,28 +138,28 @@ func (s *Server) maybeAutomateProposal(now time.Time) error {
 
 	signedProposal, err := s.identitySigner.SignProposal(proposal, now)
 	if err != nil {
-		return err
+		return false, err
 	}
 	if err := s.ledger.RecordProposal(signedProposal); err != nil {
-		return err
+		return false, err
 	}
 
-	go s.broadcastProposal(signedProposal)
-	return nil
+	s.broadcastProposal(signedProposal)
+	return true, nil
 }
 
-func (s *Server) maybeAutomateVote(now time.Time) error {
+func (s *Server) maybeAutomateVote(now time.Time) (bool, error) {
 	consensusView := s.ledger.Consensus()
 	if consensusView.ValidatorCount == 0 {
-		return nil
+		return false, nil
 	}
 
 	proposal, exists := s.ledger.ProposalAt(consensusView.NextHeight, consensusView.CurrentRound)
 	if !exists {
-		return nil
+		return false, nil
 	}
 	if s.ledger.HasVote(proposal.Height, proposal.Round, s.config.ValidatorAddress) {
-		return nil
+		return false, nil
 	}
 
 	vote, err := s.identitySigner.SignVote(consensus.Vote{
@@ -160,14 +168,40 @@ func (s *Server) maybeAutomateVote(now time.Time) error {
 		BlockHash: proposal.BlockHash,
 	}, now)
 	if err != nil {
-		return err
+		return false, err
 	}
 	if _, _, err := s.ledger.RecordVote(vote); err != nil {
-		return err
+		return false, err
 	}
 
-	go s.broadcastVote(vote)
-	return nil
+	s.broadcastVote(vote)
+	return true, nil
+}
+
+func (s *Server) maybeRebroadcastProposal() {
+	consensusView := s.ledger.Consensus()
+	proposal, exists := s.ledger.LatestProposalForHeight(consensusView.NextHeight)
+	if !exists || proposal.Proposer != s.config.ValidatorAddress {
+		return
+	}
+	if _, exists := s.ledger.Certificate(proposal.Height, proposal.Round, proposal.BlockHash); exists {
+		return
+	}
+
+	s.broadcastProposal(*proposal)
+}
+
+func (s *Server) maybeRebroadcastVote() {
+	consensusView := s.ledger.Consensus()
+	vote, exists := s.ledger.LatestVoteByValidatorForHeight(consensusView.NextHeight, s.config.ValidatorAddress)
+	if !exists {
+		return
+	}
+	if _, exists := s.ledger.Certificate(vote.Height, vote.Round, vote.BlockHash); exists {
+		return
+	}
+
+	s.broadcastVote(*vote)
 }
 
 func (s *Server) maybeAutomateCommit() error {

@@ -12,7 +12,7 @@ The current repository gives you five practical local development flows:
 
 The browser wallet can create a local account, export and import it, inspect node-side account state, sign a transaction, and send it to the node.
 
-Deterministic WASM smart contracts and a confidential compute marketplace are planned next phases, not part of the current runnable workflow.
+Deterministic WASM smart contracts and a confidential compute marketplace are planned next phases, not part of the current runnable workflow. Product-oriented applications and target use cases are outlined in [docs/applications.md](./applications.md).
 
 ## Run A Single Node
 
@@ -212,6 +212,8 @@ Expected behavior:
 - once quorum is observed, the proposer commits from the stored certified proposal body without requiring `POST /v1/dev/produce-block`
 - if the active proposer stalls past `ZEPHYR_CONSENSUS_ROUND_TIMEOUT`, the node advances `currentRound`, rotates `nextProposer`, and the new proposer can reuse the latest stored candidate body for that same height
 - admitted peers replicate the proposal, vote, certificate, and committed block over the current HTTP transport
+- `GET /v1/status`, `GET /v1/consensus`, and `GET /v1/dev/block-template` now expose `roundEvidence` so operators can see the active round deadline, proposal presence, vote tallies, and certificate state
+- if a peer link drops and later returns, validators keep rebroadcasting their latest local proposal or vote for the pending height until the matching certificate exists
 
 ## Troubleshooting
 
@@ -236,7 +238,8 @@ Expected behavior:
 - confirm `GET /v1/status` or `GET /v1/consensus` shows `consensusAutomationEnabled=true`
 - confirm `ZEPHYR_CONSENSUS_ROUND_TIMEOUT` is long enough for proposal and vote dissemination in your local setup
 - confirm there is at least one queued transaction or a previously stored proposal body when you expect automatic proposal generation
-- remember the current engine supports timeout-driven proposer rotation, but vote rebroadcast and WAL-style replay are still not implemented
+- inspect `roundEvidence` in `GET /v1/status`, `GET /v1/consensus`, or `GET /v1/dev/block-template` to see whether the node is waiting for a proposal, collecting votes, timed out, or already certified
+- remember the current engine now supports timeout-driven proposer rotation plus latest-artifact rebroadcast after peer recovery, but WAL-style replay is still not implemented
 
 ### Peer Identity Verification Or Admission Fails
 
@@ -272,3 +275,4 @@ Expected behavior:
 12. If the active proposer stalls, watch `currentRound` advance and `nextProposer` rotate.
 13. Inspect the resulting block, vote tallies, and certificate on both nodes.
 14. Optionally restart a node and confirm the validator snapshot, round state, and consensus artifacts survived.
+

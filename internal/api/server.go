@@ -125,6 +125,7 @@ type StatusResponse struct {
 	Identity                      *TransportIdentity   `json:"identity,omitempty"`
 	Status                        ledger.StatusView    `json:"status"`
 	Consensus                     ledger.ConsensusView `json:"consensus"`
+	RoundEvidence                 RoundEvidence        `json:"roundEvidence"`
 }
 
 type ConsensusResponse struct {
@@ -136,6 +137,7 @@ type ConsensusResponse struct {
 	ValidatorSet                  ledger.ValidatorSnapshot      `json:"validatorSet"`
 	Artifacts                     ledger.ConsensusArtifactsView `json:"artifacts"`
 	Consensus                     ledger.ConsensusView          `json:"consensus"`
+	RoundEvidence                 RoundEvidence                 `json:"roundEvidence"`
 }
 
 type LatestBlockResponse struct {
@@ -143,9 +145,10 @@ type LatestBlockResponse struct {
 }
 
 type BlockTemplateResponse struct {
-	Block     ledger.Block                  `json:"block"`
-	Artifacts ledger.ConsensusArtifactsView `json:"artifacts"`
-	Consensus ledger.ConsensusView          `json:"consensus"`
+	Block         ledger.Block                  `json:"block"`
+	Artifacts     ledger.ConsensusArtifactsView `json:"artifacts"`
+	Consensus     ledger.ConsensusView          `json:"consensus"`
+	RoundEvidence RoundEvidence                 `json:"roundEvidence"`
 }
 
 type ProduceBlockRequest struct {
@@ -265,6 +268,7 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	now := time.Now().UTC()
 	response := StatusResponse{
 		NodeID:                        s.nodeID,
 		ValidatorAddress:              s.config.ValidatorAddress,
@@ -277,9 +281,10 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		ConsensusCertificatesRequired: s.config.RequireConsensusCertificates,
 		Status:                        s.ledger.Status(),
 		Consensus:                     s.ledger.Consensus(),
+		RoundEvidence:                 s.buildRoundEvidence(now),
 	}
 	if s.identitySigner != nil {
-		identity, err := s.identitySigner.Build(time.Now().UTC())
+		identity, err := s.identitySigner.Build(now)
 		if err == nil {
 			response.Identity = &identity
 		}
@@ -312,6 +317,7 @@ func (s *Server) handleConsensus(w http.ResponseWriter, r *http.Request) {
 		ValidatorSet:                  s.ledger.ValidatorSet(),
 		Artifacts:                     s.ledger.ConsensusArtifacts(),
 		Consensus:                     s.ledger.Consensus(),
+		RoundEvidence:                 s.buildRoundEvidence(time.Now().UTC()),
 	})
 }
 
@@ -507,9 +513,10 @@ func (s *Server) handleBlockTemplate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, BlockTemplateResponse{
-		Block:     block,
-		Artifacts: s.ledger.ConsensusArtifacts(),
-		Consensus: s.ledger.Consensus(),
+		Block:         block,
+		Artifacts:     s.ledger.ConsensusArtifacts(),
+		Consensus:     s.ledger.Consensus(),
+		RoundEvidence: s.buildRoundEvidence(time.Now().UTC()),
 	})
 }
 

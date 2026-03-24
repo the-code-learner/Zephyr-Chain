@@ -121,6 +121,20 @@ Current meaning:
 }
 ```
 
+### RoundEvidence
+
+`roundEvidence` is a derived operator-facing view exposed by `GET /v1/status`, `GET /v1/consensus`, and `GET /v1/dev/block-template`.
+
+Current fields include:
+
+- `height`, `round`, `nextProposer`, `startedAt`, `deadlineAt`, and `timedOut`
+- `state`, which is currently one of `no_validator_set`, `idle`, `waiting_for_proposal`, `waiting_for_reproposal`, `collecting_votes`, or `certified`
+- `proposalPresent`, `proposalBlockHash`, and `proposalProposer` for the active round
+- `latestKnownProposalRound` and `latestKnownProposalBlockHash` when the node has seen a newer stored proposal for the same height than the currently active round
+- `voteTallies` for the active round
+- `localVotePresent` and `localVoteBlockHash` for the local validator when configured
+- `certificatePresent` and `certificateBlockHash` when the active round already has a matching quorum certificate
+
 ## Consensus Endpoints
 
 ### GET /v1/consensus
@@ -134,6 +148,7 @@ Current behavior:
 - `artifacts` exposes the latest stored proposal, votes, and certificate
 - `consensus` now includes `currentRound` and `currentRoundStartedAt` in addition to `nextHeight`, `nextProposer`, total voting power, and quorum target
 - `nextProposer` reflects the active round, not only the next height
+- `roundEvidence` exposes the round deadline, proposal presence, vote tallies, local vote, and certificate state for operator inspection
 
 ### POST /v1/consensus/proposals
 
@@ -150,6 +165,7 @@ Current behavior:
 - a valid higher-round proposal can advance the local active round when needed
 - the proposal is stored durably and replicated to admitted peers
 - when automation is enabled, the scheduled proposer uses the same validation path internally before broadcasting the proposal
+- when automation is enabled and a peer link comes back, the proposer can rebroadcast its latest stored proposal for the pending height until a matching certificate exists
 
 ### POST /v1/consensus/votes
 
@@ -165,6 +181,7 @@ Current behavior:
 - if the accumulated vote power reaches quorum, the node stores a commit certificate artifact
 - when certificate enforcement is enabled, that certificate can unlock local commit and remote import for the matching block hash
 - when automation is enabled, active validators use the same validation path internally before broadcasting their vote
+- when automation is enabled and a peer link comes back, validators can rebroadcast their latest stored vote for the pending height until the matching certificate exists
 
 ## Runtime And Ledger Endpoints
 
@@ -180,6 +197,7 @@ Current behavior:
 
 - the response includes `consensusAutomationEnabled`
 - the embedded `consensus` view now exposes `currentRound`, `currentRoundStartedAt`, and the active-round `nextProposer`
+- `roundEvidence` exposes the active round deadline, state, vote tallies, proposal presence, local vote, and certificate visibility for operators
 - when `ZEPHYR_VALIDATOR_PRIVATE_KEY` is configured, the response includes an `identity` object with a signed transport proof for the local validator
 - `peerIdentityRequired` is `true` when strict peer admission or explicit peer-validator binding is enabled
 
@@ -230,7 +248,7 @@ Current behavior:
 
 - the response includes the exact `blockHash`, `previousHash`, `producedAt`, full `transactions`, and ordered `transactionIds` validators should certify
 - operators can use that data directly when constructing a signed self-contained proposal
-- the response also includes the current consensus summary and latest durable artifacts for operator context
+- the response also includes the current consensus summary, `roundEvidence`, and latest durable artifacts for operator context
 
 ### POST /v1/dev/produce-block
 
@@ -265,6 +283,7 @@ Current behavior:
 - when `ZEPHYR_PEER_VALIDATORS` is configured, replicated peer POST requests are also rejected with `403` unless the proven validator belongs to the configured peer-binding allowlist
 - proposal, vote, and block dissemination for the current automation flow use these same admitted peer paths
 - the automation path now sends proposals before votes to avoid vote-before-proposal races on the happy path
+- the automation loop also rebroadcasts the latest stored proposal and latest stored local vote for the pending height until a matching certificate exists, which helps delayed peers recover on the current HTTP devnet
 
 ### POST /v1/internal/blocks
 
@@ -275,3 +294,4 @@ If certificate enforcement is enabled on the receiving node, the imported block 
 ### GET /v1/internal/snapshot
 
 Returns the current durable node snapshot used for catch-up restore.
+
