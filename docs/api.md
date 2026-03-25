@@ -228,6 +228,7 @@ Current fields include:
 Current behavior:
 
 - repeated incidents for the same peer and same incident shape are merged into one record with a higher `occurrences` count instead of growing the history indefinitely
+- failed outgoing proposal, vote, or block replication is retained as `replication_blocked` incidents with `reason` set to the artifact type and transport-oriented `errorCode` values such as `timeout` or `http_status_500`
 - the history survives restart because it is stored in the durable ledger state
 - peer snapshot restore preserves the local node's own peer-sync incident history instead of replacing it with the repairing peer's local context
 
@@ -347,9 +348,9 @@ Current behavior:
 
 - the top-level response includes node identity, readiness or status, runtime flags, counts by severity, and the current active alerts
 - alert severities are currently `critical` and `warning`
-- current alert codes include `validator_set_missing`, `consensus_recovery_backlog`, `consensus_state_warning`, `peer_sync_unavailable`, `peer_sync_degraded`, `peer_import_blocked`, `peer_admission_blocked`, and `recent_consensus_diagnostics`
+- current alert codes include `validator_set_missing`, `consensus_recovery_backlog`, `consensus_state_warning`, `peer_sync_unavailable`, `peer_sync_degraded`, `peer_import_blocked`, `peer_admission_blocked`, `peer_replication_blocked`, and `recent_consensus_diagnostics`
 - the endpoint always returns `200`; unlike `/v1/health`, it is intended for dashboards and polling systems that want the active alert set instead of an HTTP readiness gate
-- `peer_import_blocked` is derived from retained `import_blocked` incidents and includes the representative import error code in `detail`, while `peer_admission_blocked` is derived from retained `unadmitted` incidents and includes the representative admission reason in `detail`
+- `peer_import_blocked` is derived from retained `import_blocked` incidents and includes the representative import error code in `detail`, `peer_admission_blocked` is derived from retained `unadmitted` incidents and includes the representative admission reason in `detail`, and `peer_replication_blocked` is derived from retained `replication_blocked` incidents and includes the representative artifact `reason` plus transport-oriented `errorCode` in `detail`
 - `/metrics` mirrors this alert state through `zephyr_alert_count`, `zephyr_alert_count_by_severity`, `zephyr_alert_active`, and `zephyr_alert_observed_at_seconds`
 - `GET /v1/slo` builds on the same evidence when operators want objective-style summaries instead of raw alert cards
 - `GET /v1/alert-rules` and `GET /v1/alert-rules/prometheus` build on the same evidence when operators want recommended monitoring bundles rather than only the current runtime state
@@ -376,7 +377,7 @@ Returns a machine-readable recommended alert bundle derived from the current Zep
 Current behavior:
 
 - the top-level response includes `generatedAt`, node identity, optional validator address, peer count, `peerSyncEnabled`, current health or alert summary counts, total rule counts, and grouped rule bundles
-- rules are currently grouped into readiness, consensus, and peer-sync bundles, and the peer-sync group now includes continuity plus targeted peer import and peer admission diagnostics
+- rules are currently grouped into readiness, consensus, and peer-sync bundles, and the peer-sync group now includes continuity plus targeted peer import, peer admission, and peer replication diagnostics
 - each rule includes `summary`, `description`, `expression`, severity, component, source metrics, related alert codes or SLO objectives, and whether the rule is currently enabled for the node's runtime configuration
 - peer-sync rules stay visible in the JSON surface even when peer sync is disabled or no peers are configured; in those cases they include `enabled=false` plus a `disabledReason` so operators can see what would become active in a synced deployment
 - the current bundle is intentionally opinionated: it is a recommended starting point for monitoring stacks built on `zephyr_node_ready`, `zephyr_alert_active`, and `zephyr_slo_objective_status`
@@ -422,7 +423,7 @@ Returns a machine-readable recommended dashboard bundle derived from the current
 Current behavior:
 
 - the top-level response includes `generatedAt`, node identity, optional validator address, peer count, `peerSyncEnabled`, `structuredLogsEnabled`, current health or objective summary counts, total dashboard counts, total panel counts, and the current dashboard list
-- dashboards are currently grouped into operator overview, consensus-and-recovery, and peer-sync bundles, and the peer-sync bundle includes incident-by-state plus incident-by-error-code panels tied back to the peer import and peer admission alert codes
+- dashboards are currently grouped into operator overview, consensus-and-recovery, and peer-sync bundles, and the peer-sync bundle includes incident-by-state, incident-by-reason, and incident-by-error-code panels tied back to the peer import, peer admission, and peer replication alert codes
 - each panel includes a stable panel `id`, `kind`, `summary`, `description`, PromQL queries, source metrics, source endpoints, related recording rules, related alert codes or objectives, and whether the panel is currently enabled for the node's runtime configuration
 - the peer-sync dashboard stays visible in the JSON surface even when peer sync is disabled or no peers are configured; in those cases it includes `enabled=false` plus a `disabledReason` and the same disabled reason is reflected on its panels
 - the current bundle is intentionally opinionated: it is a recommended starting point for Grafana or other dashboard tooling built on `GET /metrics`, the recording-rule bundle, and the higher-level health, alert, or SLO projections
@@ -599,6 +600,8 @@ If proposals exist for that height but the imported block does not match any sto
 Returns the current durable node snapshot used for catch-up restore.
 
 When another node applies this snapshot through peer sync, it preserves its own local recovery, diagnostic, peer-sync incident history, and derived peer-sync summary context instead of replacing that operator context with the peer's local WAL or diagnostics.
+
+
 
 
 

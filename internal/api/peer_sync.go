@@ -238,6 +238,7 @@ func (s *Server) broadcastTransaction(envelope tx.Envelope) {
 func (s *Server) broadcastBlock(block ledger.Block) {
 	for _, peerURL := range s.admittedPeerURLs() {
 		if err := s.transport.PostBlock(peerURL, block); err != nil {
+			s.recordReplicationIncident(peerURL, "block", block.Hash, err)
 			recordPeerLog(fmt.Sprintf("broadcast-block %s", peerURL), err)
 		}
 	}
@@ -254,6 +255,7 @@ func (s *Server) broadcastFaucet(request FaucetRequest) {
 func (s *Server) broadcastProposal(proposal consensus.Proposal) {
 	for _, peerURL := range s.admittedPeerURLs() {
 		if err := s.transport.PostProposal(peerURL, proposal); err != nil {
+			s.recordReplicationIncident(peerURL, "proposal", proposal.BlockHash, err)
 			recordPeerLog(fmt.Sprintf("broadcast-proposal %s", peerURL), err)
 		}
 	}
@@ -262,6 +264,7 @@ func (s *Server) broadcastProposal(proposal consensus.Proposal) {
 func (s *Server) broadcastVote(vote consensus.Vote) {
 	for _, peerURL := range s.admittedPeerURLs() {
 		if err := s.transport.PostVote(peerURL, vote); err != nil {
+			s.recordReplicationIncident(peerURL, "vote", vote.BlockHash, err)
 			recordPeerLog(fmt.Sprintf("broadcast-vote %s", peerURL), err)
 		}
 	}

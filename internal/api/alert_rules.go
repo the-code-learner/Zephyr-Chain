@@ -333,6 +333,21 @@ func (s *Server) buildAlertRuleGroups() []AlertRuleGroup {
 					),
 					peerSyncDisabledReason,
 				),
+				disableAlertRule(
+					newAlertRule(
+						"ZephyrPeerReplicationBlocked",
+						alertSeverityWarning,
+						"peer_sync",
+						"Consensus replication is failing on one or more peers",
+						"One or more peers are retaining replication-blocked incidents. Inspect /v1/alerts, /v1/status peerSyncSummary, /v1/metrics, and /v1/peers to confirm whether proposal, vote, or block dissemination is hitting transport errors.",
+						"zephyr_alert_active{code=\"peer_replication_blocked\",severity=\"warning\",component=\"peer_sync\"} == 1",
+						"5m",
+						[]string{"zephyr_alert_active", "zephyr_peer_sync_state_occurrence_count", "zephyr_peer_sync_reason_occurrence_count", "zephyr_peer_sync_error_code_occurrence_count"},
+						[]string{"peer_replication_blocked"},
+						[]string{"consensus_continuity", "peer_sync_continuity"},
+					),
+					peerSyncDisabledReason,
+				),
 			},
 		},
 	}

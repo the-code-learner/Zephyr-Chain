@@ -147,6 +147,18 @@ func (s *Server) buildAlertsResponse(now time.Time) AlertsResponse {
 			ObservedAt: cloneAlertTime(state.LatestObservedAt),
 		})
 	}
+	if state, ok := peerSyncStateSummary(peerSummary, "replication_blocked"); ok {
+		detail := buildPeerStateAlertDetail(state, "reason", representativePeerSyncReason(peerSummary, "replication_blocked"))
+		detail = appendPeerStateAlertLabel(detail, "errorCode", representativePeerSyncErrorCode(peerSummary, "replication_blocked"))
+		appendAlert(&response, Alert{
+			Code:       "peer_replication_blocked",
+			Severity:   alertSeverityWarning,
+			Component:  "peer_sync",
+			Summary:    "consensus replication is failing on one or more peers",
+			Detail:     detail,
+			ObservedAt: cloneAlertTime(state.LatestObservedAt),
+		})
+	}
 
 	if check, ok := findHealthCheck(health.Checks, "diagnostics"); ok && check.Status == healthCheckWarn {
 		appendAlert(&response, Alert{
@@ -230,6 +242,15 @@ func buildPeerStateAlertDetail(state ledger.PeerSyncStateSummary, labelName stri
 		parts = append(parts, labelName+"="+labelValue)
 	}
 	return strings.Join(parts, ", ")
+}
+
+func appendPeerStateAlertLabel(detail string, labelName string, labelValue string) string {
+	labelName = strings.TrimSpace(labelName)
+	labelValue = strings.TrimSpace(labelValue)
+	if detail == "" || labelName == "" || labelValue == "" {
+		return detail
+	}
+	return detail + ", " + labelName + "=" + labelValue
 }
 
 func representativePeerSyncErrorCode(summary ledger.PeerSyncSummaryView, state string) string {

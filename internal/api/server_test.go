@@ -3134,6 +3134,70 @@ func TestHandleAlertsExposePeerImportAndAdmissionWarnings(t *testing.T) {
 	requirePrometheusLine(t, body, "zephyr_alert_active{code=\"peer_admission_blocked\",severity=\"warning\",component=\"peer_sync\"} 1")
 }
 
+func TestHandleAlertsExposePeerReplicationWarnings(t *testing.T) {
+	server := newTestServer(t, Config{
+		DataDir:                 t.TempDir(),
+		NodeID:                  "alerts-peer-replication",
+		PeerURLs:                []string{"http://peer-a.example"},
+		BlockInterval:           0,
+		SyncInterval:            0,
+		MaxTransactionsPerBlock: 10,
+		EnableBlockProduction:   false,
+		EnablePeerSync:          false,
+	})
+	server.transport = &testPeerTransport{
+		postProposalFunc: func(peerURL string, proposal consensus.Proposal) error {
+			return errors.New("dial tcp timeout")
+		},
+	}
+
+	proposal := consensus.Proposal{
+		Height:    2,
+		Round:     0,
+		BlockHash: consensusTestHash("alerts-peer-replication-proposal"),
+	}
+	server.broadcastProposal(proposal)
+
+	history := server.ledger.PeerSyncHistory()
+	if len(history.Recent) != 1 {
+		t.Fatalf("expected one retained peer incident, got %+v", history)
+	}
+	incident := history.Recent[0]
+	if incident.PeerURL != "http://peer-a.example" || incident.State != "replication_blocked" || incident.Reason != "proposal" || incident.ErrorCode != "timeout" || incident.BlockHash != proposal.BlockHash {
+		t.Fatalf("unexpected replication incident %+v", incident)
+	}
+
+	request := httptest.NewRequest(http.MethodGet, "/v1/alerts", nil)
+	recorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected alerts status 200, got %d", recorder.Code)
+	}
+
+	var response AlertsResponse
+	if err := json.NewDecoder(recorder.Body).Decode(&response); err != nil {
+		t.Fatalf("decode alerts response: %v", err)
+	}
+	if response.AlertCount != 1 || response.WarningCount != 1 || response.CriticalCount != 0 {
+		t.Fatalf("unexpected replication alert counts %+v", response)
+	}
+	if alert, ok := alertByCode(response.Alerts, "peer_replication_blocked"); !ok || alert.Severity != alertSeverityWarning || alert.ObservedAt == nil || !strings.Contains(alert.Detail, "reason=proposal") || !strings.Contains(alert.Detail, "errorCode=timeout") {
+		t.Fatalf("expected peer_replication_blocked warning with detail, got %+v", response.Alerts)
+	}
+
+	metricsRequest := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+	metricsRecorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(metricsRecorder, metricsRequest)
+	if metricsRecorder.Code != http.StatusOK {
+		t.Fatalf("expected prometheus metrics status 200, got %d", metricsRecorder.Code)
+	}
+	body := metricsRecorder.Body.String()
+	requirePrometheusLine(t, body, "zephyr_alert_active{code=\"peer_replication_blocked\",severity=\"warning\",component=\"peer_sync\"} 1")
+	requirePrometheusLine(t, body, "zephyr_peer_sync_state_occurrence_count{state=\"replication_blocked\"} 1")
+	requirePrometheusLine(t, body, "zephyr_peer_sync_reason_occurrence_count{reason=\"proposal\"} 1")
+	requirePrometheusLine(t, body, "zephyr_peer_sync_error_code_occurrence_count{code=\"timeout\"} 1")
+}
+
 func TestHandleSLOSummarizesDerivedObjectives(t *testing.T) {
 	server := newTestServer(t, Config{
 		DataDir:                      t.TempDir(),
@@ -3240,7 +3304,7 @@ func TestHandleAlertRulesExposeRecommendedBundles(t *testing.T) {
 	if response.NodeID != "alert-rules-node" || response.PeerSyncEnabled {
 		t.Fatalf("unexpected alert-rules identity/config %+v", response)
 	}
-	if response.RuleCount != 10 || response.EnabledRuleCount != 5 || response.DisabledRuleCount != 5 {
+	if response.RuleCount != 11 || response.EnabledRuleCount != 5 || response.DisabledRuleCount != 6 {
 		t.Fatalf("unexpected alert-rule counts %+v", response)
 	}
 	if rule, ok := alertRuleByName(response.Groups, "ZephyrNodeNotReady"); !ok || !rule.Enabled || rule.Expression != "zephyr_node_ready == 0" {
@@ -3251,6 +3315,9 @@ func TestHandleAlertRulesExposeRecommendedBundles(t *testing.T) {
 	}
 	if rule, ok := alertRuleByName(response.Groups, "ZephyrPeerImportBlocked"); !ok || rule.Enabled || !strings.Contains(rule.DisabledReason, "disabled") {
 		t.Fatalf("expected disabled peer import rule, got %+v", response.Groups)
+	}
+	if rule, ok := alertRuleByName(response.Groups, "ZephyrPeerReplicationBlocked"); !ok || rule.Enabled || !strings.Contains(rule.DisabledReason, "disabled") {
+		t.Fatalf("expected disabled peer replication rule, got %+v", response.Groups)
 	}
 }
 
@@ -3300,6 +3367,12 @@ func TestHandlePrometheusAlertRulesExportsEnabledRulesOnly(t *testing.T) {
 	}
 	if !strings.Contains(body, "      - alert: ZephyrPeerAdmissionBlocked\n") {
 		t.Fatalf("expected peer admission blocked alert in prometheus alert rules, got:\n%s", body)
+	}
+	if !strings.Contains(body, "      - alert: ZephyrPeerReplicationBlocked\n") {
+		t.Fatalf("expected peer replication blocked alert in prometheus alert rules, got:\n%s", body)
+	}
+	if !strings.Contains(body, "        expr: 'zephyr_alert_active{code=\"peer_replication_blocked\",severity=\"warning\",component=\"peer_sync\"} == 1'\n") {
+		t.Fatalf("expected peer replication blocked expression in prometheus alert rules, got:\n%s", body)
 	}
 }
 func TestHandleRecordingRulesExposeRecommendedBundles(t *testing.T) {
@@ -3408,7 +3481,7 @@ func TestHandleDashboardsExposeRecommendedBundles(t *testing.T) {
 	if response.DashboardCount != 3 || response.EnabledDashboardCount != 2 || response.DisabledDashboardCount != 1 {
 		t.Fatalf("unexpected dashboard counts %+v", response)
 	}
-	if response.PanelCount != 16 || response.EnabledPanelCount != 10 || response.DisabledPanelCount != 6 {
+	if response.PanelCount != 17 || response.EnabledPanelCount != 10 || response.DisabledPanelCount != 7 {
 		t.Fatalf("unexpected dashboard panel counts %+v", response)
 	}
 	if dashboard, ok := dashboardByName(response.Dashboards, "zephyr.overview"); !ok || !dashboard.Enabled {
@@ -3425,6 +3498,8 @@ func TestHandleDashboardsExposeRecommendedBundles(t *testing.T) {
 		t.Fatalf("expected peer-sync dashboard metadata, got %+v", response.Dashboards)
 	} else if panel, ok := dashboardPanelByID(dashboard.Panels, "peer_incident_error_codes"); !ok || panel.Enabled || !strings.Contains(panel.DisabledReason, "disabled") {
 		t.Fatalf("expected disabled peer_incident_error_codes panel, got %+v", dashboard.Panels)
+	} else if panel, ok := dashboardPanelByID(dashboard.Panels, "peer_incident_reasons"); !ok || panel.Enabled || !strings.Contains(panel.DisabledReason, "disabled") {
+		t.Fatalf("expected disabled peer_incident_reasons panel, got %+v", dashboard.Panels)
 	}
 }
 
@@ -3457,7 +3532,7 @@ func TestHandleGrafanaDashboardsExportsEnabledDashboardsOnly(t *testing.T) {
 	if response.NodeID != "dashboard-export-node" {
 		t.Fatalf("unexpected grafana dashboard node %+v", response)
 	}
-	if response.DashboardCount != 3 || response.PanelCount != 16 {
+	if response.DashboardCount != 3 || response.PanelCount != 17 {
 		t.Fatalf("unexpected grafana dashboard counts %+v", response)
 	}
 	if dashboard, ok := grafanaDashboardByName(response.Dashboards, "zephyr.peer_sync"); !ok {
@@ -3482,6 +3557,13 @@ func TestHandleGrafanaDashboardsExportsEnabledDashboardsOnly(t *testing.T) {
 		}
 		if _, ok := grafanaTargetByExpression(panel.Targets, "zephyr_peer_sync_error_code_occurrence_count"); !ok {
 			t.Fatalf("expected peer incident error code query in grafana panel, got %+v", panel.Targets)
+		}
+		panel, ok = grafanaPanelByTitle(dashboard.Dashboard.Panels, "Peer incident reasons")
+		if !ok || panel.Type != "bargauge" {
+			t.Fatalf("expected peer incident reasons bargauge panel, got %+v", dashboard.Dashboard.Panels)
+		}
+		if _, ok := grafanaTargetByExpression(panel.Targets, "zephyr_peer_sync_reason_occurrence_count"); !ok {
+			t.Fatalf("expected peer incident reason query in grafana panel, got %+v", panel.Targets)
 		}
 	}
 	if dashboard, ok := grafanaDashboardByName(response.Dashboards, "zephyr.overview"); !ok {
@@ -3708,7 +3790,7 @@ func TestPrometheusMetricsExportOperatorSignals(t *testing.T) {
 		EnablePeerSync:          true,
 	})
 
-	recordedAt := time.Date(2026, time.March, 24, 23, 0, 0, 0, time.UTC)
+	recordedAt := time.Now().UTC().Add(-3 * time.Minute)
 	if err := server.ledger.RecordConsensusAction(ledger.ConsensusAction{
 		Type:        ledger.ConsensusActionProposal,
 		Height:      2,
@@ -4472,4 +4554,71 @@ func signedTransportIdentity(t *testing.T, signer consensusSigner, nodeID string
 func consensusTestHash(seed string) string {
 	sum := sha256.Sum256([]byte(seed))
 	return hex.EncodeToString(sum[:])
+}
+
+type testPeerTransport struct {
+	fetchStatusFunc     func(peerURL string) (StatusResponse, error)
+	fetchBlockFunc      func(peerURL string, height uint64) (ledger.Block, error)
+	fetchSnapshotFunc   func(peerURL string) (ledger.Snapshot, error)
+	postTransactionFunc func(peerURL string, envelope tx.Envelope) error
+	postBlockFunc       func(peerURL string, block ledger.Block) error
+	postFaucetFunc      func(peerURL string, request FaucetRequest) error
+	postProposalFunc    func(peerURL string, proposal consensus.Proposal) error
+	postVoteFunc        func(peerURL string, vote consensus.Vote) error
+}
+
+func (t *testPeerTransport) FetchStatus(peerURL string) (StatusResponse, error) {
+	if t.fetchStatusFunc != nil {
+		return t.fetchStatusFunc(peerURL)
+	}
+	return StatusResponse{}, nil
+}
+
+func (t *testPeerTransport) FetchBlock(peerURL string, height uint64) (ledger.Block, error) {
+	if t.fetchBlockFunc != nil {
+		return t.fetchBlockFunc(peerURL, height)
+	}
+	return ledger.Block{}, nil
+}
+
+func (t *testPeerTransport) FetchSnapshot(peerURL string) (ledger.Snapshot, error) {
+	if t.fetchSnapshotFunc != nil {
+		return t.fetchSnapshotFunc(peerURL)
+	}
+	return ledger.Snapshot{}, nil
+}
+
+func (t *testPeerTransport) PostTransaction(peerURL string, envelope tx.Envelope) error {
+	if t.postTransactionFunc != nil {
+		return t.postTransactionFunc(peerURL, envelope)
+	}
+	return nil
+}
+
+func (t *testPeerTransport) PostBlock(peerURL string, block ledger.Block) error {
+	if t.postBlockFunc != nil {
+		return t.postBlockFunc(peerURL, block)
+	}
+	return nil
+}
+
+func (t *testPeerTransport) PostFaucet(peerURL string, request FaucetRequest) error {
+	if t.postFaucetFunc != nil {
+		return t.postFaucetFunc(peerURL, request)
+	}
+	return nil
+}
+
+func (t *testPeerTransport) PostProposal(peerURL string, proposal consensus.Proposal) error {
+	if t.postProposalFunc != nil {
+		return t.postProposalFunc(peerURL, proposal)
+	}
+	return nil
+}
+
+func (t *testPeerTransport) PostVote(peerURL string, vote consensus.Vote) error {
+	if t.postVoteFunc != nil {
+		return t.postVoteFunc(peerURL, vote)
+	}
+	return nil
 }
