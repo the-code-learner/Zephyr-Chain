@@ -3482,7 +3482,7 @@ func TestHandleRecordingRulesExposeRecommendedBundles(t *testing.T) {
 	if response.NodeID != "recording-rules-node" || response.PeerSyncEnabled {
 		t.Fatalf("unexpected recording-rules identity/config %+v", response)
 	}
-	if response.RuleCount != 11 || response.EnabledRuleCount != 8 || response.DisabledRuleCount != 3 {
+	if response.RuleCount != 12 || response.EnabledRuleCount != 8 || response.DisabledRuleCount != 4 {
 		t.Fatalf("unexpected recording-rule counts %+v", response)
 	}
 	if rule, ok := recordingRuleByRecord(response.Groups, "zephyr:node_readiness:ready"); !ok || !rule.Enabled || rule.Expression != "zephyr_node_ready" {
@@ -3490,6 +3490,9 @@ func TestHandleRecordingRulesExposeRecommendedBundles(t *testing.T) {
 	}
 	if rule, ok := recordingRuleByRecord(response.Groups, "zephyr:peer_sync_continuity:breached"); !ok || rule.Enabled || !strings.Contains(rule.DisabledReason, "disabled") {
 		t.Fatalf("expected disabled peer-sync breached recording rule, got %+v", response.Groups)
+	}
+	if rule, ok := recordingRuleByRecord(response.Groups, "zephyr:peer_sync:incident_pressure_by_peer"); !ok || rule.Enabled || !strings.Contains(rule.DisabledReason, "disabled") {
+		t.Fatalf("expected disabled peer incident pressure recording rule, got %+v", response.Groups)
 	}
 }
 
@@ -3527,6 +3530,12 @@ func TestHandlePrometheusRecordingRulesExportsEnabledRulesOnly(t *testing.T) {
 	}
 	if !strings.Contains(body, "        expr: 'zephyr_slo_objective_status{objective=\"peer_sync_continuity\",status=\"breached\"}'\n") {
 		t.Fatalf("expected peer sync breached expression in prometheus recording rules, got:\n%s", body)
+	}
+	if !strings.Contains(body, "      - record: zephyr:peer_sync:incident_pressure_by_peer\n") {
+		t.Fatalf("expected peer incident pressure recording rule in prometheus recording rules, got:\n%s", body)
+	}
+	if !strings.Contains(body, "        expr: 'zephyr_peer_sync_peer_occurrence_count'\n") {
+		t.Fatalf("expected peer incident pressure expression in prometheus recording rules, got:\n%s", body)
 	}
 	if !strings.Contains(body, "      - record: zephyr:consensus:recovery_backlog\n") {
 		t.Fatalf("expected consensus recovery backlog recording rule in prometheus recording rules, got:\n%s", body)
@@ -3581,8 +3590,8 @@ func TestHandleDashboardsExposeRecommendedBundles(t *testing.T) {
 		t.Fatalf("expected disabled peer_incident_error_codes panel, got %+v", dashboard.Panels)
 	} else if panel, ok := dashboardPanelByID(dashboard.Panels, "peer_incident_reasons"); !ok || panel.Enabled || !strings.Contains(panel.DisabledReason, "disabled") {
 		t.Fatalf("expected disabled peer_incident_reasons panel, got %+v", dashboard.Panels)
-	} else if panel, ok := dashboardPanelByID(dashboard.Panels, "peer_incidents_by_peer"); !ok || panel.Enabled || !strings.Contains(panel.DisabledReason, "disabled") {
-		t.Fatalf("expected disabled peer_incidents_by_peer panel, got %+v", dashboard.Panels)
+	} else if panel, ok := dashboardPanelByID(dashboard.Panels, "peer_incidents_by_peer"); !ok || panel.Enabled || !strings.Contains(panel.DisabledReason, "disabled") || len(panel.RecordingRules) != 1 || panel.RecordingRules[0] != "zephyr:peer_sync:incident_pressure_by_peer" {
+		t.Fatalf("expected disabled peer_incidents_by_peer panel to reference incident pressure recording rule, got %+v", dashboard.Panels)
 	}
 }
 
@@ -3652,7 +3661,7 @@ func TestHandleGrafanaDashboardsExportsEnabledDashboardsOnly(t *testing.T) {
 		if !ok || panel.Type != "bargauge" {
 			t.Fatalf("expected peer incident pressure bargauge panel, got %+v", dashboard.Dashboard.Panels)
 		}
-		if _, ok := grafanaTargetByExpression(panel.Targets, "zephyr_peer_sync_peer_occurrence_count"); !ok {
+		if _, ok := grafanaTargetByExpression(panel.Targets, "zephyr:peer_sync:incident_pressure_by_peer"); !ok {
 			t.Fatalf("expected peer incident pressure query in grafana panel, got %+v", panel.Targets)
 		}
 	}
