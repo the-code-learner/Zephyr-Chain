@@ -72,8 +72,8 @@ The API layer now handles:
 - derived alerts through `GET /v1/alerts`, including settlement-throughput reduced or stalled signals when queued transactions outlive the expected block window
 - derived SLO summaries through `GET /v1/slo`, including the settlement-throughput objective alongside readiness and peer-continuity summaries
 - recommended alert-rule bundles through `GET /v1/alert-rules` and `GET /v1/alert-rules/prometheus`
-- recommended recording-rule bundles through `GET /v1/recording-rules` and `GET /v1/recording-rules/prometheus`, including the per-peer incident-pressure rollup used by the peer-sync dashboard plus canonical recent-TPS rollups for the overview dashboard
-- recommended dashboard bundles through `GET /v1/dashboards` and `GET /v1/dashboards/grafana`, including recent transaction throughput in the overview bundle and peer incident-pressure drill-down by peer
+- recommended recording-rule bundles through `GET /v1/recording-rules` and `GET /v1/recording-rules/prometheus`, including settlement-throughput state rollups, the per-peer incident-pressure rollup used by the peer-sync dashboard, and canonical recent-TPS rollups for the overview dashboard
+- recommended dashboard bundles through `GET /v1/dashboards` and `GET /v1/dashboards/grafana`, including settlement-throughput state plus recent transaction throughput in the overview bundle and peer incident-pressure drill-down by peer
 - runtime status through `GET /v1/status`
 - machine-readable observability through `GET /v1/metrics`
 - peer visibility through `GET /v1/peers`, including admission, identity, live sync/repair telemetry, restart-safe import, snapshot, and replication-failure backfill from durable incidents, durable per-peer incident history, and derived per-peer incident counters

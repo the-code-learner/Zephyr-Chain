@@ -3695,11 +3695,14 @@ func TestHandleRecordingRulesExposeRecommendedBundles(t *testing.T) {
 	if response.NodeID != "recording-rules-node" || response.PeerSyncEnabled {
 		t.Fatalf("unexpected recording-rules identity/config %+v", response)
 	}
-	if response.RuleCount != 15 || response.EnabledRuleCount != 11 || response.DisabledRuleCount != 4 {
+	if response.RuleCount != 17 || response.EnabledRuleCount != 13 || response.DisabledRuleCount != 4 {
 		t.Fatalf("unexpected recording-rule counts %+v", response)
 	}
 	if rule, ok := recordingRuleByRecord(response.Groups, "zephyr:node_readiness:ready"); !ok || !rule.Enabled || rule.Expression != "zephyr_node_ready" {
 		t.Fatalf("expected enabled zephyr:node_readiness:ready recording rule, got %+v", response.Groups)
+	}
+	if rule, ok := recordingRuleByRecord(response.Groups, "zephyr:settlement_throughput:breached"); !ok || !rule.Enabled || rule.Expression != "zephyr_slo_objective_status{objective=\"settlement_throughput\",status=\"breached\"}" {
+		t.Fatalf("expected enabled settlement throughput breached recording rule, got %+v", response.Groups)
 	}
 	if rule, ok := recordingRuleByRecord(response.Groups, "zephyr:peer_sync_continuity:breached"); !ok || rule.Enabled || !strings.Contains(rule.DisabledReason, "disabled") {
 		t.Fatalf("expected disabled peer-sync breached recording rule, got %+v", response.Groups)
@@ -3756,6 +3759,15 @@ func TestHandlePrometheusRecordingRulesExportsEnabledRulesOnly(t *testing.T) {
 	if !strings.Contains(body, "        expr: 'zephyr_chain_window_transactions_per_second{window=\"1m\"}'\n") {
 		t.Fatalf("expected 1m throughput expression in prometheus recording rules, got:\n%s", body)
 	}
+	if !strings.Contains(body, "  - name: zephyr.throughput\n") {
+		t.Fatalf("expected throughput recording rule group in prometheus recording rules, got:\n%s", body)
+	}
+	if !strings.Contains(body, "      - record: zephyr:settlement_throughput:breached\n") {
+		t.Fatalf("expected settlement throughput breached recording rule in prometheus recording rules, got:\n%s", body)
+	}
+	if !strings.Contains(body, "        expr: 'zephyr_slo_objective_status{objective=\"settlement_throughput\",status=\"breached\"}'\n") {
+		t.Fatalf("expected settlement throughput breached expression in prometheus recording rules, got:\n%s", body)
+	}
 	if !strings.Contains(body, "      - record: zephyr:consensus:recovery_backlog\n") {
 		t.Fatalf("expected consensus recovery backlog recording rule in prometheus recording rules, got:\n%s", body)
 	}
@@ -3790,7 +3802,7 @@ func TestHandleDashboardsExposeRecommendedBundles(t *testing.T) {
 	if response.DashboardCount != 3 || response.EnabledDashboardCount != 2 || response.DisabledDashboardCount != 1 {
 		t.Fatalf("unexpected dashboard counts %+v", response)
 	}
-	if response.PanelCount != 19 || response.EnabledPanelCount != 11 || response.DisabledPanelCount != 8 {
+	if response.PanelCount != 20 || response.EnabledPanelCount != 12 || response.DisabledPanelCount != 8 {
 		t.Fatalf("unexpected dashboard panel counts %+v", response)
 	}
 	if dashboard, ok := dashboardByName(response.Dashboards, "zephyr.overview"); !ok || !dashboard.Enabled {
@@ -3799,6 +3811,8 @@ func TestHandleDashboardsExposeRecommendedBundles(t *testing.T) {
 		t.Fatalf("expected node_readiness panel to reference readiness recording rule, got %+v", dashboard.Panels)
 	} else if panel, ok := dashboardPanelByID(dashboard.Panels, "transaction_throughput"); !ok || !panel.Enabled || len(panel.RecordingRules) != 3 || panel.RecordingRules[0] != "zephyr:chain:transactions_per_second_1m" {
 		t.Fatalf("expected transaction_throughput panel to reference throughput recording rules, got %+v", dashboard.Panels)
+	} else if panel, ok := dashboardPanelByID(dashboard.Panels, "settlement_throughput_state"); !ok || !panel.Enabled || len(panel.RecordingRules) != 2 || panel.RecordingRules[0] != "zephyr:settlement_throughput:at_risk" {
+		t.Fatalf("expected settlement_throughput_state panel to reference settlement throughput recording rules, got %+v", dashboard.Panels)
 	}
 	if dashboard, ok := dashboardByName(response.Dashboards, "zephyr.peer_sync"); !ok || dashboard.Enabled || !strings.Contains(dashboard.DisabledReason, "disabled") {
 		t.Fatalf("expected disabled peer-sync dashboard, got %+v", response.Dashboards)
@@ -3845,7 +3859,7 @@ func TestHandleGrafanaDashboardsExportsEnabledDashboardsOnly(t *testing.T) {
 	if response.NodeID != "dashboard-export-node" {
 		t.Fatalf("unexpected grafana dashboard node %+v", response)
 	}
-	if response.DashboardCount != 3 || response.PanelCount != 19 {
+	if response.DashboardCount != 3 || response.PanelCount != 20 {
 		t.Fatalf("unexpected grafana dashboard counts %+v", response)
 	}
 	if dashboard, ok := grafanaDashboardByName(response.Dashboards, "zephyr.peer_sync"); !ok {
@@ -3902,6 +3916,13 @@ func TestHandleGrafanaDashboardsExportsEnabledDashboardsOnly(t *testing.T) {
 		}
 		if _, ok := grafanaTargetByExpression(panel.Targets, "zephyr:chain:transactions_per_second_1m"); !ok {
 			t.Fatalf("expected transaction throughput query in grafana panel, got %+v", panel.Targets)
+		}
+		panel, ok = grafanaPanelByTitle(dashboard.Dashboard.Panels, "Settlement throughput state")
+		if !ok || panel.Type != "bargauge" {
+			t.Fatalf("expected settlement throughput bargauge panel, got %+v", dashboard.Dashboard.Panels)
+		}
+		if _, ok := grafanaTargetByExpression(panel.Targets, "zephyr:settlement_throughput:breached"); !ok {
+			t.Fatalf("expected settlement throughput query in grafana panel, got %+v", panel.Targets)
 		}
 	}
 }
