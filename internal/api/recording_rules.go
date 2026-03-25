@@ -260,6 +260,20 @@ func (s *Server) buildRecordingRuleGroups() []RecordingRuleGroup {
 				),
 				disableRecordingRule(
 					newRecordingRule(
+						"peer sync incident pressure by peer",
+						"zephyr:peer_sync:incident_pressure_by_peer",
+						"peer_sync",
+						"Reusable per-peer retained incident pressure series for dashboards and fleet drill-down.",
+						"Carries the retained per-peer incident occurrence metric into the recording-rule bundle so dashboards can pivot on peer pressure without rebuilding labels or rollup conventions in PromQL.",
+						"zephyr_peer_sync_peer_occurrence_count",
+						[]string{"zephyr_peer_sync_peer_occurrence_count"},
+						[]string{"peer_import_blocked", "peer_admission_blocked", "peer_replication_blocked"},
+						[]string{"peer_sync_continuity"},
+					),
+					peerSyncDisabledReason,
+				),
+				disableRecordingRule(
+					newRecordingRule(
 						"peer sync continuity at risk",
 						"zephyr:peer_sync_continuity:at_risk",
 						"peer_sync",

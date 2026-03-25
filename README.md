@@ -36,7 +36,8 @@ Implemented in this iteration:
 - `GET /v1/alerts` now separates general peer-sync degradation from targeted `peer_import_blocked`, `peer_admission_blocked`, and `peer_replication_blocked` warnings built from durable peer incident rollups
 - `GET /v1/alert-rules` and `GET /v1/alert-rules/prometheus` now export matching peer-import, peer-admission, and peer-replication diagnostic rules for scrape-based monitoring stacks
 - `GET /metrics` now exports retained peer incident counts and latest observation timestamps per peer with the latest state, reason, and error-code labels attached for scrape-based drill-down
-- `GET /v1/dashboards` and `GET /v1/dashboards/grafana` now expose peer incident reason panels plus a per-peer incident pressure panel alongside state and error-code rollups so dissemination failures are visible in the peer-sync bundle
+- `GET /v1/recording-rules` and `GET /v1/recording-rules/prometheus` now export a canonical per-peer incident-pressure rollup so downstream dashboards can reuse that peer view without rewriting PromQL
+- `GET /v1/dashboards` and `GET /v1/dashboards/grafana` now expose peer incident reason panels plus a per-peer incident pressure panel built on that recording rule alongside state and error-code rollups so dissemination failures are visible in the peer-sync bundle
 - `GET /v1/peers` now backfills the latest import, snapshot-repair, and replication-failure telemetry from durable peer incidents so operator context survives restart before the next live sync pass
 - successful local certified commits now record a durable `block_commit` consensus action so recovery history and action metrics cover the full proposer path from proposal and vote through commit
 - focused tests now cover peer import, admission, and replication alerts, per-peer Prometheus incident metrics, restart-safe per-peer telemetry reconstruction, dashboard export, and durable `block_commit` history across the operator surfaces
@@ -341,6 +342,7 @@ Short version:
 ## License
 
 Zephyr Chain is licensed under the MIT License. See [LICENSE](./LICENSE).
+
 
 
 

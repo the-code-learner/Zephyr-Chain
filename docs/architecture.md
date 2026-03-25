@@ -72,8 +72,8 @@ The API layer now handles:
 - derived alerts through `GET /v1/alerts`
 - derived SLO summaries through `GET /v1/slo`
 - recommended alert-rule bundles through `GET /v1/alert-rules` and `GET /v1/alert-rules/prometheus`
-- recommended recording-rule bundles through `GET /v1/recording-rules` and `GET /v1/recording-rules/prometheus`
-- recommended dashboard bundles through `GET /v1/dashboards` and `GET /v1/dashboards/grafana`
+- recommended recording-rule bundles through `GET /v1/recording-rules` and `GET /v1/recording-rules/prometheus`, including the per-peer incident-pressure rollup used by the peer-sync dashboard
+- recommended dashboard bundles through `GET /v1/dashboards` and `GET /v1/dashboards/grafana`, including peer incident-pressure drill-down by peer
 - runtime status through `GET /v1/status`
 - machine-readable observability through `GET /v1/metrics`
 - peer visibility through `GET /v1/peers`, including admission, identity, live sync/repair telemetry, restart-safe import, snapshot, and replication-failure backfill from durable incidents, durable per-peer incident history, and derived per-peer incident counters
@@ -191,6 +191,7 @@ The repository has moved from consensus-preparation-only into certificate-gated 
 - broader consensus recovery coverage is still needed beyond the current local proposal, vote, and certified block-commit WAL plus import-repair and snapshot-recovery path
 
 That is why the project has moved beyond replicated prototype, but it is still not a production blockchain.
+
 
 
 

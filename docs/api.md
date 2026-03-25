@@ -403,7 +403,7 @@ Current behavior:
 - rules are currently grouped into readiness, consensus, peer-sync, and operator-summary bundles
 - each rule includes a stable `record` name, `summary`, `description`, `expression`, component, source metrics, related alert codes or SLO objectives, and whether the rule is currently enabled for the node's runtime configuration
 - peer-sync rules stay visible in the JSON surface even when peer sync is disabled or no peers are configured; in those cases they include `enabled=false` plus a `disabledReason` so operators can see what would become active in a synced deployment
-- the current bundle is intentionally opinionated: it is a recommended starting point for dashboards, fleet rollups, and downstream Prometheus recording-rule files built on `zephyr_node_ready`, `zephyr_alert_count_by_severity`, `zephyr_slo_objective_status`, and recovery or peer-runtime gauges
+- the current bundle is intentionally opinionated: it is a recommended starting point for dashboards, fleet rollups, and downstream Prometheus recording-rule files built on `zephyr_node_ready`, `zephyr_alert_count_by_severity`, `zephyr_slo_objective_status`, recovery or peer-runtime gauges, and the per-peer incident-pressure rollup `zephyr:peer_sync:incident_pressure_by_peer`
 
 ### GET /v1/recording-rules/prometheus
 
@@ -413,7 +413,7 @@ Current behavior:
 
 - the response uses `application/yaml; charset=utf-8`
 - only enabled rules are exported, so peer-sync recording rules are omitted when peer sync is disabled or no peers are configured
-- rules are grouped into readiness, consensus, peer-sync, and operator-summary groups and include stable `record` names plus component, group, related objective, or related alert labels when applicable
+- rules are grouped into readiness, consensus, peer-sync, and operator-summary groups and include stable `record` names plus component, group, related objective, or related alert labels when applicable; the peer-sync group now includes the per-peer incident-pressure rollup `zephyr:peer_sync:incident_pressure_by_peer`
 - this endpoint is designed as an export adapter for monitoring systems that already scrape `GET /metrics` and want reusable dashboard or aggregation series without hand-writing PromQL
 
 ### GET /v1/dashboards
@@ -423,7 +423,7 @@ Returns a machine-readable recommended dashboard bundle derived from the current
 Current behavior:
 
 - the top-level response includes `generatedAt`, node identity, optional validator address, peer count, `peerSyncEnabled`, `structuredLogsEnabled`, current health or objective summary counts, total dashboard counts, total panel counts, and the current dashboard list
-- dashboards are currently grouped into operator overview, consensus-and-recovery, and peer-sync bundles, and the peer-sync bundle includes incident-by-state, incident-by-reason, incident-by-error-code, and per-peer incident-pressure panels tied back to the peer import, peer admission, and peer replication alert codes
+- dashboards are currently grouped into operator overview, consensus-and-recovery, and peer-sync bundles, and the peer-sync bundle includes incident-by-state, incident-by-reason, incident-by-error-code, and per-peer incident-pressure panels tied back to the peer import, peer admission, and peer replication alert codes; the per-peer panel uses the canonical recording rule `zephyr:peer_sync:incident_pressure_by_peer`
 - each panel includes a stable panel `id`, `kind`, `summary`, `description`, PromQL queries, source metrics, source endpoints, related recording rules, related alert codes or objectives, and whether the panel is currently enabled for the node's runtime configuration
 - the peer-sync dashboard stays visible in the JSON surface even when peer sync is disabled or no peers are configured; in those cases it includes `enabled=false` plus a `disabledReason` and the same disabled reason is reflected on its panels
 - the current bundle is intentionally opinionated: it is a recommended starting point for Grafana or other dashboard tooling built on `GET /metrics`, the recording-rule bundle, and the higher-level health, alert, or SLO projections
@@ -602,6 +602,7 @@ If proposals exist for that height but the imported block does not match any sto
 Returns the current durable node snapshot used for catch-up restore.
 
 When another node applies this snapshot through peer sync, it preserves its own local recovery, diagnostic, peer-sync incident history, and derived peer-sync summary context instead of replacing that operator context with the peer's local WAL or diagnostics.
+
 
 
 

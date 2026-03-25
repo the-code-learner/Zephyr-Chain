@@ -92,7 +92,7 @@ curl.exe http://localhost:8080/v1/recording-rules/prometheus
 
 What to expect:
 
-- `/v1/recording-rules` returns readiness, consensus, peer-sync, and operator-summary recording-rule groups with stable `record` names, expressions, source metrics, and disabled reasons when a rule is not applicable to the current node configuration
+- `/v1/recording-rules` returns readiness, consensus, peer-sync, and operator-summary recording-rule groups with stable `record` names, expressions, source metrics, and disabled reasons when a rule is not applicable to the current node configuration; the peer-sync group now includes the per-peer incident-pressure rollup `zephyr:peer_sync:incident_pressure_by_peer`
 - `/v1/recording-rules/prometheus` exports only the enabled subset as Prometheus recording-rule YAML so you can drop it into a standard scrape-plus-dashboard workflow without hand-translating expressions
 - use these rollups as the default dashboard query layer on top of `/metrics`, then import or adapt the higher-level dashboard bundles for your deployment
 
@@ -107,7 +107,7 @@ curl.exe http://localhost:8080/v1/dashboards/grafana
 
 What to expect:
 
-- `/v1/dashboards` returns overview, consensus-and-recovery, and peer-sync dashboard bundles with stable panel IDs, PromQL queries, source endpoints, related recording rules, related alert codes, and disabled reasons when a dashboard or panel is not applicable to the current node configuration; the peer-sync bundle now includes incident-by-state, incident-by-reason, incident-by-error-code, and per-peer incident-pressure panels tied to the peer import, admission, and replication alerts
+- `/v1/dashboards` returns overview, consensus-and-recovery, and peer-sync dashboard bundles with stable panel IDs, PromQL queries, source endpoints, related recording rules, related alert codes, and disabled reasons when a dashboard or panel is not applicable to the current node configuration; the peer-sync bundle now includes incident-by-state, incident-by-reason, incident-by-error-code, and per-peer incident-pressure panels tied to the peer import, admission, and replication alerts, with the per-peer panel built on `zephyr:peer_sync:incident_pressure_by_peer`
 - `/v1/dashboards/grafana` exports only the enabled dashboards and panels as Grafana-oriented JSON so you can import a starting Zephyr dashboard set after wiring a Prometheus data source to `/metrics`
 - treat the bundle as a production-oriented starting point rather than a final layout; tune datasource selection, labels, thresholds, and panel arrangement for your deployment
 
@@ -408,6 +408,7 @@ Expected behavior:
 13. Inspect the resulting block, vote tallies, and certificate on both nodes.
 14. Optionally restart a node and confirm the validator snapshot, round state, consensus artifacts, and `recovery` state survived.
 15. If the restarted node had a pending local proposal or vote, confirm the action is replayed and later marked completed once the block finalizes.
+
 
 
 
