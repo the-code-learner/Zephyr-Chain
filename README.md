@@ -42,9 +42,12 @@ Implemented in this iteration:
 - `GET /metrics` now also exports committed-block, committed-transaction, latest-block-interval, and rolling throughput gauges so Prometheus-style monitoring can track recent TPS without re-deriving chain history
 - `GET /v1/recording-rules` and `GET /v1/recording-rules/prometheus` now additionally export canonical `zephyr:chain:transactions_per_second_1m`, `zephyr:chain:transactions_per_second_5m`, and `zephyr:chain:transactions_per_second_15m` rollups for dashboard reuse
 - `GET /v1/dashboards` and `GET /v1/dashboards/grafana` now add a `Recent transaction throughput` overview panel built on those rollups so operators can baseline recent TPS alongside readiness and peer health
+- `GET /v1/health` now includes a `settlement_throughput` check that watches queued transaction drain against the configured automatic block interval when block production is enabled
+- `GET /v1/alerts` and `GET /v1/slo` now derive `settlement_throughput_reduced`, `settlement_throughput_stalled`, and the `settlement_throughput` objective so slow or stalled queue drain becomes first-class operator evidence
+- `GET /v1/alert-rules` and `GET /v1/alert-rules/prometheus` now export `ZephyrSettlementThroughputAtRisk` and `ZephyrSettlementThroughputStalled` so the same queue-drain signal can be promoted into Prometheus-based alerting
 - `GET /v1/peers` now backfills the latest import, snapshot-repair, and replication-failure telemetry from durable peer incidents so operator context survives restart before the next live sync pass
 - successful local certified commits now record a durable `block_commit` consensus action so recovery history and action metrics cover the full proposer path from proposal and vote through commit
-- focused tests now cover peer import, admission, and replication alerts, per-peer Prometheus incident metrics, restart-safe per-peer telemetry reconstruction, JSON and Prometheus throughput metrics, recording-rule export, dashboard export, and durable `block_commit` history across the operator surfaces
+- focused tests now cover peer import, admission, and replication alerts, per-peer Prometheus incident metrics, restart-safe per-peer telemetry reconstruction, JSON and Prometheus throughput metrics, throughput health or alert or SLO projections, alert-rule export, dashboard export, and durable `block_commit` history across the operator surfaces
 
 Planned but not implemented yet:
 

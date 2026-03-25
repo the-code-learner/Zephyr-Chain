@@ -62,6 +62,7 @@ func (s *Server) buildAlertsResponse(now time.Time) AlertsResponse {
 	peers := s.peerSnapshot()
 	roundEvidence := s.buildRoundEvidence(now)
 	blockReadiness := s.buildBlockReadiness(now)
+	throughput := s.assessSettlementThroughput(now)
 
 	response := AlertsResponse{
 		GeneratedAt:                now,
@@ -105,6 +106,17 @@ func (s *Server) buildAlertsResponse(now time.Time) AlertsResponse {
 			Summary:    check.Summary,
 			Detail:     firstNonEmpty(check.Detail, buildConsensusAlertDetail(roundEvidence, blockReadiness)),
 			ObservedAt: consensusAlertObservedAt(roundEvidence, blockReadiness),
+		})
+	}
+
+	if throughput.HealthStatus == healthCheckWarn || throughput.HealthStatus == healthCheckFail {
+		appendAlert(&response, Alert{
+			Code:       throughput.AlertCode,
+			Severity:   throughput.AlertSeverity,
+			Component:  "throughput",
+			Summary:    throughput.Summary,
+			Detail:     throughput.Detail,
+			ObservedAt: cloneAlertTime(throughput.ObservedAt),
 		})
 	}
 

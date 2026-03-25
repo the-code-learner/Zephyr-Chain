@@ -68,9 +68,9 @@ The API layer now handles:
 
 - liveness through `GET /health`
 - Prometheus-style scrape export through `GET /metrics`, including per-peer retained incident counts, latest observation timestamps, and committed-chain throughput gauges plus rolling `1m`, `5m`, and `15m` TPS windows
-- derived readiness through `GET /v1/health`
-- derived alerts through `GET /v1/alerts`
-- derived SLO summaries through `GET /v1/slo`
+- derived readiness through `GET /v1/health`, including settlement queue-drain checks when automatic block production is enabled
+- derived alerts through `GET /v1/alerts`, including settlement-throughput reduced or stalled signals when queued transactions outlive the expected block window
+- derived SLO summaries through `GET /v1/slo`, including the settlement-throughput objective alongside readiness and peer-continuity summaries
 - recommended alert-rule bundles through `GET /v1/alert-rules` and `GET /v1/alert-rules/prometheus`
 - recommended recording-rule bundles through `GET /v1/recording-rules` and `GET /v1/recording-rules/prometheus`, including the per-peer incident-pressure rollup used by the peer-sync dashboard plus canonical recent-TPS rollups for the overview dashboard
 - recommended dashboard bundles through `GET /v1/dashboards` and `GET /v1/dashboards/grafana`, including recent transaction throughput in the overview bundle and peer incident-pressure drill-down by peer

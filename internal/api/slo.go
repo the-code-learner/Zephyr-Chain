@@ -61,6 +61,7 @@ func (s *Server) buildSLOSummary(now time.Time) SLOSummaryResponse {
 		buildReadinessObjective(health, alerts),
 		s.buildConsensusContinuityObjective(alerts),
 		s.buildPeerSyncContinuityObjective(alerts),
+		s.buildSettlementThroughputObjective(now, alerts),
 	}
 
 	response := SLOSummaryResponse{
@@ -173,6 +174,37 @@ func (s *Server) buildPeerSyncContinuityObjective(alerts AlertsResponse) SLOObje
 	default:
 		objective.Status = sloStatusMeeting
 		objective.Summary = "peer sync continuity objective is currently met"
+	}
+	return objective
+}
+
+func (s *Server) buildSettlementThroughputObjective(now time.Time, alerts AlertsResponse) SLOObjective {
+	objective := SLOObjective{
+		Name:   "settlement_throughput",
+		Target: "Keep queued transactions clearing within the expected automatic block-production window.",
+	}
+	assessment := s.assessSettlementThroughput(now)
+	if !assessment.Applicable {
+		objective.Status = sloStatusNotApplicable
+		objective.Summary = "settlement throughput objective is not applicable in the current configuration"
+		objective.Detail = assessment.Detail
+		return objective
+	}
+
+	relatedAlerts := filterAlertsByCode(alerts.Alerts, settlementThroughputAlertStalled, settlementThroughputAlertReduced)
+	objective.RelatedAlerts = collectAlertCodes(relatedAlerts)
+	switch {
+	case hasAlertCode(alerts.Alerts, settlementThroughputAlertStalled):
+		objective.Status = sloStatusBreached
+		objective.Summary = "settlement throughput objective is currently breached"
+		objective.Detail = firstNonEmpty(summarizeAlertDetails(relatedAlerts), assessment.Detail)
+	case len(relatedAlerts) > 0:
+		objective.Status = sloStatusAtRisk
+		objective.Summary = "settlement throughput objective is at risk"
+		objective.Detail = firstNonEmpty(summarizeAlertDetails(relatedAlerts), assessment.Detail)
+	default:
+		objective.Status = sloStatusMeeting
+		objective.Summary = "settlement throughput objective is currently met"
 	}
 	return objective
 }
