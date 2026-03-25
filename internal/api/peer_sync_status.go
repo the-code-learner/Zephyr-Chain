@@ -119,6 +119,24 @@ func mergePeerSyncHistory(current PeerView, previous PeerView) PeerView {
 	if current.LastSnapshotRestoreReason == "" {
 		current.LastSnapshotRestoreReason = previous.LastSnapshotRestoreReason
 	}
+	if current.LastReplicationErrorCode == "" {
+		current.LastReplicationErrorCode = previous.LastReplicationErrorCode
+	}
+	if current.LastReplicationErrorMessage == "" {
+		current.LastReplicationErrorMessage = previous.LastReplicationErrorMessage
+	}
+	if current.LastReplicationFailureAt == nil {
+		current.LastReplicationFailureAt = cloneAPITimePointer(previous.LastReplicationFailureAt)
+	}
+	if current.LastReplicationFailureHeight == 0 {
+		current.LastReplicationFailureHeight = previous.LastReplicationFailureHeight
+	}
+	if current.LastReplicationFailureBlockHash == "" {
+		current.LastReplicationFailureBlockHash = previous.LastReplicationFailureBlockHash
+	}
+	if current.LastReplicationFailureReason == "" {
+		current.LastReplicationFailureReason = previous.LastReplicationFailureReason
+	}
 	return current
 }
 

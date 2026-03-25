@@ -33,7 +33,7 @@ As of this iteration, the repository has:
 - `blockReadiness` on status, consensus, and block-template endpoints so operators can see whether the local template matches stored proposals and certificates for the pending height
 - latest local proposal and latest local vote rebroadcast for the pending height during delayed peer recovery
 - explicit pending `block_import` recovery actions plus durable `snapshot_restore` history for peer-import repair and snapshot catch-up
-- peer views that now expose `syncState`, `heightDelta`, last import failure, last snapshot-restore metadata, durable per-peer `recentIncidents` history, and derived incident counters per configured peer
+- peer views that now expose `syncState`, `heightDelta`, last import failure, last snapshot-restore metadata, last replication-failure metadata, durable per-peer `recentIncidents` history, derived incident counters per configured peer, and restart-safe backfill of that telemetry from retained incidents
 - status, consensus, and block-template endpoints that now expose durable `peerSyncHistory` plus derived `peerSyncSummary` so operators can correlate recent peer incidents across the node and see affected-peer totals by dominant failure state, reason, and error code
 - a machine-readable `GET /v1/metrics` surface that rolls up consensus-action counts, rejection-diagnostic buckets, durable peer-sync summary state by peer, state, reason, and error code, and live peer runtime counts by sync state
 - optional structured JSON event logs for consensus diagnostics, peer-sync incidents, and snapshot-restore recovery behind `ZEPHYR_ENABLE_STRUCTURED_LOGS`
@@ -120,7 +120,7 @@ Status:
 - a transport abstraction now exists
 - the active transport is still static peer URLs over HTTP
 - validator nodes can attach signed identity proofs to replicated requests and expose the same proof through status
-- peer views can verify that proof, enforce strict peer admission, pin configured peers to expected validator identities, and expose per-peer sync or repair telemetry plus durable peer-incident history and counters
+- peer views can verify that proof, enforce strict peer admission, pin configured peers to expected validator identities, and expose per-peer sync, repair, and replication-failure telemetry plus durable peer-incident history, restart-safe backfill, and counters
 - admitted-peer policy already gates current HTTP sync and replication behavior
 - proposal, vote, and certified-block replication already ride over that abstraction
 - failed outgoing proposal, vote, and block dissemination now lands in durable `replication_blocked` peer incidents with reason and error-code rollups
@@ -214,6 +214,7 @@ Broad direction:
 - upgrade strategy and rollback planning
 - monitoring, alerts, and SLOs for operators
 - staged path from devnet to public testnet to mainnet
+
 
 
 

@@ -18,7 +18,78 @@ func (s *Server) enrichPeerView(view PeerView) PeerView {
 	view.IncidentOccurrences = peerSummary.TotalOccurrences
 	view.LatestIncidentAt = cloneAPITimePointer(peerSummary.LatestObservedAt)
 	view.RecentIncidents = s.ledger.PeerSyncIncidents(view.URL, peerIncidentLimitPerPeer)
+	backfillPeerViewFromIncidents(&view, view.RecentIncidents)
 	return view
+}
+
+func backfillPeerViewFromIncidents(view *PeerView, incidents []ledger.PeerSyncIncident) {
+	for _, incident := range incidents {
+		switch incident.State {
+		case "snapshot_restored":
+			backfillPeerSnapshotRestore(view, incident)
+			if incident.ErrorCode != "" || incident.ErrorMessage != "" {
+				backfillPeerImportFailure(view, incident)
+			}
+		case "import_blocked":
+			backfillPeerImportFailure(view, incident)
+		case "replication_blocked":
+			backfillPeerReplicationFailure(view, incident)
+		}
+	}
+}
+
+func backfillPeerSnapshotRestore(view *PeerView, incident ledger.PeerSyncIncident) {
+	if view.LastSnapshotRestoreAt == nil {
+		view.LastSnapshotRestoreAt = cloneAPITimeValue(incident.LastObservedAt)
+	}
+	if view.LastSnapshotRestoreHeight == 0 {
+		view.LastSnapshotRestoreHeight = incident.PeerHeight
+	}
+	if view.LastSnapshotRestoreBlockHash == "" {
+		view.LastSnapshotRestoreBlockHash = strings.TrimSpace(incident.BlockHash)
+	}
+	if view.LastSnapshotRestoreReason == "" {
+		view.LastSnapshotRestoreReason = strings.TrimSpace(incident.Reason)
+	}
+}
+
+func backfillPeerImportFailure(view *PeerView, incident ledger.PeerSyncIncident) {
+	if view.LastImportErrorCode == "" {
+		view.LastImportErrorCode = strings.TrimSpace(incident.ErrorCode)
+	}
+	if view.LastImportErrorMessage == "" {
+		view.LastImportErrorMessage = strings.TrimSpace(incident.ErrorMessage)
+	}
+	if view.LastImportFailureAt == nil {
+		view.LastImportFailureAt = cloneAPITimeValue(incident.LastObservedAt)
+	}
+	if view.LastImportFailureHeight == 0 {
+		view.LastImportFailureHeight = incident.PeerHeight
+	}
+	if view.LastImportFailureBlockHash == "" {
+		view.LastImportFailureBlockHash = strings.TrimSpace(incident.BlockHash)
+	}
+}
+
+func backfillPeerReplicationFailure(view *PeerView, incident ledger.PeerSyncIncident) {
+	if view.LastReplicationErrorCode == "" {
+		view.LastReplicationErrorCode = strings.TrimSpace(incident.ErrorCode)
+	}
+	if view.LastReplicationErrorMessage == "" {
+		view.LastReplicationErrorMessage = strings.TrimSpace(incident.ErrorMessage)
+	}
+	if view.LastReplicationFailureAt == nil {
+		view.LastReplicationFailureAt = cloneAPITimeValue(incident.LastObservedAt)
+	}
+	if view.LastReplicationFailureHeight == 0 {
+		view.LastReplicationFailureHeight = incident.LocalHeight
+	}
+	if view.LastReplicationFailureBlockHash == "" {
+		view.LastReplicationFailureBlockHash = strings.TrimSpace(incident.BlockHash)
+	}
+	if view.LastReplicationFailureReason == "" {
+		view.LastReplicationFailureReason = strings.TrimSpace(incident.Reason)
+	}
 }
 
 func (s *Server) recordPeerIncident(view PeerView) {

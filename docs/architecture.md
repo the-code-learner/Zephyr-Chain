@@ -76,7 +76,7 @@ The API layer now handles:
 - recommended dashboard bundles through `GET /v1/dashboards` and `GET /v1/dashboards/grafana`
 - runtime status through `GET /v1/status`
 - machine-readable observability through `GET /v1/metrics`
-- peer visibility through `GET /v1/peers`, including admission, identity, live sync/repair telemetry, durable per-peer incident history, and derived per-peer incident counters
+- peer visibility through `GET /v1/peers`, including admission, identity, live sync/repair telemetry, restart-safe import, snapshot, and replication-failure backfill from durable incidents, durable per-peer incident history, and derived per-peer incident counters
 - consensus visibility through `GET /v1/consensus`
 - validator election inputs through `POST /v1/election`
 - the latest durable validator snapshot through `GET /v1/validators`
@@ -107,7 +107,7 @@ Today the concrete implementation still uses static HTTP peer URLs, but the rest
 - snapshot fetches for catch-up restore
 - signed validator transport-identity headers on replicated POSTs when a validator private key is configured
 
-This is an important production-preparation step because it gives the codebase a seam where authenticated libp2p networking can later replace the HTTP implementation. The current HTTP layer can already expose and verify validator identity proofs, enforce strict peer admission, pin configured peers to expected validators when the operator enables that policy, and surface per-peer sync state, repair metadata, and durable incident history through the peer view plus operator APIs.
+This is an important production-preparation step because it gives the codebase a seam where authenticated libp2p networking can later replace the HTTP implementation. The current HTTP layer can already expose and verify validator identity proofs, enforce strict peer admission, pin configured peers to expected validators when the operator enables that policy, and surface per-peer sync state, repair metadata, retained replication-failure context, restart-safe incident backfill, and durable incident history through the peer view plus operator APIs.
 
 ### Durable Ledger
 
@@ -191,6 +191,7 @@ The repository has moved from consensus-preparation-only into certificate-gated 
 - broader consensus recovery coverage is still needed beyond the current local proposal, vote, and certified block-commit WAL plus import-repair and snapshot-recovery path
 
 That is why the project has moved beyond replicated prototype, but it is still not a production blockchain.
+
 
 
 
