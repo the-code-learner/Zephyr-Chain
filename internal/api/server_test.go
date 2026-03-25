@@ -3482,7 +3482,7 @@ func TestHandleRecordingRulesExposeRecommendedBundles(t *testing.T) {
 	if response.NodeID != "recording-rules-node" || response.PeerSyncEnabled {
 		t.Fatalf("unexpected recording-rules identity/config %+v", response)
 	}
-	if response.RuleCount != 12 || response.EnabledRuleCount != 8 || response.DisabledRuleCount != 4 {
+	if response.RuleCount != 15 || response.EnabledRuleCount != 11 || response.DisabledRuleCount != 4 {
 		t.Fatalf("unexpected recording-rule counts %+v", response)
 	}
 	if rule, ok := recordingRuleByRecord(response.Groups, "zephyr:node_readiness:ready"); !ok || !rule.Enabled || rule.Expression != "zephyr_node_ready" {
@@ -3537,6 +3537,12 @@ func TestHandlePrometheusRecordingRulesExportsEnabledRulesOnly(t *testing.T) {
 	if !strings.Contains(body, "        expr: 'zephyr_peer_sync_peer_occurrence_count'\n") {
 		t.Fatalf("expected peer incident pressure expression in prometheus recording rules, got:\n%s", body)
 	}
+	if !strings.Contains(body, "      - record: zephyr:chain:transactions_per_second_1m\n") {
+		t.Fatalf("expected 1m throughput recording rule in prometheus recording rules, got:\n%s", body)
+	}
+	if !strings.Contains(body, "        expr: 'zephyr_chain_window_transactions_per_second{window=\"1m\"}'\n") {
+		t.Fatalf("expected 1m throughput expression in prometheus recording rules, got:\n%s", body)
+	}
 	if !strings.Contains(body, "      - record: zephyr:consensus:recovery_backlog\n") {
 		t.Fatalf("expected consensus recovery backlog recording rule in prometheus recording rules, got:\n%s", body)
 	}
@@ -3571,13 +3577,15 @@ func TestHandleDashboardsExposeRecommendedBundles(t *testing.T) {
 	if response.DashboardCount != 3 || response.EnabledDashboardCount != 2 || response.DisabledDashboardCount != 1 {
 		t.Fatalf("unexpected dashboard counts %+v", response)
 	}
-	if response.PanelCount != 18 || response.EnabledPanelCount != 10 || response.DisabledPanelCount != 8 {
+	if response.PanelCount != 19 || response.EnabledPanelCount != 11 || response.DisabledPanelCount != 8 {
 		t.Fatalf("unexpected dashboard panel counts %+v", response)
 	}
 	if dashboard, ok := dashboardByName(response.Dashboards, "zephyr.overview"); !ok || !dashboard.Enabled {
 		t.Fatalf("expected enabled overview dashboard, got %+v", response.Dashboards)
 	} else if panel, ok := dashboardPanelByID(dashboard.Panels, "node_readiness"); !ok || !panel.Enabled || len(panel.RecordingRules) != 1 || panel.RecordingRules[0] != "zephyr:node_readiness:ready" {
 		t.Fatalf("expected node_readiness panel to reference readiness recording rule, got %+v", dashboard.Panels)
+	} else if panel, ok := dashboardPanelByID(dashboard.Panels, "transaction_throughput"); !ok || !panel.Enabled || len(panel.RecordingRules) != 3 || panel.RecordingRules[0] != "zephyr:chain:transactions_per_second_1m" {
+		t.Fatalf("expected transaction_throughput panel to reference throughput recording rules, got %+v", dashboard.Panels)
 	}
 	if dashboard, ok := dashboardByName(response.Dashboards, "zephyr.peer_sync"); !ok || dashboard.Enabled || !strings.Contains(dashboard.DisabledReason, "disabled") {
 		t.Fatalf("expected disabled peer-sync dashboard, got %+v", response.Dashboards)
@@ -3624,7 +3632,7 @@ func TestHandleGrafanaDashboardsExportsEnabledDashboardsOnly(t *testing.T) {
 	if response.NodeID != "dashboard-export-node" {
 		t.Fatalf("unexpected grafana dashboard node %+v", response)
 	}
-	if response.DashboardCount != 3 || response.PanelCount != 18 {
+	if response.DashboardCount != 3 || response.PanelCount != 19 {
 		t.Fatalf("unexpected grafana dashboard counts %+v", response)
 	}
 	if dashboard, ok := grafanaDashboardByName(response.Dashboards, "zephyr.peer_sync"); !ok {
@@ -3674,6 +3682,13 @@ func TestHandleGrafanaDashboardsExportsEnabledDashboardsOnly(t *testing.T) {
 		}
 		if _, ok := grafanaTargetByExpression(panel.Targets, "zephyr:node_readiness:ready"); !ok {
 			t.Fatalf("expected node readiness query in grafana panel, got %+v", panel.Targets)
+		}
+		panel, ok = grafanaPanelByTitle(dashboard.Dashboard.Panels, "Recent transaction throughput")
+		if !ok || panel.Type != "bargauge" {
+			t.Fatalf("expected recent transaction throughput bargauge panel, got %+v", dashboard.Dashboard.Panels)
+		}
+		if _, ok := grafanaTargetByExpression(panel.Targets, "zephyr:chain:transactions_per_second_1m"); !ok {
+			t.Fatalf("expected transaction throughput query in grafana panel, got %+v", panel.Targets)
 		}
 	}
 }
@@ -3979,6 +3994,97 @@ func TestPrometheusMetricsExportOperatorSignals(t *testing.T) {
 	requirePrometheusLine(t, body, "zephyr_peer_sync_peer_occurrence_count{peer_url=\"http://peer-b.example\",latest_state=\"import_blocked\",latest_reason=\"unknown\",latest_error_code=\"proposal_required\"} 1")
 
 }
+
+func TestMetricsExposeChainThroughputWindows(t *testing.T) {
+	server := newTestServer(t, Config{
+		DataDir:                 t.TempDir(),
+		NodeID:                  "throughput-metrics-node",
+		BlockInterval:           0,
+		SyncInterval:            0,
+		MaxTransactionsPerBlock: 100,
+		EnableBlockProduction:   false,
+		EnablePeerSync:          false,
+	})
+
+	now := time.Now().UTC()
+	olderProducedAt := now.Add(-10 * time.Minute)
+	recentProducedAt := now.Add(-30 * time.Second)
+
+	for index := 0; index < 10; index++ {
+		envelope := signedEnvelope(t, 1, 1, "throughput-older")
+		if _, err := server.ledger.Credit(envelope.From, 5); err != nil {
+			t.Fatalf("credit older sender %d: %v", index, err)
+		}
+		if _, err := server.ledger.Accept(envelope); err != nil {
+			t.Fatalf("accept older transaction %d: %v", index, err)
+		}
+	}
+	if _, err := server.ledger.ProduceBlockWithOptions(100, olderProducedAt, false); err != nil {
+		t.Fatalf("produce older throughput block: %v", err)
+	}
+
+	for index := 0; index < 60; index++ {
+		envelope := signedEnvelope(t, 1, 1, "throughput-recent")
+		if _, err := server.ledger.Credit(envelope.From, 5); err != nil {
+			t.Fatalf("credit recent sender %d: %v", index, err)
+		}
+		if _, err := server.ledger.Accept(envelope); err != nil {
+			t.Fatalf("accept recent transaction %d: %v", index, err)
+		}
+	}
+	if _, err := server.ledger.ProduceBlockWithOptions(100, recentProducedAt, false); err != nil {
+		t.Fatalf("produce recent throughput block: %v", err)
+	}
+
+	request := httptest.NewRequest(http.MethodGet, "/v1/metrics", nil)
+	recorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected metrics status 200, got %d", recorder.Code)
+	}
+
+	var response MetricsResponse
+	if err := json.NewDecoder(recorder.Body).Decode(&response); err != nil {
+		t.Fatalf("decode throughput metrics response: %v", err)
+	}
+	if response.ChainThroughput.TotalBlockCount != 2 || response.ChainThroughput.TotalTransactionCount != 70 {
+		t.Fatalf("unexpected chain throughput totals %+v", response.ChainThroughput)
+	}
+	if response.ChainThroughput.LatestBlockAt == nil || response.ChainThroughput.LatestBlockIntervalSeconds != 570 {
+		t.Fatalf("unexpected chain throughput timing %+v", response.ChainThroughput)
+	}
+	if len(response.ChainThroughput.Windows) != 3 {
+		t.Fatalf("expected 3 throughput windows, got %+v", response.ChainThroughput.Windows)
+	}
+	throughputWindows := make(map[string]ledger.ChainThroughputWindowView, len(response.ChainThroughput.Windows))
+	for _, window := range response.ChainThroughput.Windows {
+		throughputWindows[window.Window] = window
+	}
+	if window := throughputWindows["1m"]; window.BlockCount != 1 || window.TransactionCount != 60 || window.TransactionsPerSecond != 1 || window.AverageTransactionsPerBlock != 60 {
+		t.Fatalf("unexpected 1m throughput window %+v", window)
+	}
+	if window := throughputWindows["5m"]; window.BlockCount != 1 || window.TransactionCount != 60 || window.AverageTransactionsPerBlock != 60 {
+		t.Fatalf("unexpected 5m throughput window %+v", window)
+	}
+	if window := throughputWindows["15m"]; window.BlockCount != 2 || window.TransactionCount != 70 || window.AverageTransactionsPerBlock != 35 {
+		t.Fatalf("unexpected 15m throughput window %+v", window)
+	}
+
+	prometheusRequest := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+	prometheusRecorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(prometheusRecorder, prometheusRequest)
+	if prometheusRecorder.Code != http.StatusOK {
+		t.Fatalf("expected prometheus metrics status 200, got %d", prometheusRecorder.Code)
+	}
+	body := prometheusRecorder.Body.String()
+	requirePrometheusLine(t, body, "zephyr_chain_total_block_count 2")
+	requirePrometheusLine(t, body, "zephyr_chain_total_committed_transaction_count 70")
+	requirePrometheusLine(t, body, "zephyr_chain_latest_block_interval_seconds 570")
+	requirePrometheusLine(t, body, "zephyr_chain_window_transaction_count{window=\"1m\"} 60")
+	requirePrometheusLine(t, body, "zephyr_chain_window_transactions_per_second{window=\"1m\"} 1")
+	requirePrometheusLine(t, body, "zephyr_chain_window_average_transactions_per_block{window=\"15m\"} 35")
+}
+
 func TestStructuredLogsEmitConsensusPeerAndRecoveryEvents(t *testing.T) {
 	var logBuffer bytes.Buffer
 	server := newTestServer(t, Config{

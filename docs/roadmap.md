@@ -35,15 +35,15 @@ As of this iteration, the repository has:
 - explicit pending `block_import` recovery actions plus durable `snapshot_restore` history for peer-import repair and snapshot catch-up
 - peer views that now expose `syncState`, `heightDelta`, last import failure, last snapshot-restore metadata, last replication-failure metadata, durable per-peer `recentIncidents` history, derived incident counters per configured peer, and restart-safe backfill of that telemetry from retained incidents
 - status, consensus, and block-template endpoints that now expose durable `peerSyncHistory` plus derived `peerSyncSummary` so operators can correlate recent peer incidents across the node and see affected-peer totals by dominant failure state, reason, and error code
-- a machine-readable `GET /v1/metrics` surface that rolls up consensus-action counts, rejection-diagnostic buckets, durable peer-sync summary state by peer, state, reason, and error code, and live peer runtime counts by sync state
+- a machine-readable `GET /v1/metrics` surface that rolls up consensus-action counts, rejection-diagnostic buckets, durable peer-sync summary state by peer, state, reason, and error code, live peer runtime counts by sync state, and committed-chain throughput windows for recent TPS baselining
 - optional structured JSON event logs for consensus diagnostics, peer-sync incidents, and snapshot-restore recovery behind `ZEPHYR_ENABLE_STRUCTURED_LOGS`
 - an operator-facing `GET /v1/health` readiness surface that derives pass, warn, and fail checks from validator-set availability, recovery backlog, consensus warnings, peer runtime, and recent diagnostics
-- a Prometheus-style `GET /metrics` export adapter that projects the same readiness, consensus, diagnostic, recovery, and peer signals into scrape-friendly text metrics, including per-peer retained incident counts and latest observation timestamps
+- a Prometheus-style `GET /metrics` export adapter that projects the same readiness, consensus, diagnostic, recovery, peer, and chain-throughput signals into scrape-friendly text metrics, including per-peer retained incident counts, latest observation timestamps, and recent TPS gauges
 - an operator-facing `GET /v1/alerts` surface that turns the current readiness, recovery, diagnostics, and peer-sync state into derived warning and critical alerts, including targeted peer import, peer admission, and peer replication warnings from retained peer incidents
 - an operator-facing `GET /v1/slo` surface that projects those same signals into SLO-oriented objective states for readiness, consensus continuity, and peer-sync continuity
 - recommended alert-rule bundle exports through JSON `GET /v1/alert-rules` and Prometheus-oriented `GET /v1/alert-rules/prometheus`
-- recommended recording-rule bundle exports through JSON `GET /v1/recording-rules` and Prometheus-oriented `GET /v1/recording-rules/prometheus`, now including a per-peer incident-pressure rollup for peer-sync dashboards
-- recommended dashboard bundle exports through JSON `GET /v1/dashboards` and Grafana-oriented `GET /v1/dashboards/grafana`
+- recommended recording-rule bundle exports through JSON `GET /v1/recording-rules` and Prometheus-oriented `GET /v1/recording-rules/prometheus`, now including a per-peer incident-pressure rollup for peer-sync dashboards plus canonical `1m`, `5m`, and `15m` TPS rollups for the overview dashboard
+- recommended dashboard bundle exports through JSON `GET /v1/dashboards` and Grafana-oriented `GET /v1/dashboards/grafana`, including an overview throughput panel plus peer incident drill-down panels
 - a bounded local consensus-action WAL with pending/completed status, replay-attempt metadata, restart-safe persistence, explicit proposer-side `block_commit` history, import-recovery plus snapshot-restore history, and durable peer-sync incident history
 - bounded recent consensus diagnostics for rejected proposal, vote, commit, and import paths, including explicit `template_mismatch` and peer-sync import failures
 - a browser wallet that can create accounts, sign locally, and submit transactions
@@ -204,6 +204,8 @@ Broad direction:
 - add worker registry, attestation verification, bidding, escrow, settlement, and slashing
 - settle payments on-chain with the Zephyr native token
 - keep privacy-oriented execution separate from consensus-critical state transitions
+- scale confidential compute first through partitioned worker pools or execution lanes with batched on-chain settlement rather than assuming immediate full consensus sharding
+- treat full sharded consensus as a later research option to evaluate only if measured throughput shows the single-chain settlement path becoming the bottleneck
 
 ### Phase 7: Public Testnet To Mainnet Readiness
 

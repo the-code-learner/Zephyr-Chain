@@ -40,6 +40,7 @@ func (s *Server) buildPrometheusMetrics(now time.Time) string {
 	recovery := s.ledger.ConsensusRecovery()
 	actionMetrics := s.ledger.ConsensusActionMetrics()
 	diagnosticMetrics := s.ledger.ConsensusDiagnosticMetrics()
+	throughput := s.ledger.ChainThroughputMetrics(now)
 	peerSummary := s.ledger.PeerSyncSummary()
 	peerRuntime := buildPeerRuntimeMetrics(s.peerSnapshot())
 	health := s.buildHealthResponse(now)
@@ -119,8 +120,21 @@ func (s *Server) buildPrometheusMetrics(now time.Time) string {
 
 	writer.gauge("zephyr_chain_height", "Latest committed local block height.", float64(status.Height))
 	writer.gauge("zephyr_chain_mempool_transaction_count", "Current number of queued mempool transactions.", float64(status.MempoolSize))
+	writer.gauge("zephyr_chain_total_block_count", "Total committed block count retained locally.", float64(throughput.TotalBlockCount))
+	writer.gauge("zephyr_chain_total_committed_transaction_count", "Total committed transaction count retained locally.", float64(throughput.TotalTransactionCount))
 	if status.LatestBlockAt != nil {
 		writer.gauge("zephyr_chain_latest_block_timestamp_seconds", "Unix timestamp of the latest committed block.", unixSeconds(*status.LatestBlockAt))
+	}
+	if throughput.LatestBlockIntervalSeconds > 0 {
+		writer.gauge("zephyr_chain_latest_block_interval_seconds", "Seconds between the latest two committed blocks.", throughput.LatestBlockIntervalSeconds)
+	}
+	for _, window := range throughput.Windows {
+		labels := []prometheusLabel{{Name: "window", Value: window.Window}}
+		writer.gauge("zephyr_chain_window_block_count", "Committed block count observed within each recent throughput window.", float64(window.BlockCount), labels...)
+		writer.gauge("zephyr_chain_window_transaction_count", "Committed transaction count observed within each recent throughput window.", float64(window.TransactionCount), labels...)
+		writer.gauge("zephyr_chain_window_blocks_per_second", "Committed block rate derived from each recent throughput window.", window.BlocksPerSecond, labels...)
+		writer.gauge("zephyr_chain_window_transactions_per_second", "Committed transaction throughput derived from each recent throughput window.", window.TransactionsPerSecond, labels...)
+		writer.gauge("zephyr_chain_window_average_transactions_per_block", "Average committed transactions per block observed within each recent throughput window.", window.AverageTransactionsPerBlock, labels...)
 	}
 
 	writer.gauge("zephyr_consensus_current_height", "Current committed consensus height.", float64(consensusView.CurrentHeight))

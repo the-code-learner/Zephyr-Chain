@@ -60,10 +60,10 @@ What to expect:
 - `checks` currently cover `api`, `validator_set`, `recovery`, `consensus`, `peer_sync`, and `diagnostics`
 - `/v1/alerts` turns those same operator signals into a derived critical or warning alert set for polling dashboards and automation, including targeted `peer_import_blocked`, `peer_admission_blocked`, and `peer_replication_blocked` warnings when retained peer incidents point to those fault classes
 - `/v1/slo` groups them into objective states so operators can see whether readiness, consensus continuity, or peer sync continuity is meeting, at risk, breached, or not applicable
-- `/metrics` exports the alert, health, and SLO state as Prometheus-style gauges such as `zephyr_node_ready`, `zephyr_health_check_status`, `zephyr_alert_active`, and `zephyr_slo_objective_status`, plus peer-incident gauges such as `zephyr_peer_sync_reason_occurrence_count`, `zephyr_peer_sync_error_code_occurrence_count`, and per-peer retained-incident gauges like `zephyr_peer_sync_peer_occurrence_count`, while `/v1/metrics` keeps the structured JSON view
+- `/metrics` exports the alert, health, and SLO state as Prometheus-style gauges such as `zephyr_node_ready`, `zephyr_health_check_status`, `zephyr_alert_active`, and `zephyr_slo_objective_status`, plus peer-incident gauges such as `zephyr_peer_sync_reason_occurrence_count`, `zephyr_peer_sync_error_code_occurrence_count`, per-peer retained-incident gauges like `zephyr_peer_sync_peer_occurrence_count`, and chain throughput gauges such as `zephyr_chain_total_committed_transaction_count` and `zephyr_chain_window_transactions_per_second`, while `/v1/metrics` keeps the structured JSON view including `chainThroughput` windows for `1m`, `5m`, and `15m`
 - `/v1/alert-rules` keeps the structured recommended alert bundle, while `/v1/alert-rules/prometheus` exports the enabled subset as Prometheus-rule YAML for scrape-based alerting stacks
-- `/v1/recording-rules` keeps the structured recommended recording bundle, while `/v1/recording-rules/prometheus` exports the enabled subset as Prometheus recording-rule YAML for dashboard and aggregation stacks
-- `/v1/dashboards` keeps the structured recommended dashboard bundle, while `/v1/dashboards/grafana` exports the enabled subset as Grafana-oriented JSON built on the current recording rules and metrics
+- `/v1/recording-rules` keeps the structured recommended recording bundle, while `/v1/recording-rules/prometheus` exports the enabled subset as Prometheus recording-rule YAML for dashboard and aggregation stacks, including canonical recent-TPS rollups
+- `/v1/dashboards` keeps the structured recommended dashboard bundle, while `/v1/dashboards/grafana` exports the enabled subset as Grafana-oriented JSON built on the current recording rules and metrics, including the overview throughput panel
 - use `/v1/health` together with `/v1/alerts`, `/v1/slo`, `/metrics`, `/v1/metrics`, `GET /v1/status`, `/v1/dashboards`, and structured logs when you need both a quick readiness gate and deeper incident context
 
 ## Export Recommended Alert Rules
@@ -92,7 +92,7 @@ curl.exe http://localhost:8080/v1/recording-rules/prometheus
 
 What to expect:
 
-- `/v1/recording-rules` returns readiness, consensus, peer-sync, and operator-summary recording-rule groups with stable `record` names, expressions, source metrics, and disabled reasons when a rule is not applicable to the current node configuration; the peer-sync group now includes the per-peer incident-pressure rollup `zephyr:peer_sync:incident_pressure_by_peer`
+- `/v1/recording-rules` returns readiness, consensus, peer-sync, and operator-summary recording-rule groups with stable `record` names, expressions, source metrics, and disabled reasons when a rule is not applicable to the current node configuration; the peer-sync group includes the per-peer incident-pressure rollup `zephyr:peer_sync:incident_pressure_by_peer`, and the operator-summary group includes `zephyr:chain:transactions_per_second_1m`, `zephyr:chain:transactions_per_second_5m`, and `zephyr:chain:transactions_per_second_15m`
 - `/v1/recording-rules/prometheus` exports only the enabled subset as Prometheus recording-rule YAML so you can drop it into a standard scrape-plus-dashboard workflow without hand-translating expressions
 - use these rollups as the default dashboard query layer on top of `/metrics`, then import or adapt the higher-level dashboard bundles for your deployment
 
@@ -107,7 +107,7 @@ curl.exe http://localhost:8080/v1/dashboards/grafana
 
 What to expect:
 
-- `/v1/dashboards` returns overview, consensus-and-recovery, and peer-sync dashboard bundles with stable panel IDs, PromQL queries, source endpoints, related recording rules, related alert codes, and disabled reasons when a dashboard or panel is not applicable to the current node configuration; the peer-sync bundle now includes incident-by-state, incident-by-reason, incident-by-error-code, and per-peer incident-pressure panels tied to the peer import, admission, and replication alerts, with the per-peer panel built on `zephyr:peer_sync:incident_pressure_by_peer`
+- `/v1/dashboards` returns overview, consensus-and-recovery, and peer-sync dashboard bundles with stable panel IDs, PromQL queries, source endpoints, related recording rules, related alert codes, and disabled reasons when a dashboard or panel is not applicable to the current node configuration; the overview bundle now includes a `Recent transaction throughput` panel built on `zephyr:chain:transactions_per_second_1m`, `zephyr:chain:transactions_per_second_5m`, and `zephyr:chain:transactions_per_second_15m`, while the peer-sync bundle includes incident-by-state, incident-by-reason, incident-by-error-code, and per-peer incident-pressure panels tied to the peer import, admission, and replication alerts, with the per-peer panel built on `zephyr:peer_sync:incident_pressure_by_peer`
 - `/v1/dashboards/grafana` exports only the enabled dashboards and panels as Grafana-oriented JSON so you can import a starting Zephyr dashboard set after wiring a Prometheus data source to `/metrics`
 - treat the bundle as a production-oriented starting point rather than a final layout; tune datasource selection, labels, thresholds, and panel arrangement for your deployment
 

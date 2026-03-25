@@ -208,6 +208,7 @@ type MetricsResponse struct {
 	Recovery                      ledger.ConsensusRecoveryView          `json:"recovery"`
 	ConsensusActions              ledger.ConsensusActionMetricsView     `json:"consensusActions"`
 	Diagnostics                   ledger.ConsensusDiagnosticMetricsView `json:"diagnostics"`
+	ChainThroughput               ledger.ChainThroughputMetricsView     `json:"chainThroughput"`
 	PeerSyncSummary               ledger.PeerSyncSummaryView            `json:"peerSyncSummary"`
 	PeerRuntime                   PeerRuntimeMetricsView                `json:"peerRuntime"`
 }
@@ -394,6 +395,7 @@ func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
 		Recovery:                      s.ledger.ConsensusRecovery(),
 		ConsensusActions:              s.ledger.ConsensusActionMetrics(),
 		Diagnostics:                   s.ledger.ConsensusDiagnosticMetrics(),
+		ChainThroughput:               s.ledger.ChainThroughputMetrics(now),
 		PeerSyncSummary:               s.ledger.PeerSyncSummary(),
 		PeerRuntime:                   buildPeerRuntimeMetrics(peerViews),
 	})
