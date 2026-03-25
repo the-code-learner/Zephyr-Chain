@@ -2713,6 +2713,12 @@ func TestPeerSyncHistoryPersistsAcrossServerRestart(t *testing.T) {
 	if peersResponse.Peers[0].RecentIncidents[0].State != "snapshot_restored" || peersResponse.Peers[0].RecentIncidents[0].Reason != "peer_diverged" {
 		t.Fatalf("unexpected per-peer incident history after restart %+v", peersResponse.Peers[0].RecentIncidents)
 	}
+	if peersResponse.Peers[0].LastSnapshotRestoreAt == nil || peersResponse.Peers[0].LastSnapshotRestoreReason != "peer_diverged" {
+		t.Fatalf("expected restarted peer snapshot telemetry, got %+v", peersResponse.Peers[0])
+	}
+	if peersResponse.Peers[0].LastSnapshotRestoreHeight != producerBlock.Height || peersResponse.Peers[0].LastSnapshotRestoreBlockHash != producerBlock.Hash {
+		t.Fatalf("unexpected restarted peer snapshot metadata %+v", peersResponse.Peers[0])
+	}
 }
 
 func TestStatusExposesPeerSyncSummaryAcrossPeers(t *testing.T) {
@@ -3196,6 +3202,80 @@ func TestHandleAlertsExposePeerReplicationWarnings(t *testing.T) {
 	requirePrometheusLine(t, body, "zephyr_peer_sync_state_occurrence_count{state=\"replication_blocked\"} 1")
 	requirePrometheusLine(t, body, "zephyr_peer_sync_reason_occurrence_count{reason=\"proposal\"} 1")
 	requirePrometheusLine(t, body, "zephyr_peer_sync_error_code_occurrence_count{code=\"timeout\"} 1")
+}
+
+func TestPeersExposeRetainedReplicationTelemetryAfterRestart(t *testing.T) {
+	dataDir := t.TempDir()
+	server := newTestServer(t, Config{
+		DataDir:                 dataDir,
+		NodeID:                  "peers-replication-restart",
+		PeerURLs:                []string{"http://peer-a.example"},
+		BlockInterval:           0,
+		SyncInterval:            0,
+		MaxTransactionsPerBlock: 10,
+		EnableBlockProduction:   false,
+		EnablePeerSync:          false,
+	})
+
+	observedAt := time.Date(2026, time.March, 24, 21, 30, 0, 0, time.UTC)
+	blockHash := consensusTestHash("peers-replication-restart")
+	if err := server.ledger.RecordPeerSyncIncident(ledger.PeerSyncIncident{
+		PeerURL:         "http://peer-a.example",
+		State:           "replication_blocked",
+		Reason:          "vote",
+		LocalHeight:     7,
+		BlockHash:       blockHash,
+		ErrorCode:       "http_status_500",
+		ErrorMessage:    "peer returned status 500",
+		FirstObservedAt: observedAt,
+		LastObservedAt:  observedAt,
+	}); err != nil {
+		t.Fatalf("record replication incident: %v", err)
+	}
+	server.Close()
+
+	reopened, err := NewServerWithConfig(Config{
+		DataDir:                 dataDir,
+		NodeID:                  "peers-replication-restart",
+		PeerURLs:                []string{"http://peer-a.example"},
+		BlockInterval:           0,
+		SyncInterval:            0,
+		MaxTransactionsPerBlock: 10,
+		EnableBlockProduction:   false,
+		EnablePeerSync:          false,
+	})
+	if err != nil {
+		t.Fatalf("reopen server with retained replication telemetry: %v", err)
+	}
+	defer reopened.Close()
+
+	request := httptest.NewRequest(http.MethodGet, "/v1/peers", nil)
+	recorder := httptest.NewRecorder()
+	reopened.Handler().ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected peers status 200 after restart, got %d", recorder.Code)
+	}
+
+	var response PeersResponse
+	if err := json.NewDecoder(recorder.Body).Decode(&response); err != nil {
+		t.Fatalf("decode peers response after restart: %v", err)
+	}
+	if len(response.Peers) != 1 {
+		t.Fatalf("expected 1 configured peer after restart, got %+v", response.Peers)
+	}
+	peer := response.Peers[0]
+	if peer.LastReplicationFailureAt == nil || !peer.LastReplicationFailureAt.Equal(observedAt) {
+		t.Fatalf("expected retained replication failure time %s, got %+v", observedAt.Format(time.RFC3339), peer)
+	}
+	if peer.LastReplicationFailureHeight != 7 || peer.LastReplicationFailureBlockHash != blockHash {
+		t.Fatalf("unexpected retained replication failure metadata %+v", peer)
+	}
+	if peer.LastReplicationFailureReason != "vote" || peer.LastReplicationErrorCode != "http_status_500" || peer.LastReplicationErrorMessage != "peer returned status 500" {
+		t.Fatalf("unexpected retained replication failure details %+v", peer)
+	}
+	if len(peer.RecentIncidents) != 1 || peer.RecentIncidents[0].State != "replication_blocked" {
+		t.Fatalf("expected retained replication incident history, got %+v", peer.RecentIncidents)
+	}
 }
 
 func TestHandleSLOSummarizesDerivedObjectives(t *testing.T) {
@@ -4251,6 +4331,50 @@ func TestPeerSyncConsensusImportFailureRestoresSnapshotAndRecordsRecoveryHistory
 	}
 	if peers[0].LastSnapshotRestoreReason != "import_repair" || peers[0].LastSnapshotRestoreHeight != block.Height || peers[0].LastSnapshotRestoreBlockHash != block.Hash {
 		t.Fatalf("unexpected peer snapshot repair telemetry %+v", peers[0])
+	}
+
+	replica.Close()
+	reopened, err := NewServerWithConfig(Config{
+		DataDir:                      replicaDataDir,
+		NodeID:                       "replica",
+		PeerURLs:                     []string{producerHTTP.URL},
+		BlockInterval:                0,
+		SyncInterval:                 0,
+		MaxTransactionsPerBlock:      10,
+		EnableBlockProduction:        false,
+		EnablePeerSync:               false,
+		RequireConsensusCertificates: true,
+	})
+	if err != nil {
+		t.Fatalf("reopen replica after import repair: %v", err)
+	}
+	defer reopened.Close()
+
+	peersRequest := httptest.NewRequest(http.MethodGet, "/v1/peers", nil)
+	peersRecorder := httptest.NewRecorder()
+	reopened.Handler().ServeHTTP(peersRecorder, peersRequest)
+	if peersRecorder.Code != http.StatusOK {
+		t.Fatalf("expected peers 200 after import-repair restart, got %d", peersRecorder.Code)
+	}
+
+	var peersResponse PeersResponse
+	if err := json.NewDecoder(peersRecorder.Body).Decode(&peersResponse); err != nil {
+		t.Fatalf("decode restarted peers response after import repair: %v", err)
+	}
+	if len(peersResponse.Peers) != 1 {
+		t.Fatalf("expected 1 configured peer after import-repair restart, got %+v", peersResponse.Peers)
+	}
+	if peersResponse.Peers[0].LastImportFailureAt == nil || peersResponse.Peers[0].LastImportErrorCode != "proposal_required" {
+		t.Fatalf("expected restarted import failure telemetry, got %+v", peersResponse.Peers[0])
+	}
+	if peersResponse.Peers[0].LastImportFailureHeight != block.Height || peersResponse.Peers[0].LastImportFailureBlockHash != block.Hash {
+		t.Fatalf("unexpected restarted import failure metadata %+v", peersResponse.Peers[0])
+	}
+	if peersResponse.Peers[0].LastSnapshotRestoreAt == nil || peersResponse.Peers[0].LastSnapshotRestoreReason != "import_repair" {
+		t.Fatalf("expected restarted snapshot repair telemetry, got %+v", peersResponse.Peers[0])
+	}
+	if peersResponse.Peers[0].LastSnapshotRestoreHeight != block.Height || peersResponse.Peers[0].LastSnapshotRestoreBlockHash != block.Hash {
+		t.Fatalf("unexpected restarted snapshot repair metadata %+v", peersResponse.Peers[0])
 	}
 }
 

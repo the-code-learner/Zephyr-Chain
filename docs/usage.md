@@ -144,7 +144,7 @@ What to expect:
 - Node A accepts wallet transactions and can produce blocks
 - Node B polls peer status on `ZEPHYR_SYNC_INTERVAL`
 - transactions, faucet credits, proposals, votes, and blocks are replicated over the current transport implementation
-- if validator private keys are configured, `GET /v1/status` exposes a signed identity proof, `peerSyncSummary`, and `GET /v1/peers` shows verification, admission state, per-peer sync telemetry, derived incident counters, and durable `recentIncidents` history for configured peers
+- if validator private keys are configured, `GET /v1/status` exposes a signed identity proof, `peerSyncSummary`, and `GET /v1/peers` shows verification, admission state, per-peer sync telemetry, restart-safe import, snapshot, and replication-failure context, derived incident counters, and durable `recentIncidents` history for configured peers
 - if Node B starts late or misses a block import, it can recover from Node A's snapshot
 
 ## Inspect Validator Scheduling
@@ -196,7 +196,7 @@ go run ./cmd/node
 What to expect:
 
 - `GET /v1/status` reports `peerIdentityRequired=true`
-- `GET /v1/peers` shows `expectedValidator`, `admitted`, `admissionError`, `syncState`, `heightDelta`, per-peer `incidentCount`, `incidentOccurrences`, `latestIncidentAt`, the latest import or snapshot-repair metadata, and durable `recentIncidents` history for each configured peer
+- `GET /v1/peers` shows `expectedValidator`, `admitted`, `admissionError`, `syncState`, `heightDelta`, per-peer `incidentCount`, `incidentOccurrences`, `latestIncidentAt`, the latest import, snapshot-repair, and replication-failure metadata, and durable `recentIncidents` history for each configured peer
 - background sync and outgoing replication use only admitted peers under this policy
 - replicated peer POST requests without a valid identity, or from validators outside the configured binding allowlist, are rejected with `403`
 
@@ -361,7 +361,7 @@ Expected behavior:
 
 ### Peer Sync Falls Back To Snapshot Restore
 
-- inspect `GET /v1/peers` first; `syncState=snapshot_restored` tells you a peer-specific repair happened, `lastSnapshotRestoreReason` distinguishes `peer_diverged`, `import_repair`, and `fetch_fallback`, and `recentIncidents` plus the per-peer counters keep that story available after restart
+- inspect `GET /v1/peers` first; `syncState=snapshot_restored` tells you a peer-specific repair happened, `lastSnapshotRestoreReason` distinguishes `peer_diverged`, `import_repair`, and `fetch_fallback`, `lastReplicationFailureReason` shows whether outgoing dissemination most recently failed on a proposal, vote, or block, and durable incidents plus the per-peer counters keep that story available after restart
 - inspect `lastImportErrorCode`, `lastImportFailureHeight`, and `lastImportFailureBlockHash` on that peer view when the repair was triggered by a rejected block import
 - inspect `peerSyncSummary` in `GET /v1/status` or `GET /v1/consensus` to see whether the issue is isolated to one peer or part of a broader pattern such as repeated `unreachable` incidents, admission failures, `replication_blocked` proposal or vote churn, or `proposal_required` import blocks across several peers
 - inspect `GET /v1/metrics` to compare that durable summary with the live `peerRuntime.bySyncState` distribution and the Prometheus-facing reason or error-code rollups when some peers have already recovered and others are still failing
@@ -408,6 +408,7 @@ Expected behavior:
 13. Inspect the resulting block, vote tallies, and certificate on both nodes.
 14. Optionally restart a node and confirm the validator snapshot, round state, consensus artifacts, and `recovery` state survived.
 15. If the restarted node had a pending local proposal or vote, confirm the action is replayed and later marked completed once the block finalizes.
+
 
 
 

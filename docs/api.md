@@ -505,6 +505,8 @@ Current behavior:
 - `lastSyncAttemptAt` and `lastSyncSuccessAt` show the last peer-sync attempt and completion times for that peer
 - `lastImportErrorCode`, `lastImportErrorMessage`, `lastImportFailureAt`, `lastImportFailureHeight`, and `lastImportFailureBlockHash` show the most recent import-side failure observed while syncing from that peer
 - `lastSnapshotRestoreAt`, `lastSnapshotRestoreHeight`, `lastSnapshotRestoreBlockHash`, and `lastSnapshotRestoreReason` show the latest snapshot-based repair event for that peer, with reasons currently drawn from `fetch_fallback`, `import_repair`, and `peer_diverged`
+- `lastReplicationErrorCode`, `lastReplicationErrorMessage`, `lastReplicationFailureAt`, `lastReplicationFailureHeight`, `lastReplicationFailureBlockHash`, and `lastReplicationFailureReason` show the latest outgoing proposal, vote, or block dissemination failure retained for that peer
+- when retained incident history exists, the latest import, snapshot-repair, and replication-failure metadata is backfilled into the peer view after restart even before live peer polling refreshes that peer
 - `incidentCount`, `incidentOccurrences`, and `latestIncidentAt` expose the derived per-peer counters from the durable incident history
 - `recentIncidents` exposes the durable per-peer incident history the node kept on disk, including state, reason, local and peer heights, block hash, error details, first and last observation time, and merged occurrence count
 - when strict peer admission or peer binding is enabled, background sync and outgoing replication use only admitted peers
@@ -583,7 +585,7 @@ Current behavior:
 - proposal, vote, and block dissemination for the current automation flow use these same admitted peer paths
 - the automation path now sends proposals before votes to avoid vote-before-proposal races on the happy path
 - the automation loop also rebroadcasts the latest stored proposal and latest stored local vote for the pending height until a matching certificate exists, which helps delayed peers recover on the current HTTP devnet
-- `GET /v1/peers` now shows whether a given peer most recently aligned normally, fell back to snapshot restore, or triggered an import-side repair path during sync, and `recentIncidents` keeps that peer history visible after restart
+- `GET /v1/peers` now shows whether a given peer most recently aligned normally, fell back to snapshot restore, triggered an import-side repair path during sync, or retained a recent outgoing replication failure, and durable incidents backfill the latest import, snapshot, and replication telemetry after restart
 
 ### POST /v1/internal/blocks
 
@@ -600,6 +602,7 @@ If proposals exist for that height but the imported block does not match any sto
 Returns the current durable node snapshot used for catch-up restore.
 
 When another node applies this snapshot through peer sync, it preserves its own local recovery, diagnostic, peer-sync incident history, and derived peer-sync summary context instead of replacing that operator context with the peer's local WAL or diagnostics.
+
 
 
 

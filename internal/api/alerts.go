@@ -350,6 +350,9 @@ func latestPeerObservedAt(peers []PeerView, summary ledger.PeerSyncSummaryView) 
 		if peer.LastSnapshotRestoreAt != nil {
 			updateLatestAlertTime(&latest, *peer.LastSnapshotRestoreAt)
 		}
+		if peer.LastReplicationFailureAt != nil {
+			updateLatestAlertTime(&latest, *peer.LastReplicationFailureAt)
+		}
 		if peer.LatestIncidentAt != nil {
 			updateLatestAlertTime(&latest, *peer.LatestIncidentAt)
 		}
