@@ -58,7 +58,7 @@ What to expect:
 - `/health` returns `200` as long as the API loop is alive
 - `/v1/health` returns `200` when only `pass` or `warn` checks exist and `503` when at least one `fail` check is active
 - `checks` currently cover `api`, `validator_set`, `recovery`, `consensus`, `peer_sync`, and `diagnostics`
-- `/v1/alerts` turns those same operator signals into a derived critical or warning alert set for polling dashboards and automation, including targeted `peer_import_blocked` and `peer_admission_blocked` warnings when retained peer incidents point to those fault classes
+- `/v1/alerts` turns those same operator signals into a derived critical or warning alert set for polling dashboards and automation, including targeted `peer_import_blocked`, `peer_admission_blocked`, and `peer_replication_blocked` warnings when retained peer incidents point to those fault classes
 - `/v1/slo` groups them into objective states so operators can see whether readiness, consensus continuity, or peer sync continuity is meeting, at risk, breached, or not applicable
 - `/metrics` exports the alert, health, and SLO state as Prometheus-style gauges such as `zephyr_node_ready`, `zephyr_health_check_status`, `zephyr_alert_active`, and `zephyr_slo_objective_status`, plus peer-incident gauges such as `zephyr_peer_sync_reason_occurrence_count` and `zephyr_peer_sync_error_code_occurrence_count`, while `/v1/metrics` keeps the structured JSON view
 - `/v1/alert-rules` keeps the structured recommended alert bundle, while `/v1/alert-rules/prometheus` exports the enabled subset as Prometheus-rule YAML for scrape-based alerting stacks
@@ -77,7 +77,7 @@ curl.exe http://localhost:8080/v1/alert-rules/prometheus
 
 What to expect:
 
-- `/v1/alert-rules` returns readiness, consensus, and peer-sync rule groups with expressions, severities, source metrics, and disabled reasons when a rule is not applicable to the current node configuration; the peer-sync group now includes continuity rules plus targeted peer import and admission diagnostics
+- `/v1/alert-rules` returns readiness, consensus, and peer-sync rule groups with expressions, severities, source metrics, and disabled reasons when a rule is not applicable to the current node configuration; the peer-sync group now includes continuity rules plus targeted peer import, peer admission, and peer replication diagnostics
 - `/v1/alert-rules/prometheus` exports only the enabled subset as Prometheus-rule YAML so you can drop it into a standard scrape-plus-alert workflow without hand-translating expressions
 - treat the bundle as a production-oriented starting point rather than a final policy set; tune durations, severities, and escalation paths for your deployment
 
@@ -107,7 +107,7 @@ curl.exe http://localhost:8080/v1/dashboards/grafana
 
 What to expect:
 
-- `/v1/dashboards` returns overview, consensus-and-recovery, and peer-sync dashboard bundles with stable panel IDs, PromQL queries, source endpoints, related recording rules, related alert codes, and disabled reasons when a dashboard or panel is not applicable to the current node configuration; the peer-sync bundle now includes incident-by-state and incident-by-error-code panels tied to the peer import and admission alerts
+- `/v1/dashboards` returns overview, consensus-and-recovery, and peer-sync dashboard bundles with stable panel IDs, PromQL queries, source endpoints, related recording rules, related alert codes, and disabled reasons when a dashboard or panel is not applicable to the current node configuration; the peer-sync bundle now includes incident-by-state, incident-by-reason, and incident-by-error-code panels tied to the peer import, admission, and replication alerts
 - `/v1/dashboards/grafana` exports only the enabled dashboards and panels as Grafana-oriented JSON so you can import a starting Zephyr dashboard set after wiring a Prometheus data source to `/metrics`
 - treat the bundle as a production-oriented starting point rather than a final layout; tune datasource selection, labels, thresholds, and panel arrangement for your deployment
 
@@ -307,13 +307,13 @@ Expected behavior:
 - active validators persist and replicate votes automatically for that proposal
 - once quorum is observed, the proposer commits from the stored certified proposal body without requiring `POST /v1/dev/produce-block`
 - if the active proposer stalls past `ZEPHYR_CONSENSUS_ROUND_TIMEOUT`, the node advances `currentRound`, rotates `nextProposer`, and the new proposer can reuse the latest stored candidate body for that same height
-- admitted peers replicate the proposal, vote, certificate, and committed block over the current HTTP transport
+- admitted peers replicate the proposal, vote, certificate, and committed block over the current HTTP transport, and failed outgoing proposal, vote, or block dissemination is retained as durable `replication_blocked` peer evidence
 - `GET /v1/status`, `GET /v1/consensus`, and `GET /v1/dev/block-template` now expose `roundEvidence` so operators can see the active round deadline, proposal presence, leading vote power, quorum remaining, replay backlog, warnings, and certificate state
 - those same responses now expose `roundHistory`, which shows the pending height across prior and active rounds so operators can inspect proposer rotation and stalled rounds side by side
 - those same responses now expose `blockReadiness`, which shows whether the local template matches stored proposals and certificates and whether commit or import can proceed from stored certified artifacts
 - those same responses now expose `recovery`, which shows pending replayable local proposal or vote actions, pending import backlog, and recent replay/completion plus local certified `block_commit` and snapshot-restore metadata from the broader local consensus recovery surface
 - those same responses now expose `diagnostics`, which show recent rejected proposal, vote, commit, or import actions with stable error codes
-- those same responses now expose `peerSyncHistory`, which keeps recent cross-peer sync incidents visible even after restart
+- those same responses now expose `peerSyncHistory`, which keeps recent cross-peer sync incidents and retained `replication_blocked` dissemination failures visible even after restart
 - those same responses now expose `peerSyncSummary`, which rolls those incidents up by peer, state, reason, and error code so operators can see the dominant network problem quickly
 - `GET /v1/metrics` now provides the same durable peer summary alongside machine-readable consensus-action, diagnostic, peer-incident reason and error-code counters, and live peer-runtime counters for dashboards or automation
 - if `ZEPHYR_ENABLE_STRUCTURED_LOGS=true`, the node also emits newline-delimited JSON logs for diagnostics, peer incidents, and snapshot recovery as those events happen
@@ -354,7 +354,7 @@ Expected behavior:
 - inspect `GET /metrics` when you want those same health, recovery, peer, and alert signals in Prometheus-compatible text for scrape-based dashboards or alerts
 - inspect `GET /v1/alerts` when you want the current derived critical and warning alerts without reconstructing them from raw health or metric data
 - inspect `GET /v1/slo` when you want the same incident evidence projected into compact objective states for readiness, consensus continuity, and peer sync continuity
-- inspect `GET /v1/alert-rules` or `GET /v1/alert-rules/prometheus` when you are wiring alert managers or alert rule files and want the bundle Zephyr currently recommends, including peer import and peer admission diagnostics built from retained incident state
+- inspect `GET /v1/alert-rules` or `GET /v1/alert-rules/prometheus` when you are wiring alert managers or alert rule files and want the bundle Zephyr currently recommends, including peer import, peer admission, and peer replication diagnostics built from retained incident state
 - enable `ZEPHYR_ENABLE_STRUCTURED_LOGS=true` when you want those same incident transitions as newline-delimited JSON in the node logs
 - inspect `curl.exe -i http://localhost:8080/v1/health` to separate a live node from a ready one; `503` usually means recovery backlog or peer-sync availability has escalated into a hard failure, while `warn` highlights degraded but still serving conditions
 - remember the current engine now supports timeout-driven proposer rotation, latest-artifact rebroadcast after peer recovery, restart-safe local proposal or vote replay, pending import recovery, snapshot-restore history, durable peer-incident history, cross-peer `peerSyncSummary`, machine-readable `/v1/metrics`, Prometheus-style `/metrics`, derived `/v1/health`, derived `/v1/alerts`, derived `/v1/slo`, recommended alert-rule bundles, recommended recording-rule bundles, recommended `/v1/dashboards`, exported `/v1/dashboards/grafana`, structured event logs, per-height round history, block readiness inspection, and bounded rejection diagnostics, but broader recovery coverage plus broader dashboard coverage and export adapters are still limited
@@ -363,7 +363,7 @@ Expected behavior:
 
 - inspect `GET /v1/peers` first; `syncState=snapshot_restored` tells you a peer-specific repair happened, `lastSnapshotRestoreReason` distinguishes `peer_diverged`, `import_repair`, and `fetch_fallback`, and `recentIncidents` plus the per-peer counters keep that story available after restart
 - inspect `lastImportErrorCode`, `lastImportFailureHeight`, and `lastImportFailureBlockHash` on that peer view when the repair was triggered by a rejected block import
-- inspect `peerSyncSummary` in `GET /v1/status` or `GET /v1/consensus` to see whether the issue is isolated to one peer or part of a broader pattern such as repeated `unreachable` incidents, admission failures, or `proposal_required` import blocks across several peers
+- inspect `peerSyncSummary` in `GET /v1/status` or `GET /v1/consensus` to see whether the issue is isolated to one peer or part of a broader pattern such as repeated `unreachable` incidents, admission failures, `replication_blocked` proposal or vote churn, or `proposal_required` import blocks across several peers
 - inspect `GET /v1/metrics` to compare that durable summary with the live `peerRuntime.bySyncState` distribution and the Prometheus-facing reason or error-code rollups when some peers have already recovered and others are still failing
 - inspect `diagnostics` in `GET /v1/status` or `GET /v1/consensus`; if the latest `block_import_rejected` entry has `source=peer_sync`, the node hit a block-import problem during background sync before falling back to snapshot restore
 - inspect `recovery.pendingImportCount` and `recovery.pendingImportHeights` to see whether the node is still blocked on a peer-import path or whether that backlog has already been cleared
@@ -408,6 +408,7 @@ Expected behavior:
 13. Inspect the resulting block, vote tallies, and certificate on both nodes.
 14. Optionally restart a node and confirm the validator snapshot, round state, consensus artifacts, and `recovery` state survived.
 15. If the restarted node had a pending local proposal or vote, confirm the action is replayed and later marked completed once the block finalizes.
+
 
 
 

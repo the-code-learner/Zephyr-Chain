@@ -39,7 +39,7 @@ As of this iteration, the repository has:
 - optional structured JSON event logs for consensus diagnostics, peer-sync incidents, and snapshot-restore recovery behind `ZEPHYR_ENABLE_STRUCTURED_LOGS`
 - an operator-facing `GET /v1/health` readiness surface that derives pass, warn, and fail checks from validator-set availability, recovery backlog, consensus warnings, peer runtime, and recent diagnostics
 - a Prometheus-style `GET /metrics` export adapter that projects the same readiness, consensus, diagnostic, recovery, and peer signals into scrape-friendly text metrics
-- an operator-facing `GET /v1/alerts` surface that turns the current readiness, recovery, diagnostics, and peer-sync state into derived warning and critical alerts, including targeted peer import and admission warnings from retained peer incidents
+- an operator-facing `GET /v1/alerts` surface that turns the current readiness, recovery, diagnostics, and peer-sync state into derived warning and critical alerts, including targeted peer import, peer admission, and peer replication warnings from retained peer incidents
 - an operator-facing `GET /v1/slo` surface that projects those same signals into SLO-oriented objective states for readiness, consensus continuity, and peer-sync continuity
 - recommended alert-rule bundle exports through JSON `GET /v1/alert-rules` and Prometheus-oriented `GET /v1/alert-rules/prometheus`
 - recommended recording-rule bundle exports through JSON `GET /v1/recording-rules` and Prometheus-oriented `GET /v1/recording-rules/prometheus`
@@ -51,7 +51,7 @@ As of this iteration, the repository has:
 What it still does not have:
 
 - authenticated peer discovery and replay-safe transport over libp2p
-- broader recovery, richer dashboard packages beyond the current dashboard bundle and Grafana export, transport-facing incident evidence, and longer-horizon aggregation beyond the current local round history, block readiness, warnings, durable peer-sync history, derived peer-sync summary, JSON metrics, Prometheus `GET /metrics`, `GET /v1/health`, `GET /v1/alerts`, `GET /v1/slo`, `GET /v1/alert-rules`, `GET /v1/alert-rules/prometheus`, `GET /v1/recording-rules`, `GET /v1/recording-rules/prometheus`, `GET /v1/dashboards`, `GET /v1/dashboards/grafana`, structured event logs, import backlog, snapshot-restore history, and rejection history with only bounded retention so far
+- broader recovery, richer dashboard packages beyond the current dashboard bundle and Grafana export, broader transport-facing incident evidence beyond the current replication-blocked peer incidents, and longer-horizon aggregation beyond the current local round history, block readiness, warnings, durable peer-sync history, derived peer-sync summary, JSON metrics, Prometheus `GET /metrics`, `GET /v1/health`, `GET /v1/alerts`, `GET /v1/slo`, `GET /v1/alert-rules`, `GET /v1/alert-rules/prometheus`, `GET /v1/recording-rules`, `GET /v1/recording-rules/prometheus`, `GET /v1/dashboards`, `GET /v1/dashboards/grafana`, structured event logs, import backlog, snapshot-restore history, and rejection history with only bounded retention so far
 - broader recovery coverage beyond the current local proposal/vote/block-commit history plus peer-import and snapshot-recovery path
 - on-chain staking/governance-driven validator updates
 - WASM contracts, fee metering, or compute markets
@@ -97,7 +97,7 @@ Status:
 - valid higher-round proposals and votes can move a node onto the newer round instead of being rejected just because the local timer had not fired yet
 - a first timeout-driven engine now exists: the scheduled proposer can self-propose, active validators can auto-vote, timeout can rotate the proposer, the next proposer can reuse the latest stored candidate body, and the proposer can auto-commit after quorum when certificate enforcement is enabled
 - proposal and vote broadcasts on the automation path are now sent in-order to avoid vote-before-proposal races on the happy path
-- the current automation path now has delayed-link proposal and vote recovery, richer round evidence, per-height round history, block readiness, import-aware recovery state, durable peer-sync history, derived peer-sync summary, bounded rejection diagnostics, a machine-readable `GET /v1/metrics` surface, Prometheus `GET /metrics`, operator-facing `GET /v1/health`, derived `GET /v1/alerts` with peer import and admission diagnostics, derived `GET /v1/slo`, recommended `GET /v1/alert-rules`, exported `GET /v1/alert-rules/prometheus`, recommended `GET /v1/recording-rules`, exported `GET /v1/recording-rules/prometheus`, recommended `GET /v1/dashboards`, exported `GET /v1/dashboards/grafana`, structured JSON event logs, and a restart-safe local proposal, vote, and certified block-commit history plus snapshot-repair history, but it still lacks broader recovery coverage and longer-horizon incident retention
+- the current automation path now has delayed-link proposal and vote recovery, richer round evidence, per-height round history, block readiness, import-aware recovery state, durable peer-sync history, derived peer-sync summary, bounded rejection diagnostics, a machine-readable `GET /v1/metrics` surface, Prometheus `GET /metrics`, operator-facing `GET /v1/health`, derived `GET /v1/alerts` with peer import, admission, and replication diagnostics, derived `GET /v1/slo`, recommended `GET /v1/alert-rules`, exported `GET /v1/alert-rules/prometheus`, recommended `GET /v1/recording-rules`, exported `GET /v1/recording-rules/prometheus`, recommended `GET /v1/dashboards`, exported `GET /v1/dashboards/grafana`, structured JSON event logs, and a restart-safe local proposal, vote, and certified block-commit history plus snapshot-repair history, but it still lacks broader recovery coverage and longer-horizon incident retention
 
 Next steps:
 
@@ -123,14 +123,15 @@ Status:
 - peer views can verify that proof, enforce strict peer admission, pin configured peers to expected validator identities, and expose per-peer sync or repair telemetry plus durable peer-incident history and counters
 - admitted-peer policy already gates current HTTP sync and replication behavior
 - proposal, vote, and certified-block replication already ride over that abstraction
+- failed outgoing proposal, vote, and block dissemination now lands in durable `replication_blocked` peer incidents with reason and error-code rollups
 - a first machine-readable `GET /v1/metrics` surface already exposes current transport and consensus observability as JSON for operator tooling and future export adapters
 - `GET /metrics` now exposes those same operator signals through a Prometheus-style text exporter for standard scraping stacks
 - `GET /v1/health` now condenses those same runtime signals into a pass, warn, or fail readiness surface for operators and automation
-- `GET /v1/alerts` now exposes derived warning and critical alerts for polling dashboards, operators, and automation, including targeted peer import and admission diagnostics
+- `GET /v1/alerts` now exposes derived warning and critical alerts for polling dashboards, operators, and automation, including targeted peer import, admission, and replication diagnostics
 - `GET /v1/slo` now exposes SLO-oriented objective summaries on top of those same signals for dashboards, operators, and automation
 - `GET /v1/alert-rules` and `GET /v1/alert-rules/prometheus` now turn those same metrics and objectives into recommended monitoring bundles for JSON and Prometheus-oriented workflows
 - `GET /v1/recording-rules` and `GET /v1/recording-rules/prometheus` now turn those same metrics and objectives into recommended dashboard and aggregation rollups for JSON and Prometheus-oriented workflows
-- `GET /v1/dashboards` and `GET /v1/dashboards/grafana` now turn those same metrics, rollups, and objectives into recommended operator dashboard bundles and Grafana-oriented export, including peer incident error-code diagnosis in the peer-sync bundle
+- `GET /v1/dashboards` and `GET /v1/dashboards/grafana` now turn those same metrics, rollups, and objectives into recommended operator dashboard bundles and Grafana-oriented export, including peer incident reason and error-code diagnosis in the peer-sync bundle
 - optional structured JSON event logs already expose consensus diagnostics, peer incidents, and snapshot recovery as line-oriented runtime events
 - the timeout-driven automation slice already uses that transport for proposal and vote dissemination
 - behind nodes can fetch blocks or restore full snapshots
@@ -213,6 +214,7 @@ Broad direction:
 - upgrade strategy and rollback planning
 - monitoring, alerts, and SLOs for operators
 - staged path from devnet to public testnet to mainnet
+
 
 
 
