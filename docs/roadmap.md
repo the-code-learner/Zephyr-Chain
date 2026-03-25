@@ -35,15 +35,15 @@ As of this iteration, the repository has:
 - explicit pending `block_import` recovery actions plus durable `snapshot_restore` history for peer-import repair and snapshot catch-up
 - peer views that now expose `syncState`, `heightDelta`, last import failure, last snapshot-restore metadata, last replication-failure metadata, durable per-peer `recentIncidents` history, derived incident counters per configured peer, and restart-safe backfill of that telemetry from retained incidents
 - status, consensus, and block-template endpoints that now expose durable `peerSyncHistory` plus derived `peerSyncSummary` so operators can correlate recent peer incidents across the node and see affected-peer totals by dominant failure state, reason, and error code
-- a machine-readable `GET /v1/metrics` surface that rolls up consensus-action counts, rejection-diagnostic buckets, durable peer-sync summary state by peer, state, reason, and error code, live peer runtime counts by sync state, and committed-chain throughput windows for recent TPS baselining
+- a machine-readable `GET /v1/metrics` surface that rolls up consensus-action counts, rejection-diagnostic buckets, durable peer-sync summary state by peer, state, reason, and error code, live peer runtime counts by sync state, committed-chain throughput windows for recent TPS baselining, and a typed settlement queue-drain view with lag plus thresholds
 - optional structured JSON event logs for consensus diagnostics, peer-sync incidents, and snapshot-restore recovery behind `ZEPHYR_ENABLE_STRUCTURED_LOGS`
 - an operator-facing `GET /v1/health` readiness surface that derives pass, warn, and fail checks from validator-set availability, recovery backlog, consensus warnings, settlement queue-drain lag under automatic block production, peer runtime, and recent diagnostics
-- a Prometheus-style `GET /metrics` export adapter that projects the same readiness, consensus, diagnostic, recovery, peer, and chain-throughput signals into scrape-friendly text metrics, including per-peer retained incident counts, latest observation timestamps, and recent TPS gauges
+- a Prometheus-style `GET /metrics` export adapter that projects the same readiness, consensus, diagnostic, recovery, peer, and chain-throughput signals into scrape-friendly text metrics, including per-peer retained incident counts, latest observation timestamps, recent TPS gauges, and settlement queue-drain lag or threshold gauges
 - an operator-facing `GET /v1/alerts` surface that turns the current readiness, recovery, diagnostics, throughput, and peer-sync state into derived warning and critical alerts, including settlement-throughput reduced or stalled warnings for queued transaction drain plus targeted peer import, peer admission, and peer replication warnings from retained peer incidents
 - an operator-facing `GET /v1/slo` surface that projects those same signals into SLO-oriented objective states for readiness, consensus continuity, peer-sync continuity, and settlement throughput
 - recommended alert-rule bundle exports through JSON `GET /v1/alert-rules` and Prometheus-oriented `GET /v1/alert-rules/prometheus`, now including settlement-throughput at-risk and stalled rules for automatic block production
 - recommended recording-rule bundle exports through JSON `GET /v1/recording-rules` and Prometheus-oriented `GET /v1/recording-rules/prometheus`, now including settlement-throughput state rollups for queue-drain dashboards, a per-peer incident-pressure rollup for peer-sync dashboards, and canonical `1m`, `5m`, and `15m` TPS rollups for the overview dashboard
-- recommended dashboard bundle exports through JSON `GET /v1/dashboards` and Grafana-oriented `GET /v1/dashboards/grafana`, including overview throughput and settlement-state panels plus peer incident drill-down panels
+- recommended dashboard bundle exports through JSON `GET /v1/dashboards` and Grafana-oriented `GET /v1/dashboards/grafana`, including overview throughput, settlement-state, and raw queue-drain-lag panels plus peer incident drill-down panels
 - a bounded local consensus-action WAL with pending/completed status, replay-attempt metadata, restart-safe persistence, explicit proposer-side `block_commit` history, import-recovery plus snapshot-restore history, and durable peer-sync incident history
 - bounded recent consensus diagnostics for rejected proposal, vote, commit, and import paths, including explicit `template_mismatch` and peer-sync import failures
 - a browser wallet that can create accounts, sign locally, and submit transactions
@@ -216,6 +216,9 @@ Broad direction:
 - upgrade strategy and rollback planning
 - monitoring, alerts, and SLOs for operators
 - staged path from devnet to public testnet to mainnet
+
+
+
 
 
 

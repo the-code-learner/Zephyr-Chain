@@ -3802,7 +3802,7 @@ func TestHandleDashboardsExposeRecommendedBundles(t *testing.T) {
 	if response.DashboardCount != 3 || response.EnabledDashboardCount != 2 || response.DisabledDashboardCount != 1 {
 		t.Fatalf("unexpected dashboard counts %+v", response)
 	}
-	if response.PanelCount != 20 || response.EnabledPanelCount != 12 || response.DisabledPanelCount != 8 {
+	if response.PanelCount != 21 || response.EnabledPanelCount != 13 || response.DisabledPanelCount != 8 {
 		t.Fatalf("unexpected dashboard panel counts %+v", response)
 	}
 	if dashboard, ok := dashboardByName(response.Dashboards, "zephyr.overview"); !ok || !dashboard.Enabled {
@@ -3813,6 +3813,8 @@ func TestHandleDashboardsExposeRecommendedBundles(t *testing.T) {
 		t.Fatalf("expected transaction_throughput panel to reference throughput recording rules, got %+v", dashboard.Panels)
 	} else if panel, ok := dashboardPanelByID(dashboard.Panels, "settlement_throughput_state"); !ok || !panel.Enabled || len(panel.RecordingRules) != 2 || panel.RecordingRules[0] != "zephyr:settlement_throughput:at_risk" {
 		t.Fatalf("expected settlement_throughput_state panel to reference settlement throughput recording rules, got %+v", dashboard.Panels)
+	} else if panel, ok := dashboardPanelByID(dashboard.Panels, "settlement_queue_drain_lag"); !ok || !panel.Enabled || len(panel.SourceMetrics) != 2 || panel.SourceMetrics[0] != "zephyr_settlement_queue_drain_lag_seconds" {
+		t.Fatalf("expected settlement_queue_drain_lag panel to reference raw settlement lag metrics, got %+v", dashboard.Panels)
 	}
 	if dashboard, ok := dashboardByName(response.Dashboards, "zephyr.peer_sync"); !ok || dashboard.Enabled || !strings.Contains(dashboard.DisabledReason, "disabled") {
 		t.Fatalf("expected disabled peer-sync dashboard, got %+v", response.Dashboards)
@@ -3859,7 +3861,7 @@ func TestHandleGrafanaDashboardsExportsEnabledDashboardsOnly(t *testing.T) {
 	if response.NodeID != "dashboard-export-node" {
 		t.Fatalf("unexpected grafana dashboard node %+v", response)
 	}
-	if response.DashboardCount != 3 || response.PanelCount != 20 {
+	if response.DashboardCount != 3 || response.PanelCount != 21 {
 		t.Fatalf("unexpected grafana dashboard counts %+v", response)
 	}
 	if dashboard, ok := grafanaDashboardByName(response.Dashboards, "zephyr.peer_sync"); !ok {
@@ -3923,6 +3925,13 @@ func TestHandleGrafanaDashboardsExportsEnabledDashboardsOnly(t *testing.T) {
 		}
 		if _, ok := grafanaTargetByExpression(panel.Targets, "zephyr:settlement_throughput:breached"); !ok {
 			t.Fatalf("expected settlement throughput query in grafana panel, got %+v", panel.Targets)
+		}
+		panel, ok = grafanaPanelByTitle(dashboard.Dashboard.Panels, "Settlement queue-drain lag")
+		if !ok || panel.Type != "timeseries" {
+			t.Fatalf("expected settlement queue-drain lag timeseries panel, got %+v", dashboard.Dashboard.Panels)
+		}
+		if _, ok := grafanaTargetByExpression(panel.Targets, "zephyr_settlement_queue_drain_lag_seconds"); !ok {
+			t.Fatalf("expected settlement queue-drain lag query in grafana panel, got %+v", panel.Targets)
 		}
 	}
 }
@@ -4319,6 +4328,80 @@ func TestMetricsExposeChainThroughputWindows(t *testing.T) {
 	requirePrometheusLine(t, body, "zephyr_chain_window_transaction_count{window=\"1m\"} 60")
 	requirePrometheusLine(t, body, "zephyr_chain_window_transactions_per_second{window=\"1m\"} 1")
 	requirePrometheusLine(t, body, "zephyr_chain_window_average_transactions_per_block{window=\"15m\"} 35")
+}
+
+func TestMetricsExposeSettlementThroughputLagSignals(t *testing.T) {
+	server := newTestServer(t, Config{
+		DataDir:                 t.TempDir(),
+		NodeID:                  "settlement-metrics-node",
+		BlockInterval:           15 * time.Second,
+		SyncInterval:            0,
+		MaxTransactionsPerBlock: 10,
+		EnableBlockProduction:   true,
+		EnablePeerSync:          false,
+	})
+
+	producedAt := time.Now().UTC().Add(-75 * time.Second)
+	envelope := signedEnvelope(t, 1, 1, "settlement-throughput-committed")
+	if _, err := server.ledger.Credit(envelope.From, 5); err != nil {
+		t.Fatalf("credit committed sender: %v", err)
+	}
+	if _, err := server.ledger.Accept(envelope); err != nil {
+		t.Fatalf("accept committed transaction: %v", err)
+	}
+	if _, err := server.ledger.ProduceBlockWithOptions(10, producedAt, false); err != nil {
+		t.Fatalf("produce committed block: %v", err)
+	}
+
+	backlogEnvelope := signedEnvelope(t, 2, 1, "settlement-throughput-backlog")
+	if _, err := server.ledger.Credit(backlogEnvelope.From, 5); err != nil {
+		t.Fatalf("credit backlog sender: %v", err)
+	}
+	if _, err := server.ledger.Accept(backlogEnvelope); err != nil {
+		t.Fatalf("accept backlog transaction: %v", err)
+	}
+
+	request := httptest.NewRequest(http.MethodGet, "/v1/metrics", nil)
+	recorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected metrics status 200, got %d", recorder.Code)
+	}
+
+	var response MetricsResponse
+	if err := json.NewDecoder(recorder.Body).Decode(&response); err != nil {
+		t.Fatalf("decode settlement metrics response: %v", err)
+	}
+	if !response.SettlementThroughput.Applicable || response.SettlementThroughput.HealthStatus != healthCheckWarn {
+		t.Fatalf("unexpected settlement throughput view %+v", response.SettlementThroughput)
+	}
+	if response.SettlementThroughput.MempoolTransactionCount != 1 || response.SettlementThroughput.ExpectedIntervalSeconds != 15 || response.SettlementThroughput.WarnAfterSeconds != 60 || response.SettlementThroughput.FailAfterSeconds != 120 {
+		t.Fatalf("unexpected settlement throughput thresholds %+v", response.SettlementThroughput)
+	}
+	if response.SettlementThroughput.LatestBlockAt == nil || response.SettlementThroughput.LatestCommitAgeSeconds < 70 || response.SettlementThroughput.LatestCommitAgeSeconds > 90 {
+		t.Fatalf("unexpected settlement latest commit age %+v", response.SettlementThroughput)
+	}
+	if response.SettlementThroughput.QueueDrainLagSeconds < 70 || response.SettlementThroughput.QueueDrainLagSeconds > 90 {
+		t.Fatalf("unexpected settlement queue-drain lag %+v", response.SettlementThroughput)
+	}
+
+	prometheusRequest := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+	prometheusRecorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(prometheusRecorder, prometheusRequest)
+	if prometheusRecorder.Code != http.StatusOK {
+		t.Fatalf("expected prometheus metrics status 200, got %d", prometheusRecorder.Code)
+	}
+	body := prometheusRecorder.Body.String()
+	requirePrometheusLine(t, body, "zephyr_settlement_monitoring_applicable 1")
+	requirePrometheusLine(t, body, "zephyr_settlement_expected_interval_seconds 15")
+	requirePrometheusLine(t, body, "zephyr_settlement_queue_drain_threshold_seconds{threshold=\"warn\"} 60")
+	requirePrometheusLine(t, body, "zephyr_settlement_queue_drain_threshold_seconds{threshold=\"fail\"} 120")
+	if !strings.Contains(body, "zephyr_settlement_latest_commit_age_seconds ") {
+		t.Fatalf("expected settlement latest commit age metric, got:\n%s", body)
+	}
+	if !strings.Contains(body, "zephyr_settlement_queue_drain_lag_seconds ") {
+		t.Fatalf("expected settlement queue-drain lag metric, got:\n%s", body)
+	}
 }
 
 func TestStructuredLogsEmitConsensusPeerAndRecoveryEvents(t *testing.T) {
