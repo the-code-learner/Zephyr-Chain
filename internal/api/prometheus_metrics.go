@@ -41,6 +41,7 @@ func (s *Server) buildPrometheusMetrics(now time.Time) string {
 	actionMetrics := s.ledger.ConsensusActionMetrics()
 	diagnosticMetrics := s.ledger.ConsensusDiagnosticMetrics()
 	throughput := s.ledger.ChainThroughputMetrics(now)
+	settlementThroughput := s.buildSettlementThroughputMetrics(now)
 	peerSummary := s.ledger.PeerSyncSummary()
 	peerRuntime := buildPeerRuntimeMetrics(s.peerSnapshot())
 	health := s.buildHealthResponse(now)
@@ -135,6 +136,16 @@ func (s *Server) buildPrometheusMetrics(now time.Time) string {
 		writer.gauge("zephyr_chain_window_blocks_per_second", "Committed block rate derived from each recent throughput window.", window.BlocksPerSecond, labels...)
 		writer.gauge("zephyr_chain_window_transactions_per_second", "Committed transaction throughput derived from each recent throughput window.", window.TransactionsPerSecond, labels...)
 		writer.gauge("zephyr_chain_window_average_transactions_per_block", "Average committed transactions per block observed within each recent throughput window.", window.AverageTransactionsPerBlock, labels...)
+	}
+	writer.gauge("zephyr_settlement_monitoring_applicable", "Whether settlement queue-drain monitoring is applicable for the current node configuration.", boolMetric(settlementThroughput.Applicable))
+	writer.gauge("zephyr_settlement_queue_drain_lag_seconds", "Seconds since the latest committed block while queued transactions are awaiting settlement; zero when no backlog is pending.", settlementThroughput.QueueDrainLagSeconds)
+	if settlementThroughput.LatestBlockAt != nil {
+		writer.gauge("zephyr_settlement_latest_commit_age_seconds", "Seconds since the latest committed block regardless of backlog state.", settlementThroughput.LatestCommitAgeSeconds)
+	}
+	if settlementThroughput.ExpectedIntervalSeconds > 0 {
+		writer.gauge("zephyr_settlement_expected_interval_seconds", "Configured automatic block-production interval used for settlement-throughput monitoring.", settlementThroughput.ExpectedIntervalSeconds)
+		writer.gauge("zephyr_settlement_queue_drain_threshold_seconds", "Warn and fail thresholds derived from the automatic block-production interval for settlement queue-drain monitoring.", settlementThroughput.WarnAfterSeconds, prometheusLabel{Name: "threshold", Value: "warn"})
+		writer.gauge("zephyr_settlement_queue_drain_threshold_seconds", "Warn and fail thresholds derived from the automatic block-production interval for settlement queue-drain monitoring.", settlementThroughput.FailAfterSeconds, prometheusLabel{Name: "threshold", Value: "fail"})
 	}
 
 	writer.gauge("zephyr_consensus_current_height", "Current committed consensus height.", float64(consensusView.CurrentHeight))
