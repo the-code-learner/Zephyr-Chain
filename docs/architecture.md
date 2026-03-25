@@ -67,7 +67,7 @@ The node entrypoint lives in `cmd/node/main.go` and starts an HTTP server from `
 The API layer now handles:
 
 - liveness through `GET /health`
-- Prometheus-style scrape export through `GET /metrics`
+- Prometheus-style scrape export through `GET /metrics`, including per-peer retained incident counts and latest observation timestamps
 - derived readiness through `GET /v1/health`
 - derived alerts through `GET /v1/alerts`
 - derived SLO summaries through `GET /v1/slo`
@@ -177,7 +177,7 @@ If `ZEPHYR_ENABLE_CONSENSUS_AUTOMATION=true`, the current automation loop can:
 - send automated proposals before automated votes so peers do not observe vote-before-proposal races on the happy path
 - rebroadcast the latest stored local proposal and latest stored local vote for the pending height until the matching certificate exists
 - persist locally authored proposals and votes into a bounded restart-safe consensus-action WAL with replay-attempt metadata
-- expose round-evidence state, per-height round history, block readiness, deadlines, leading tallies, quorum remaining, warning flags, local vote presence, certificate presence, local recovery state, pending import backlog, recent snapshot-restore metadata, recent rejection diagnostics, durable peer-sync history, derived peer-sync summary, machine-readable JSON metrics, Prometheus-style scrape metrics, derived readiness checks, derived alert state, SLO-oriented objective summaries, and recommended alert, recording-rule, or dashboard bundles through the status, consensus, block-template, `/v1/metrics`, `/metrics`, `/v1/health`, `/v1/alerts`, `/v1/slo`, `/v1/alert-rules`, `/v1/alert-rules/prometheus`, `/v1/recording-rules`, `/v1/recording-rules/prometheus`, `/v1/dashboards`, and `/v1/dashboards/grafana` APIs
+- expose round-evidence state, per-height round history, block readiness, deadlines, leading tallies, quorum remaining, warning flags, local vote presence, certificate presence, local recovery state, pending import backlog, recent snapshot-restore metadata, recent rejection diagnostics, durable peer-sync history, derived peer-sync summary, machine-readable JSON metrics, Prometheus-style scrape metrics including per-peer retained incident pressure, derived readiness checks, derived alert state, SLO-oriented objective summaries, and recommended alert, recording-rule, or dashboard bundles through the status, consensus, block-template, `/v1/metrics`, `/metrics`, `/v1/health`, `/v1/alerts`, `/v1/slo`, `/v1/alert-rules`, `/v1/alert-rules/prometheus`, `/v1/recording-rules`, `/v1/recording-rules/prometheus`, `/v1/dashboards`, and `/v1/dashboards/grafana` APIs
 
 If `ZEPHYR_VALIDATOR_PRIVATE_KEY` is configured, the API layer also derives a signed transport identity for the local validator and verifies peer proofs exposed through `GET /v1/status`. When `ZEPHYR_REQUIRE_PEER_IDENTITY` or `ZEPHYR_PEER_VALIDATORS` is configured, replicated peer POST requests must satisfy that admission policy before they are accepted.
 
@@ -191,6 +191,7 @@ The repository has moved from consensus-preparation-only into certificate-gated 
 - broader consensus recovery coverage is still needed beyond the current local proposal, vote, and certified block-commit WAL plus import-repair and snapshot-recovery path
 
 That is why the project has moved beyond replicated prototype, but it is still not a production blockchain.
+
 
 
 

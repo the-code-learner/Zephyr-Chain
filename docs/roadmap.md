@@ -38,7 +38,7 @@ As of this iteration, the repository has:
 - a machine-readable `GET /v1/metrics` surface that rolls up consensus-action counts, rejection-diagnostic buckets, durable peer-sync summary state by peer, state, reason, and error code, and live peer runtime counts by sync state
 - optional structured JSON event logs for consensus diagnostics, peer-sync incidents, and snapshot-restore recovery behind `ZEPHYR_ENABLE_STRUCTURED_LOGS`
 - an operator-facing `GET /v1/health` readiness surface that derives pass, warn, and fail checks from validator-set availability, recovery backlog, consensus warnings, peer runtime, and recent diagnostics
-- a Prometheus-style `GET /metrics` export adapter that projects the same readiness, consensus, diagnostic, recovery, and peer signals into scrape-friendly text metrics
+- a Prometheus-style `GET /metrics` export adapter that projects the same readiness, consensus, diagnostic, recovery, and peer signals into scrape-friendly text metrics, including per-peer retained incident counts and latest observation timestamps
 - an operator-facing `GET /v1/alerts` surface that turns the current readiness, recovery, diagnostics, and peer-sync state into derived warning and critical alerts, including targeted peer import, peer admission, and peer replication warnings from retained peer incidents
 - an operator-facing `GET /v1/slo` surface that projects those same signals into SLO-oriented objective states for readiness, consensus continuity, and peer-sync continuity
 - recommended alert-rule bundle exports through JSON `GET /v1/alert-rules` and Prometheus-oriented `GET /v1/alert-rules/prometheus`
@@ -131,7 +131,7 @@ Status:
 - `GET /v1/slo` now exposes SLO-oriented objective summaries on top of those same signals for dashboards, operators, and automation
 - `GET /v1/alert-rules` and `GET /v1/alert-rules/prometheus` now turn those same metrics and objectives into recommended monitoring bundles for JSON and Prometheus-oriented workflows
 - `GET /v1/recording-rules` and `GET /v1/recording-rules/prometheus` now turn those same metrics and objectives into recommended dashboard and aggregation rollups for JSON and Prometheus-oriented workflows
-- `GET /v1/dashboards` and `GET /v1/dashboards/grafana` now turn those same metrics, rollups, and objectives into recommended operator dashboard bundles and Grafana-oriented export, including peer incident reason and error-code diagnosis in the peer-sync bundle
+- `GET /v1/dashboards` and `GET /v1/dashboards/grafana` now turn those same metrics, rollups, and objectives into recommended operator dashboard bundles and Grafana-oriented export, including peer incident reason, error-code, and per-peer pressure diagnosis in the peer-sync bundle
 - optional structured JSON event logs already expose consensus diagnostics, peer incidents, and snapshot recovery as line-oriented runtime events
 - the timeout-driven automation slice already uses that transport for proposal and vote dissemination
 - behind nodes can fetch blocks or restore full snapshots
@@ -214,6 +214,7 @@ Broad direction:
 - upgrade strategy and rollback planning
 - monitoring, alerts, and SLOs for operators
 - staged path from devnet to public testnet to mainnet
+
 
 
 

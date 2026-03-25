@@ -3202,6 +3202,7 @@ func TestHandleAlertsExposePeerReplicationWarnings(t *testing.T) {
 	requirePrometheusLine(t, body, "zephyr_peer_sync_state_occurrence_count{state=\"replication_blocked\"} 1")
 	requirePrometheusLine(t, body, "zephyr_peer_sync_reason_occurrence_count{reason=\"proposal\"} 1")
 	requirePrometheusLine(t, body, "zephyr_peer_sync_error_code_occurrence_count{code=\"timeout\"} 1")
+	requirePrometheusLine(t, body, "zephyr_peer_sync_peer_occurrence_count{peer_url=\"http://peer-a.example\",latest_state=\"replication_blocked\",latest_reason=\"proposal\",latest_error_code=\"timeout\"} 1")
 }
 
 func TestPeersExposeRetainedReplicationTelemetryAfterRestart(t *testing.T) {
@@ -3561,7 +3562,7 @@ func TestHandleDashboardsExposeRecommendedBundles(t *testing.T) {
 	if response.DashboardCount != 3 || response.EnabledDashboardCount != 2 || response.DisabledDashboardCount != 1 {
 		t.Fatalf("unexpected dashboard counts %+v", response)
 	}
-	if response.PanelCount != 17 || response.EnabledPanelCount != 10 || response.DisabledPanelCount != 7 {
+	if response.PanelCount != 18 || response.EnabledPanelCount != 10 || response.DisabledPanelCount != 8 {
 		t.Fatalf("unexpected dashboard panel counts %+v", response)
 	}
 	if dashboard, ok := dashboardByName(response.Dashboards, "zephyr.overview"); !ok || !dashboard.Enabled {
@@ -3580,6 +3581,8 @@ func TestHandleDashboardsExposeRecommendedBundles(t *testing.T) {
 		t.Fatalf("expected disabled peer_incident_error_codes panel, got %+v", dashboard.Panels)
 	} else if panel, ok := dashboardPanelByID(dashboard.Panels, "peer_incident_reasons"); !ok || panel.Enabled || !strings.Contains(panel.DisabledReason, "disabled") {
 		t.Fatalf("expected disabled peer_incident_reasons panel, got %+v", dashboard.Panels)
+	} else if panel, ok := dashboardPanelByID(dashboard.Panels, "peer_incidents_by_peer"); !ok || panel.Enabled || !strings.Contains(panel.DisabledReason, "disabled") {
+		t.Fatalf("expected disabled peer_incidents_by_peer panel, got %+v", dashboard.Panels)
 	}
 }
 
@@ -3612,7 +3615,7 @@ func TestHandleGrafanaDashboardsExportsEnabledDashboardsOnly(t *testing.T) {
 	if response.NodeID != "dashboard-export-node" {
 		t.Fatalf("unexpected grafana dashboard node %+v", response)
 	}
-	if response.DashboardCount != 3 || response.PanelCount != 17 {
+	if response.DashboardCount != 3 || response.PanelCount != 18 {
 		t.Fatalf("unexpected grafana dashboard counts %+v", response)
 	}
 	if dashboard, ok := grafanaDashboardByName(response.Dashboards, "zephyr.peer_sync"); !ok {
@@ -3644,6 +3647,13 @@ func TestHandleGrafanaDashboardsExportsEnabledDashboardsOnly(t *testing.T) {
 		}
 		if _, ok := grafanaTargetByExpression(panel.Targets, "zephyr_peer_sync_reason_occurrence_count"); !ok {
 			t.Fatalf("expected peer incident reason query in grafana panel, got %+v", panel.Targets)
+		}
+		panel, ok = grafanaPanelByTitle(dashboard.Dashboard.Panels, "Peer incident pressure by peer")
+		if !ok || panel.Type != "bargauge" {
+			t.Fatalf("expected peer incident pressure bargauge panel, got %+v", dashboard.Dashboard.Panels)
+		}
+		if _, ok := grafanaTargetByExpression(panel.Targets, "zephyr_peer_sync_peer_occurrence_count"); !ok {
+			t.Fatalf("expected peer incident pressure query in grafana panel, got %+v", panel.Targets)
 		}
 	}
 	if dashboard, ok := grafanaDashboardByName(response.Dashboards, "zephyr.overview"); !ok {
@@ -3954,6 +3964,11 @@ func TestPrometheusMetricsExportOperatorSignals(t *testing.T) {
 	requirePrometheusLine(t, body, "zephyr_peer_sync_reason_occurrence_count{reason=\"unknown\"} 2")
 	requirePrometheusLine(t, body, "zephyr_peer_sync_error_code_occurrence_count{code=\"proposal_required\"} 1")
 	requirePrometheusLine(t, body, "zephyr_peer_sync_error_code_occurrence_count{code=\"unknown\"} 1")
+	requirePrometheusLine(t, body, "zephyr_peer_sync_peer_incident_count{peer_url=\"http://peer-a.example\",latest_state=\"unreachable\",latest_reason=\"unknown\",latest_error_code=\"unknown\"} 1")
+	requirePrometheusLine(t, body, "zephyr_peer_sync_peer_occurrence_count{peer_url=\"http://peer-a.example\",latest_state=\"unreachable\",latest_reason=\"unknown\",latest_error_code=\"unknown\"} 1")
+	requirePrometheusLine(t, body, "zephyr_peer_sync_peer_incident_count{peer_url=\"http://peer-b.example\",latest_state=\"import_blocked\",latest_reason=\"unknown\",latest_error_code=\"proposal_required\"} 1")
+	requirePrometheusLine(t, body, "zephyr_peer_sync_peer_occurrence_count{peer_url=\"http://peer-b.example\",latest_state=\"import_blocked\",latest_reason=\"unknown\",latest_error_code=\"proposal_required\"} 1")
+
 }
 func TestStructuredLogsEmitConsensusPeerAndRecoveryEvents(t *testing.T) {
 	var logBuffer bytes.Buffer

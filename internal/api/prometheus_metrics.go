@@ -275,8 +275,44 @@ func (s *Server) buildPrometheusMetrics(now time.Time) string {
 			prometheusLabel{Name: "code", Value: errorCode.ErrorCode},
 		)
 	}
+	for _, peer := range peerSummary.Peers {
+		labels := []prometheusLabel{
+			{Name: "peer_url", Value: peer.PeerURL},
+			{Name: "latest_state", Value: normalizePeerSyncPrometheusLabel(peer.LatestState)},
+			{Name: "latest_reason", Value: normalizePeerSyncPrometheusLabel(peer.LatestReason)},
+			{Name: "latest_error_code", Value: normalizePeerSyncPrometheusLabel(peer.LatestErrorCode)},
+		}
+		writer.gauge(
+			"zephyr_peer_sync_peer_incident_count",
+			"Retained peer-sync incidents grouped by peer with the latest dominant state, reason, and error code attached as labels.",
+			float64(peer.IncidentCount),
+			labels...,
+		)
+		writer.gauge(
+			"zephyr_peer_sync_peer_occurrence_count",
+			"Total retained peer-sync incident occurrences grouped by peer with the latest dominant state, reason, and error code attached as labels.",
+			float64(peer.TotalOccurrences),
+			labels...,
+		)
+		if peer.LatestObservedAt != nil {
+			writer.gauge(
+				"zephyr_peer_sync_peer_latest_observed_at_seconds",
+				"Unix timestamp of the latest retained peer-sync incident grouped by peer with the latest dominant state, reason, and error code attached as labels.",
+				unixSeconds(*peer.LatestObservedAt),
+				labels...,
+			)
+		}
+	}
 
 	return writer.String()
+}
+
+func normalizePeerSyncPrometheusLabel(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "unknown"
+	}
+	return value
 }
 
 func newPrometheusMetricWriter() *prometheusMetricWriter {
