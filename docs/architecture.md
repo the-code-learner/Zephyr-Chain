@@ -18,7 +18,7 @@ The current consensus-artifact flow is:
 
 `validator election -> durable validator snapshot -> durable active round state -> signed self-contained proposal -> signed votes -> quorum certificate -> optional gated block commit/import`
 
-This is still a development-stage system. It now has an enforceable certified commit/import path, signed validator transport identity proofs, durable round state, and a first timeout-driven automation slice, but it is not yet a complete validator finality protocol.
+This is still a development-stage system. It now has an enforceable certified commit/import path, signed validator transport identity proofs, durable round state, and a first timeout-driven automation slice, but it is not yet a complete validator finality protocol. The scaling direction also stays staged: keep validator consensus and settlement on a single-chain control path first, use throughput instrumentation to measure real bottlenecks, and push future confidential-compute growth toward separate execution lanes or worker pools before considering full consensus sharding.
 
 Current observability and export flow:
 
@@ -67,13 +67,13 @@ The node entrypoint lives in `cmd/node/main.go` and starts an HTTP server from `
 The API layer now handles:
 
 - liveness through `GET /health`
-- Prometheus-style scrape export through `GET /metrics`, including per-peer retained incident counts and latest observation timestamps
+- Prometheus-style scrape export through `GET /metrics`, including per-peer retained incident counts, latest observation timestamps, and committed-chain throughput gauges plus rolling `1m`, `5m`, and `15m` TPS windows
 - derived readiness through `GET /v1/health`
 - derived alerts through `GET /v1/alerts`
 - derived SLO summaries through `GET /v1/slo`
 - recommended alert-rule bundles through `GET /v1/alert-rules` and `GET /v1/alert-rules/prometheus`
-- recommended recording-rule bundles through `GET /v1/recording-rules` and `GET /v1/recording-rules/prometheus`, including the per-peer incident-pressure rollup used by the peer-sync dashboard
-- recommended dashboard bundles through `GET /v1/dashboards` and `GET /v1/dashboards/grafana`, including peer incident-pressure drill-down by peer
+- recommended recording-rule bundles through `GET /v1/recording-rules` and `GET /v1/recording-rules/prometheus`, including the per-peer incident-pressure rollup used by the peer-sync dashboard plus canonical recent-TPS rollups for the overview dashboard
+- recommended dashboard bundles through `GET /v1/dashboards` and `GET /v1/dashboards/grafana`, including recent transaction throughput in the overview bundle and peer incident-pressure drill-down by peer
 - runtime status through `GET /v1/status`
 - machine-readable observability through `GET /v1/metrics`
 - peer visibility through `GET /v1/peers`, including admission, identity, live sync/repair telemetry, restart-safe import, snapshot, and replication-failure backfill from durable incidents, durable per-peer incident history, and derived per-peer incident counters

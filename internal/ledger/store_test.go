@@ -1228,6 +1228,77 @@ func TestStoreConsensusMetricsPersistAcrossRestart(t *testing.T) {
 		t.Fatalf("unexpected diagnostic source buckets %+v", diagnosticMetrics.BySource)
 	}
 }
+
+func TestStoreChainThroughputMetricsPersistAcrossRestart(t *testing.T) {
+	dataDir := t.TempDir()
+	store, err := NewStore(dataDir)
+	if err != nil {
+		t.Fatalf("create store: %v", err)
+	}
+
+	olderProducedAt := time.Date(2026, time.March, 25, 11, 50, 0, 0, time.UTC)
+	recentProducedAt := time.Date(2026, time.March, 25, 11, 59, 30, 0, time.UTC)
+	now := time.Date(2026, time.March, 25, 12, 0, 0, 0, time.UTC)
+
+	for index := 0; index < 10; index++ {
+		envelope := signedEnvelope(t, 1, 1, "throughput-older")
+		if _, err := store.Credit(envelope.From, 5); err != nil {
+			t.Fatalf("credit older sender %d: %v", index, err)
+		}
+		if _, err := store.Accept(envelope); err != nil {
+			t.Fatalf("accept older transaction %d: %v", index, err)
+		}
+	}
+	if _, err := store.ProduceBlockWithOptions(100, olderProducedAt, false); err != nil {
+		t.Fatalf("produce older throughput block: %v", err)
+	}
+
+	for index := 0; index < 60; index++ {
+		envelope := signedEnvelope(t, 1, 1, "throughput-recent")
+		if _, err := store.Credit(envelope.From, 5); err != nil {
+			t.Fatalf("credit recent sender %d: %v", index, err)
+		}
+		if _, err := store.Accept(envelope); err != nil {
+			t.Fatalf("accept recent transaction %d: %v", index, err)
+		}
+	}
+	if _, err := store.ProduceBlockWithOptions(100, recentProducedAt, false); err != nil {
+		t.Fatalf("produce recent throughput block: %v", err)
+	}
+
+	reopened, err := NewStore(dataDir)
+	if err != nil {
+		t.Fatalf("reopen store: %v", err)
+	}
+
+	metrics := reopened.ChainThroughputMetrics(now)
+	if metrics.TotalBlockCount != 2 || metrics.TotalTransactionCount != 70 {
+		t.Fatalf("unexpected total throughput metrics %+v", metrics)
+	}
+	if metrics.LatestBlockAt == nil || !metrics.LatestBlockAt.Equal(recentProducedAt) {
+		t.Fatalf("unexpected latest throughput block time %+v", metrics)
+	}
+	if metrics.LatestBlockIntervalSeconds != 570 {
+		t.Fatalf("unexpected latest throughput block interval %+v", metrics)
+	}
+	if len(metrics.Windows) != 3 {
+		t.Fatalf("expected 3 throughput windows, got %+v", metrics.Windows)
+	}
+	windows := make(map[string]ChainThroughputWindowView, len(metrics.Windows))
+	for _, window := range metrics.Windows {
+		windows[window.Window] = window
+	}
+	if window := windows["1m"]; window.BlockCount != 1 || window.TransactionCount != 60 || window.TransactionsPerSecond != 1 || window.AverageTransactionsPerBlock != 60 {
+		t.Fatalf("unexpected 1m throughput window %+v", window)
+	}
+	if window := windows["5m"]; window.BlockCount != 1 || window.TransactionCount != 60 || window.AverageTransactionsPerBlock != 60 {
+		t.Fatalf("unexpected 5m throughput window %+v", window)
+	}
+	if window := windows["15m"]; window.BlockCount != 2 || window.TransactionCount != 70 || window.AverageTransactionsPerBlock != 35 {
+		t.Fatalf("unexpected 15m throughput window %+v", window)
+	}
+}
+
 func newTestStore(t *testing.T) *Store {
 	t.Helper()
 

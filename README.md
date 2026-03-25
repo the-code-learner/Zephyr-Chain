@@ -38,9 +38,13 @@ Implemented in this iteration:
 - `GET /metrics` now exports retained peer incident counts and latest observation timestamps per peer with the latest state, reason, and error-code labels attached for scrape-based drill-down
 - `GET /v1/recording-rules` and `GET /v1/recording-rules/prometheus` now export a canonical per-peer incident-pressure rollup so downstream dashboards can reuse that peer view without rewriting PromQL
 - `GET /v1/dashboards` and `GET /v1/dashboards/grafana` now expose peer incident reason panels plus a per-peer incident pressure panel built on that recording rule alongside state and error-code rollups so dissemination failures are visible in the peer-sync bundle
+- `GET /v1/metrics` now includes `chainThroughput` totals plus rolling `1m`, `5m`, and `15m` windows for committed blocks, committed transactions, average transactions per block, and recent TPS baselining
+- `GET /metrics` now also exports committed-block, committed-transaction, latest-block-interval, and rolling throughput gauges so Prometheus-style monitoring can track recent TPS without re-deriving chain history
+- `GET /v1/recording-rules` and `GET /v1/recording-rules/prometheus` now additionally export canonical `zephyr:chain:transactions_per_second_1m`, `zephyr:chain:transactions_per_second_5m`, and `zephyr:chain:transactions_per_second_15m` rollups for dashboard reuse
+- `GET /v1/dashboards` and `GET /v1/dashboards/grafana` now add a `Recent transaction throughput` overview panel built on those rollups so operators can baseline recent TPS alongside readiness and peer health
 - `GET /v1/peers` now backfills the latest import, snapshot-repair, and replication-failure telemetry from durable peer incidents so operator context survives restart before the next live sync pass
 - successful local certified commits now record a durable `block_commit` consensus action so recovery history and action metrics cover the full proposer path from proposal and vote through commit
-- focused tests now cover peer import, admission, and replication alerts, per-peer Prometheus incident metrics, restart-safe per-peer telemetry reconstruction, dashboard export, and durable `block_commit` history across the operator surfaces
+- focused tests now cover peer import, admission, and replication alerts, per-peer Prometheus incident metrics, restart-safe per-peer telemetry reconstruction, JSON and Prometheus throughput metrics, recording-rule export, dashboard export, and durable `block_commit` history across the operator surfaces
 
 Planned but not implemented yet:
 
@@ -48,7 +52,7 @@ Planned but not implemented yet:
 - broader consensus recovery coverage plus richer dashboard packages, longer-horizon aggregation, and export adapters beyond the current local proposal, vote, block-commit, peer-import, snapshot-recovery, JSON metrics, Prometheus text export, alert-rule bundles, recording-rule bundles, dashboard bundles, Grafana dashboard export, derived readiness, alerts, SLO summaries, structured event logs, durable peer-sync history, and derived peer-sync summary surfaces
 - on-chain staking and governance-driven validator updates instead of ad hoc election API writes
 - deterministic WASM smart-contract runtime with native fee metering
-- confidential compute marketplace for encrypted off-chain jobs paid in native tokens
+- confidential compute marketplace for encrypted off-chain jobs paid in native tokens, with partitioned worker-lane scaling ahead of any full consensus-sharding step
 - production observability, recovery tooling, and public testnet operations
 
 ## Repository Layout
