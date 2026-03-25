@@ -58,8 +58,8 @@ What to expect:
 - `/health` returns `200` as long as the API loop is alive
 - `/v1/health` returns `200` when only `pass` or `warn` checks exist and `503` when at least one `fail` check is active
 - `checks` currently cover `api`, `validator_set`, `recovery`, `consensus`, `peer_sync`, and `diagnostics`
-- `/v1/alerts` turns those same operator signals into a derived critical or warning alert set for polling dashboards and automation, including targeted `peer_import_blocked`, `peer_admission_blocked`, and `peer_replication_blocked` warnings when retained peer incidents point to those fault classes
-- `/v1/slo` groups them into objective states so operators can see whether readiness, consensus continuity, or peer sync continuity is meeting, at risk, breached, or not applicable
+- `/v1/alerts` turns those same operator signals into a derived critical or warning alert set for polling dashboards and automation, including `settlement_throughput_reduced` or `settlement_throughput_stalled` when queued transactions fall behind the configured automatic block cadence plus targeted `peer_import_blocked`, `peer_admission_blocked`, and `peer_replication_blocked` warnings when retained peer incidents point to those fault classes
+- `/v1/slo` groups them into objective states so operators can see whether readiness, consensus continuity, peer sync continuity, or settlement throughput is meeting, at risk, breached, or not applicable
 - `/metrics` exports the alert, health, and SLO state as Prometheus-style gauges such as `zephyr_node_ready`, `zephyr_health_check_status`, `zephyr_alert_active`, and `zephyr_slo_objective_status`, plus peer-incident gauges such as `zephyr_peer_sync_reason_occurrence_count`, `zephyr_peer_sync_error_code_occurrence_count`, per-peer retained-incident gauges like `zephyr_peer_sync_peer_occurrence_count`, and chain throughput gauges such as `zephyr_chain_total_committed_transaction_count` and `zephyr_chain_window_transactions_per_second`, while `/v1/metrics` keeps the structured JSON view including `chainThroughput` windows for `1m`, `5m`, and `15m`
 - `/v1/alert-rules` keeps the structured recommended alert bundle, while `/v1/alert-rules/prometheus` exports the enabled subset as Prometheus-rule YAML for scrape-based alerting stacks
 - `/v1/recording-rules` keeps the structured recommended recording bundle, while `/v1/recording-rules/prometheus` exports the enabled subset as Prometheus recording-rule YAML for dashboard and aggregation stacks, including canonical recent-TPS rollups
@@ -77,7 +77,7 @@ curl.exe http://localhost:8080/v1/alert-rules/prometheus
 
 What to expect:
 
-- `/v1/alert-rules` returns readiness, consensus, and peer-sync rule groups with expressions, severities, source metrics, and disabled reasons when a rule is not applicable to the current node configuration; the peer-sync group now includes continuity rules plus targeted peer import, peer admission, and peer replication diagnostics
+- `/v1/alert-rules` returns readiness, consensus, throughput, and peer-sync rule groups with expressions, severities, source metrics, and disabled reasons when a rule is not applicable to the current node configuration; the throughput group adds settlement queue-drain rules, and the peer-sync group includes continuity rules plus targeted peer import, peer admission, and peer replication diagnostics
 - `/v1/alert-rules/prometheus` exports only the enabled subset as Prometheus-rule YAML so you can drop it into a standard scrape-plus-alert workflow without hand-translating expressions
 - treat the bundle as a production-oriented starting point rather than a final policy set; tune durations, severities, and escalation paths for your deployment
 

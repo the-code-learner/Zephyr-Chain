@@ -335,7 +335,7 @@ Current behavior:
 - `/health` remains a simple liveness probe, while `/v1/health` is the richer readiness surface for operators and automation
 - the top-level response includes `generatedAt`, node identity, peer count, runtime flags, `live`, `ready`, `status`, ordered `checks`, and flattened `warnings`
 - `status` is currently one of `ok`, `warn`, or `fail`, while each check uses `pass`, `warn`, or `fail`
-- the current checks are `api`, `validator_set`, `recovery`, `consensus`, `peer_sync`, and `diagnostics`
+- the current checks are `api`, `validator_set`, `recovery`, `consensus`, `settlement_throughput`, `peer_sync`, and `diagnostics`; `settlement_throughput` becomes active when automatic block production has both an enabled producer and a positive block interval
 - `warn` checks keep the node live and ready but surface degraded conditions such as recent diagnostics, early peer observation, or consensus warnings
 - `fail` checks set `ready=false` and return HTTP `503`; the current hard-fail cases are recovery backlog and peer-sync availability failures when peer sync is enabled
 - `warnings` is a flattened operator-facing list built from the active warn or fail checks so dashboards do not need to re-derive short incident summaries
@@ -348,9 +348,9 @@ Current behavior:
 
 - the top-level response includes node identity, readiness or status, runtime flags, counts by severity, and the current active alerts
 - alert severities are currently `critical` and `warning`
-- current alert codes include `validator_set_missing`, `consensus_recovery_backlog`, `consensus_state_warning`, `peer_sync_unavailable`, `peer_sync_degraded`, `peer_import_blocked`, `peer_admission_blocked`, `peer_replication_blocked`, and `recent_consensus_diagnostics`
+- current alert codes include `validator_set_missing`, `consensus_recovery_backlog`, `consensus_state_warning`, `settlement_throughput_reduced`, `settlement_throughput_stalled`, `peer_sync_unavailable`, `peer_sync_degraded`, `peer_import_blocked`, `peer_admission_blocked`, `peer_replication_blocked`, and `recent_consensus_diagnostics`
 - the endpoint always returns `200`; unlike `/v1/health`, it is intended for dashboards and polling systems that want the active alert set instead of an HTTP readiness gate
-- `peer_import_blocked` is derived from retained `import_blocked` incidents and includes the representative import error code in `detail`, `peer_admission_blocked` is derived from retained `unadmitted` incidents and includes the representative admission reason in `detail`, and `peer_replication_blocked` is derived from retained `replication_blocked` incidents and includes the representative artifact `reason` plus transport-oriented `errorCode` in `detail`
+- `settlement_throughput_reduced` and `settlement_throughput_stalled` are derived from queued mempool work versus the age of the latest committed block when automatic block production is enabled, while `peer_import_blocked` is derived from retained `import_blocked` incidents and includes the representative import error code in `detail`, `peer_admission_blocked` is derived from retained `unadmitted` incidents and includes the representative admission reason in `detail`, and `peer_replication_blocked` is derived from retained `replication_blocked` incidents and includes the representative artifact `reason` plus transport-oriented `errorCode` in `detail`
 - `/metrics` mirrors this alert state through `zephyr_alert_count`, `zephyr_alert_count_by_severity`, `zephyr_alert_active`, and `zephyr_alert_observed_at_seconds`
 - `GET /v1/slo` builds on the same evidence when operators want objective-style summaries instead of raw alert cards
 - `GET /v1/alert-rules` and `GET /v1/alert-rules/prometheus` build on the same evidence when operators want recommended monitoring bundles rather than only the current runtime state
@@ -365,8 +365,8 @@ Current behavior:
 
 - the top-level response includes `generatedAt`, node identity, optional validator address, peer count, `ready`, `healthStatus`, counts by alert severity, counts by objective status, and the current objective list
 - objective statuses are currently `meeting`, `at_risk`, `breached`, and `not_applicable`
-- the current objectives are `node_readiness`, `consensus_continuity`, and `peer_sync_continuity`
-- `node_readiness` summarizes whether the node is still ready to serve traffic, `consensus_continuity` summarizes whether the next-height pipeline is clear enough to progress, and `peer_sync_continuity` summarizes whether at least one admitted and reachable peer path exists when peer sync is enabled
+- the current objectives are `node_readiness`, `consensus_continuity`, `peer_sync_continuity`, and `settlement_throughput`
+- `node_readiness` summarizes whether the node is still ready to serve traffic, `consensus_continuity` summarizes whether the next-height pipeline is clear enough to progress, `peer_sync_continuity` summarizes whether at least one admitted and reachable peer path exists when peer sync is enabled, and `settlement_throughput` summarizes whether queued transactions are clearing within the expected automatic block-production window
 - the endpoint always returns `200`; unlike `/v1/health`, it is designed for dashboards and automation that want a stable objective summary rather than an HTTP readiness gate
 - `/metrics` mirrors this summary through `zephyr_slo_objective_count`, `zephyr_slo_status_count`, and `zephyr_slo_objective_status`
 
@@ -377,9 +377,9 @@ Returns a machine-readable recommended alert bundle derived from the current Zep
 Current behavior:
 
 - the top-level response includes `generatedAt`, node identity, optional validator address, peer count, `peerSyncEnabled`, current health or alert summary counts, total rule counts, and grouped rule bundles
-- rules are currently grouped into readiness, consensus, and peer-sync bundles, and the peer-sync group now includes continuity plus targeted peer import, peer admission, and peer replication diagnostics
+- rules are currently grouped into readiness, consensus, throughput, and peer-sync bundles; the throughput group adds queue-drain warnings for automatic block production, and the peer-sync group includes continuity plus targeted peer import, peer admission, and peer replication diagnostics
 - each rule includes `summary`, `description`, `expression`, severity, component, source metrics, related alert codes or SLO objectives, and whether the rule is currently enabled for the node's runtime configuration
-- peer-sync rules stay visible in the JSON surface even when peer sync is disabled or no peers are configured; in those cases they include `enabled=false` plus a `disabledReason` so operators can see what would become active in a synced deployment
+- throughput and peer-sync rules stay visible in the JSON surface even when automatic block production or peer sync is disabled; in those cases they include `enabled=false` plus a `disabledReason` so operators can see what would become active in a busier or synced deployment
 - the current bundle is intentionally opinionated: it is a recommended starting point for monitoring stacks built on `zephyr_node_ready`, `zephyr_alert_active`, and `zephyr_slo_objective_status`
 
 ### GET /v1/alert-rules/prometheus
@@ -389,8 +389,8 @@ Returns the enabled portion of the same bundle as Prometheus-rule YAML.
 Current behavior:
 
 - the response uses `application/yaml; charset=utf-8`
-- only enabled rules are exported, so peer-sync alerts are omitted when peer sync is disabled or no peers are configured
-- rules are grouped into readiness, consensus, and peer-sync groups and include severity, component, summary, description, and source-metric annotations
+- only enabled rules are exported, so peer-sync alerts are omitted when peer sync is disabled or no peers are configured and throughput alerts are omitted when automatic block production is disabled or has no positive block interval
+- rules are grouped into readiness, consensus, throughput, and peer-sync groups and include severity, component, summary, description, and source-metric annotations
 - this endpoint is designed as an export adapter for monitoring systems that already scrape `GET /metrics`
 
 ### GET /v1/recording-rules
@@ -402,7 +402,7 @@ Current behavior:
 - the top-level response includes `generatedAt`, node identity, optional validator address, peer count, `peerSyncEnabled`, current health or alert summary counts, total rule counts, and grouped rule bundles
 - rules are currently grouped into readiness, consensus, peer-sync, and operator-summary bundles
 - each rule includes a stable `record` name, `summary`, `description`, `expression`, component, source metrics, related alert codes or SLO objectives, and whether the rule is currently enabled for the node's runtime configuration
-- peer-sync rules stay visible in the JSON surface even when peer sync is disabled or no peers are configured; in those cases they include `enabled=false` plus a `disabledReason` so operators can see what would become active in a synced deployment
+- throughput and peer-sync rules stay visible in the JSON surface even when automatic block production or peer sync is disabled; in those cases they include `enabled=false` plus a `disabledReason` so operators can see what would become active in a busier or synced deployment
 - the current bundle is intentionally opinionated: it is a recommended starting point for dashboards, fleet rollups, and downstream Prometheus recording-rule files built on `zephyr_node_ready`, `zephyr_alert_count_by_severity`, `zephyr_slo_objective_status`, recovery or peer-runtime gauges, the per-peer incident-pressure rollup `zephyr:peer_sync:incident_pressure_by_peer`, and the canonical recent-TPS rollups `zephyr:chain:transactions_per_second_1m`, `zephyr:chain:transactions_per_second_5m`, and `zephyr:chain:transactions_per_second_15m`
 
 ### GET /v1/recording-rules/prometheus

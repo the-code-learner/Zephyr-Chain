@@ -180,6 +180,7 @@ func (s *Server) buildAlertRuleGroups() []AlertRuleGroup {
 	case len(s.config.PeerURLs) == 0:
 		peerSyncDisabledReason = "no peers are configured for peer sync"
 	}
+	throughputDisabledReason := s.settlementThroughputDisabledReason()
 
 	groups := []AlertRuleGroup{
 		{
@@ -251,6 +252,42 @@ func (s *Server) buildAlertRuleGroups() []AlertRuleGroup {
 					[]string{"zephyr_slo_objective_status"},
 					nil,
 					[]string{"consensus_continuity"},
+				),
+			},
+		},
+		{
+			Name:  "zephyr.throughput",
+			Title: "Settlement throughput and queue drain",
+			Rules: []AlertRule{
+				disableAlertRule(
+					newAlertRule(
+						"ZephyrSettlementThroughputStalled",
+						alertSeverityCritical,
+						"throughput",
+						"Queued transactions are not settling within the expected block window",
+						"Automatic block production has fallen behind a live mempool backlog. Inspect /v1/health, /v1/alerts, /v1/slo, /v1/metrics, and the throughput dashboard panel to confirm whether queue drain has stalled.",
+						"zephyr_slo_objective_status{objective=\"settlement_throughput\",status=\"breached\"} == 1",
+						"2m",
+						[]string{"zephyr_slo_objective_status", "zephyr_chain_mempool_transaction_count", "zephyr_chain_latest_block_timestamp_seconds"},
+						[]string{settlementThroughputAlertStalled},
+						[]string{"settlement_throughput"},
+					),
+					throughputDisabledReason,
+				),
+				disableAlertRule(
+					newAlertRule(
+						"ZephyrSettlementThroughputAtRisk",
+						alertSeverityWarning,
+						"throughput",
+						"Queued transactions are settling slower than expected",
+						"The node is still committing blocks, but queued transactions are draining slower than the configured block cadence should allow. Inspect /v1/slo, /v1/alerts, /v1/metrics, and the throughput dashboard panel before this escalates into a stall.",
+						"zephyr_slo_objective_status{objective=\"settlement_throughput\",status=\"at_risk\"} == 1",
+						"5m",
+						[]string{"zephyr_slo_objective_status", "zephyr_chain_mempool_transaction_count", "zephyr_chain_latest_block_timestamp_seconds"},
+						[]string{settlementThroughputAlertReduced},
+						[]string{"settlement_throughput"},
+					),
+					throughputDisabledReason,
 				),
 			},
 		},

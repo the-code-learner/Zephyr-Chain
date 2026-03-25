@@ -80,7 +80,7 @@ func (s *Server) buildHealthResponse(now time.Time) HealthResponse {
 		ConsensusAutomationEnabled: s.config.EnableConsensusAutomation,
 		PeerSyncEnabled:            s.config.EnablePeerSync,
 		StructuredLogsEnabled:      s.config.EnableStructuredLogs,
-		Checks:                     make([]HealthCheck, 0, 6),
+		Checks:                     make([]HealthCheck, 0, 7),
 		Warnings:                   make([]string, 0),
 	}
 
@@ -180,6 +180,14 @@ func (s *Server) buildHealthResponse(now time.Time) HealthResponse {
 			Summary: "no active consensus warnings",
 		})
 	}
+
+	throughput := s.assessSettlementThroughput(now)
+	appendHealthCheck(&response, HealthCheck{
+		Name:    settlementThroughputCheckName,
+		Status:  throughput.HealthStatus,
+		Summary: throughput.Summary,
+		Detail:  throughput.Detail,
+	})
 
 	unknownPeerCount := metricCountForLabel(peerRuntime.BySyncState, "unknown")
 	peerDetail := fmt.Sprintf("configured=%d reachable=%d admitted=%d unreachable=%d unadmitted=%d incidents=%d", peerRuntime.ConfiguredPeerCount, peerRuntime.ReachablePeerCount, peerRuntime.AdmittedPeerCount, peerRuntime.UnreachablePeerCount, peerRuntime.UnadmittedPeerCount, peerSummary.IncidentCount)

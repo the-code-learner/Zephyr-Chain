@@ -2898,6 +2898,199 @@ func TestHandleNodeHealthWarnsOnRecentDiagnostics(t *testing.T) {
 	}
 }
 
+func TestHandleSettlementThroughputSignalsStalledQueueDrain(t *testing.T) {
+	server := newTestServer(t, Config{
+		DataDir:                 t.TempDir(),
+		NodeID:                  "throughput-stalled",
+		BlockInterval:           15 * time.Second,
+		SyncInterval:            0,
+		MaxTransactionsPerBlock: 10,
+		EnableBlockProduction:   true,
+		EnablePeerSync:          false,
+	})
+
+	committed := signedEnvelope(t, 25, 1, "throughput-stalled-committed")
+	if _, err := server.ledger.Credit(committed.From, 100); err != nil {
+		t.Fatalf("credit stalled sender: %v", err)
+	}
+	if _, err := server.ledger.Accept(committed); err != nil {
+		t.Fatalf("accept committed stalled transaction: %v", err)
+	}
+	staleBlockAt := time.Now().UTC().Add(-3 * time.Minute)
+	if _, err := server.produceLocalBlock(staleBlockAt); err != nil {
+		t.Fatalf("produce stale throughput block: %v", err)
+	}
+	pending := signedEnvelope(t, 10, 1, "throughput-stalled-pending")
+	if _, err := server.ledger.Credit(pending.From, 100); err != nil {
+		t.Fatalf("credit pending stalled sender: %v", err)
+	}
+	if _, err := server.ledger.Accept(pending); err != nil {
+		t.Fatalf("accept pending stalled transaction: %v", err)
+	}
+
+	healthRequest := httptest.NewRequest(http.MethodGet, "/v1/health", nil)
+	healthRecorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(healthRecorder, healthRequest)
+	if healthRecorder.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected stalled throughput health failure 503, got %d", healthRecorder.Code)
+	}
+
+	var healthResponse HealthResponse
+	if err := json.NewDecoder(healthRecorder.Body).Decode(&healthResponse); err != nil {
+		t.Fatalf("decode stalled throughput health response: %v", err)
+	}
+	if healthResponse.Ready || healthResponse.Status != healthStatusFail {
+		t.Fatalf("expected failing stalled throughput health response, got %+v", healthResponse)
+	}
+	if check, ok := healthCheckByName(healthResponse.Checks, settlementThroughputCheckName); !ok || check.Status != healthCheckFail || !strings.Contains(check.Detail, "mempool=1") {
+		t.Fatalf("expected failing settlement throughput check, got %+v", healthResponse.Checks)
+	}
+
+	alertsRequest := httptest.NewRequest(http.MethodGet, "/v1/alerts", nil)
+	alertsRecorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(alertsRecorder, alertsRequest)
+	if alertsRecorder.Code != http.StatusOK {
+		t.Fatalf("expected stalled throughput alerts status 200, got %d", alertsRecorder.Code)
+	}
+
+	var alertsResponse AlertsResponse
+	if err := json.NewDecoder(alertsRecorder.Body).Decode(&alertsResponse); err != nil {
+		t.Fatalf("decode stalled throughput alerts response: %v", err)
+	}
+	if alertsResponse.AlertCount != 2 || alertsResponse.CriticalCount != 1 || alertsResponse.WarningCount != 1 {
+		t.Fatalf("unexpected stalled throughput alert counts %+v", alertsResponse)
+	}
+	if alert, ok := alertByCode(alertsResponse.Alerts, settlementThroughputAlertStalled); !ok || alert.Severity != alertSeverityCritical || alert.ObservedAt == nil || !strings.Contains(alert.Detail, "failAfter=120s") {
+		t.Fatalf("expected stalled throughput alert with timing detail, got %+v", alertsResponse.Alerts)
+	}
+
+	sloRequest := httptest.NewRequest(http.MethodGet, "/v1/slo", nil)
+	sloRecorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(sloRecorder, sloRequest)
+	if sloRecorder.Code != http.StatusOK {
+		t.Fatalf("expected stalled throughput slo status 200, got %d", sloRecorder.Code)
+	}
+
+	var sloResponse SLOSummaryResponse
+	if err := json.NewDecoder(sloRecorder.Body).Decode(&sloResponse); err != nil {
+		t.Fatalf("decode stalled throughput slo response: %v", err)
+	}
+	if sloResponse.ObjectiveCount != 4 || sloResponse.MeetingCount != 0 || sloResponse.AtRiskCount != 1 || sloResponse.BreachedCount != 2 || sloResponse.NotApplicableCount != 1 {
+		t.Fatalf("unexpected stalled throughput slo counts %+v", sloResponse)
+	}
+	if objective, ok := sloObjectiveByName(sloResponse.Objectives, "settlement_throughput"); !ok || objective.Status != sloStatusBreached || !strings.Contains(objective.Detail, "mempool=1") {
+		t.Fatalf("expected breached settlement_throughput objective, got %+v", sloResponse.Objectives)
+	}
+
+	metricsRequest := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+	metricsRecorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(metricsRecorder, metricsRequest)
+	if metricsRecorder.Code != http.StatusOK {
+		t.Fatalf("expected stalled throughput prometheus metrics status 200, got %d", metricsRecorder.Code)
+	}
+	body := metricsRecorder.Body.String()
+	requirePrometheusLine(t, body, "zephyr_health_check_status{check=\"settlement_throughput\",status=\"fail\"} 1")
+	requirePrometheusLine(t, body, "zephyr_alert_active{code=\"settlement_throughput_stalled\",severity=\"critical\",component=\"throughput\"} 1")
+	requirePrometheusLine(t, body, "zephyr_slo_objective_count 4")
+	requirePrometheusLine(t, body, "zephyr_slo_objective_status{objective=\"settlement_throughput\",status=\"breached\"} 1")
+}
+
+func TestHandleSettlementThroughputWarnsOnSlowQueueDrain(t *testing.T) {
+	server := newTestServer(t, Config{
+		DataDir:                 t.TempDir(),
+		NodeID:                  "throughput-warn",
+		BlockInterval:           15 * time.Second,
+		SyncInterval:            0,
+		MaxTransactionsPerBlock: 10,
+		EnableBlockProduction:   true,
+		EnablePeerSync:          false,
+	})
+
+	committed := signedEnvelope(t, 25, 1, "throughput-warn-committed")
+	if _, err := server.ledger.Credit(committed.From, 100); err != nil {
+		t.Fatalf("credit warn sender: %v", err)
+	}
+	if _, err := server.ledger.Accept(committed); err != nil {
+		t.Fatalf("accept committed warn transaction: %v", err)
+	}
+	staleBlockAt := time.Now().UTC().Add(-75 * time.Second)
+	if _, err := server.produceLocalBlock(staleBlockAt); err != nil {
+		t.Fatalf("produce warn throughput block: %v", err)
+	}
+	pending := signedEnvelope(t, 10, 1, "throughput-warn-pending")
+	if _, err := server.ledger.Credit(pending.From, 100); err != nil {
+		t.Fatalf("credit pending warn sender: %v", err)
+	}
+	if _, err := server.ledger.Accept(pending); err != nil {
+		t.Fatalf("accept pending warn transaction: %v", err)
+	}
+
+	healthRequest := httptest.NewRequest(http.MethodGet, "/v1/health", nil)
+	healthRecorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(healthRecorder, healthRequest)
+	if healthRecorder.Code != http.StatusOK {
+		t.Fatalf("expected slow throughput health warn 200, got %d", healthRecorder.Code)
+	}
+
+	var healthResponse HealthResponse
+	if err := json.NewDecoder(healthRecorder.Body).Decode(&healthResponse); err != nil {
+		t.Fatalf("decode slow throughput health response: %v", err)
+	}
+	if !healthResponse.Ready || healthResponse.Status != healthStatusWarn {
+		t.Fatalf("expected warning slow throughput health response, got %+v", healthResponse)
+	}
+	if check, ok := healthCheckByName(healthResponse.Checks, settlementThroughputCheckName); !ok || check.Status != healthCheckWarn || !strings.Contains(check.Detail, "warnAfter=60s") {
+		t.Fatalf("expected warning settlement throughput check, got %+v", healthResponse.Checks)
+	}
+
+	alertsRequest := httptest.NewRequest(http.MethodGet, "/v1/alerts", nil)
+	alertsRecorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(alertsRecorder, alertsRequest)
+	if alertsRecorder.Code != http.StatusOK {
+		t.Fatalf("expected slow throughput alerts status 200, got %d", alertsRecorder.Code)
+	}
+
+	var alertsResponse AlertsResponse
+	if err := json.NewDecoder(alertsRecorder.Body).Decode(&alertsResponse); err != nil {
+		t.Fatalf("decode slow throughput alerts response: %v", err)
+	}
+	if alertsResponse.AlertCount != 2 || alertsResponse.CriticalCount != 0 || alertsResponse.WarningCount != 2 {
+		t.Fatalf("unexpected slow throughput alert counts %+v", alertsResponse)
+	}
+	if alert, ok := alertByCode(alertsResponse.Alerts, settlementThroughputAlertReduced); !ok || alert.Severity != alertSeverityWarning || alert.ObservedAt == nil || !strings.Contains(alert.Detail, "mempool=1") {
+		t.Fatalf("expected reduced settlement throughput alert, got %+v", alertsResponse.Alerts)
+	}
+
+	sloRequest := httptest.NewRequest(http.MethodGet, "/v1/slo", nil)
+	sloRecorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(sloRecorder, sloRequest)
+	if sloRecorder.Code != http.StatusOK {
+		t.Fatalf("expected slow throughput slo status 200, got %d", sloRecorder.Code)
+	}
+
+	var sloResponse SLOSummaryResponse
+	if err := json.NewDecoder(sloRecorder.Body).Decode(&sloResponse); err != nil {
+		t.Fatalf("decode slow throughput slo response: %v", err)
+	}
+	if sloResponse.ObjectiveCount != 4 || sloResponse.MeetingCount != 0 || sloResponse.AtRiskCount != 3 || sloResponse.BreachedCount != 0 || sloResponse.NotApplicableCount != 1 {
+		t.Fatalf("unexpected slow throughput slo counts %+v", sloResponse)
+	}
+	if objective, ok := sloObjectiveByName(sloResponse.Objectives, "settlement_throughput"); !ok || objective.Status != sloStatusAtRisk || !strings.Contains(objective.Detail, "mempool=1") {
+		t.Fatalf("expected at_risk settlement_throughput objective, got %+v", sloResponse.Objectives)
+	}
+
+	metricsRequest := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+	metricsRecorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(metricsRecorder, metricsRequest)
+	if metricsRecorder.Code != http.StatusOK {
+		t.Fatalf("expected slow throughput prometheus metrics status 200, got %d", metricsRecorder.Code)
+	}
+	body := metricsRecorder.Body.String()
+	requirePrometheusLine(t, body, "zephyr_health_check_status{check=\"settlement_throughput\",status=\"warn\"} 1")
+	requirePrometheusLine(t, body, "zephyr_alert_active{code=\"settlement_throughput_reduced\",severity=\"warning\",component=\"throughput\"} 1")
+	requirePrometheusLine(t, body, "zephyr_slo_objective_count 4")
+	requirePrometheusLine(t, body, "zephyr_slo_objective_status{objective=\"settlement_throughput\",status=\"at_risk\"} 1")
+}
 func TestHandleNodeHealthFailsWhenRecoveryAndPeersAreBlocked(t *testing.T) {
 	server := newTestServer(t, Config{
 		DataDir:                      t.TempDir(),
@@ -2968,11 +3161,13 @@ func TestHandleNodeHealthFailsWhenRecoveryAndPeersAreBlocked(t *testing.T) {
 	requirePrometheusLine(t, metricsRecorder.Body.String(), "zephyr_alert_active{code=\"consensus_recovery_backlog\",severity=\"critical\",component=\"recovery\"} 1")
 	requirePrometheusLine(t, metricsRecorder.Body.String(), "zephyr_alert_active{code=\"peer_sync_unavailable\",severity=\"critical\",component=\"peer_sync\"} 1")
 	requirePrometheusLine(t, metricsRecorder.Body.String(), "zephyr_alert_active{code=\"validator_set_missing\",severity=\"warning\",component=\"consensus\"} 1")
-	requirePrometheusLine(t, metricsRecorder.Body.String(), "zephyr_slo_objective_count 3")
+	requirePrometheusLine(t, metricsRecorder.Body.String(), "zephyr_slo_objective_count 4")
 	requirePrometheusLine(t, metricsRecorder.Body.String(), "zephyr_slo_status_count{status=\"breached\"} 3")
+	requirePrometheusLine(t, metricsRecorder.Body.String(), "zephyr_slo_status_count{status=\"not_applicable\"} 1")
 	requirePrometheusLine(t, metricsRecorder.Body.String(), "zephyr_slo_objective_status{objective=\"node_readiness\",status=\"breached\"} 1")
 	requirePrometheusLine(t, metricsRecorder.Body.String(), "zephyr_slo_objective_status{objective=\"consensus_continuity\",status=\"breached\"} 1")
 	requirePrometheusLine(t, metricsRecorder.Body.String(), "zephyr_slo_objective_status{objective=\"peer_sync_continuity\",status=\"breached\"} 1")
+	requirePrometheusLine(t, metricsRecorder.Body.String(), "zephyr_slo_objective_status{objective=\"settlement_throughput\",status=\"not_applicable\"} 1")
 }
 
 func TestHandleAlertsExposeDerivedOperatorAlerts(t *testing.T) {
@@ -3060,10 +3255,10 @@ func TestHandleAlertsExposePeerImportAndAdmissionWarnings(t *testing.T) {
 		DataDir:                 t.TempDir(),
 		NodeID:                  "alerts-peer-detail",
 		PeerURLs:                []string{"http://peer-a.example", "http://peer-b.example", "http://peer-c.example"},
-		BlockInterval:           0,
+		BlockInterval:           15 * time.Second,
 		SyncInterval:            0,
 		MaxTransactionsPerBlock: 10,
-		EnableBlockProduction:   false,
+		EnableBlockProduction:   true,
 		EnablePeerSync:          true,
 	})
 
@@ -3345,7 +3540,7 @@ func TestHandleSLOSummarizesDerivedObjectives(t *testing.T) {
 	if response.AlertCount != 4 || response.CriticalCount != 2 || response.WarningCount != 2 {
 		t.Fatalf("unexpected slo alert counts %+v", response)
 	}
-	if response.ObjectiveCount != 3 || response.MeetingCount != 0 || response.AtRiskCount != 0 || response.BreachedCount != 3 || response.NotApplicableCount != 0 {
+	if response.ObjectiveCount != 4 || response.MeetingCount != 0 || response.AtRiskCount != 0 || response.BreachedCount != 3 || response.NotApplicableCount != 1 {
 		t.Fatalf("unexpected slo objective counts %+v", response)
 	}
 	if objective, ok := sloObjectiveByName(response.Objectives, "node_readiness"); !ok || objective.Status != sloStatusBreached {
@@ -3356,6 +3551,9 @@ func TestHandleSLOSummarizesDerivedObjectives(t *testing.T) {
 	}
 	if objective, ok := sloObjectiveByName(response.Objectives, "peer_sync_continuity"); !ok || objective.Status != sloStatusBreached {
 		t.Fatalf("expected breached peer_sync_continuity objective, got %+v", response.Objectives)
+	}
+	if objective, ok := sloObjectiveByName(response.Objectives, "settlement_throughput"); !ok || objective.Status != sloStatusNotApplicable {
+		t.Fatalf("expected not_applicable settlement_throughput objective, got %+v", response.Objectives)
 	}
 }
 
@@ -3385,7 +3583,7 @@ func TestHandleAlertRulesExposeRecommendedBundles(t *testing.T) {
 	if response.NodeID != "alert-rules-node" || response.PeerSyncEnabled {
 		t.Fatalf("unexpected alert-rules identity/config %+v", response)
 	}
-	if response.RuleCount != 11 || response.EnabledRuleCount != 5 || response.DisabledRuleCount != 6 {
+	if response.RuleCount != 13 || response.EnabledRuleCount != 5 || response.DisabledRuleCount != 8 {
 		t.Fatalf("unexpected alert-rule counts %+v", response)
 	}
 	if rule, ok := alertRuleByName(response.Groups, "ZephyrNodeNotReady"); !ok || !rule.Enabled || rule.Expression != "zephyr_node_ready == 0" {
@@ -3393,6 +3591,9 @@ func TestHandleAlertRulesExposeRecommendedBundles(t *testing.T) {
 	}
 	if rule, ok := alertRuleByName(response.Groups, "ZephyrPeerSyncContinuityBreached"); !ok || rule.Enabled || !strings.Contains(rule.DisabledReason, "disabled") {
 		t.Fatalf("expected disabled peer-sync breach rule, got %+v", response.Groups)
+	}
+	if rule, ok := alertRuleByName(response.Groups, "ZephyrSettlementThroughputStalled"); !ok || rule.Enabled || !strings.Contains(rule.DisabledReason, "disabled") {
+		t.Fatalf("expected disabled settlement throughput stalled rule, got %+v", response.Groups)
 	}
 	if rule, ok := alertRuleByName(response.Groups, "ZephyrPeerImportBlocked"); !ok || rule.Enabled || !strings.Contains(rule.DisabledReason, "disabled") {
 		t.Fatalf("expected disabled peer import rule, got %+v", response.Groups)
@@ -3407,10 +3608,10 @@ func TestHandlePrometheusAlertRulesExportsEnabledRulesOnly(t *testing.T) {
 		DataDir:                 t.TempDir(),
 		NodeID:                  "alert-rules-export-node",
 		PeerURLs:                []string{"http://peer-a.example"},
-		BlockInterval:           0,
+		BlockInterval:           15 * time.Second,
 		SyncInterval:            0,
 		MaxTransactionsPerBlock: 10,
-		EnableBlockProduction:   false,
+		EnableBlockProduction:   true,
 		EnablePeerSync:          true,
 	})
 
@@ -3454,6 +3655,18 @@ func TestHandlePrometheusAlertRulesExportsEnabledRulesOnly(t *testing.T) {
 	}
 	if !strings.Contains(body, "        expr: 'zephyr_alert_active{code=\"peer_replication_blocked\",severity=\"warning\",component=\"peer_sync\"} == 1'\n") {
 		t.Fatalf("expected peer replication blocked expression in prometheus alert rules, got:\n%s", body)
+	}
+	if !strings.Contains(body, "  - name: zephyr.throughput\n") {
+		t.Fatalf("expected throughput rule group in prometheus alert rules, got:\n%s", body)
+	}
+	if !strings.Contains(body, "      - alert: ZephyrSettlementThroughputStalled\n") {
+		t.Fatalf("expected settlement throughput stalled alert in prometheus alert rules, got:\n%s", body)
+	}
+	if !strings.Contains(body, "        expr: 'zephyr_slo_objective_status{objective=\"settlement_throughput\",status=\"breached\"} == 1'\n") {
+		t.Fatalf("expected settlement throughput stalled expression in prometheus alert rules, got:\n%s", body)
+	}
+	if !strings.Contains(body, "      - alert: ZephyrSettlementThroughputAtRisk\n") {
+		t.Fatalf("expected settlement throughput at-risk alert in prometheus alert rules, got:\n%s", body)
 	}
 }
 func TestHandleRecordingRulesExposeRecommendedBundles(t *testing.T) {
@@ -3501,10 +3714,10 @@ func TestHandlePrometheusRecordingRulesExportsEnabledRulesOnly(t *testing.T) {
 		DataDir:                 t.TempDir(),
 		NodeID:                  "recording-rules-export-node",
 		PeerURLs:                []string{"http://peer-a.example"},
-		BlockInterval:           0,
+		BlockInterval:           15 * time.Second,
 		SyncInterval:            0,
 		MaxTransactionsPerBlock: 10,
-		EnableBlockProduction:   false,
+		EnableBlockProduction:   true,
 		EnablePeerSync:          true,
 	})
 
@@ -3608,10 +3821,10 @@ func TestHandleGrafanaDashboardsExportsEnabledDashboardsOnly(t *testing.T) {
 		DataDir:                 t.TempDir(),
 		NodeID:                  "dashboard-export-node",
 		PeerURLs:                []string{"http://peer-a.example"},
-		BlockInterval:           0,
+		BlockInterval:           15 * time.Second,
 		SyncInterval:            0,
 		MaxTransactionsPerBlock: 10,
-		EnableBlockProduction:   false,
+		EnableBlockProduction:   true,
 		EnablePeerSync:          true,
 	})
 
@@ -3897,10 +4110,10 @@ func TestPrometheusMetricsExportOperatorSignals(t *testing.T) {
 		DataDir:                 t.TempDir(),
 		NodeID:                  "prometheus-node",
 		PeerURLs:                []string{"http://peer-a.example", "http://peer-b.example"},
-		BlockInterval:           0,
+		BlockInterval:           15 * time.Second,
 		SyncInterval:            0,
 		MaxTransactionsPerBlock: 10,
-		EnableBlockProduction:   false,
+		EnableBlockProduction:   true,
 		EnablePeerSync:          true,
 	})
 
@@ -3975,11 +4188,13 @@ func TestPrometheusMetricsExportOperatorSignals(t *testing.T) {
 	requirePrometheusLine(t, body, "zephyr_alert_active{code=\"peer_sync_degraded\",severity=\"warning\",component=\"peer_sync\"} 1")
 	requirePrometheusLine(t, body, "zephyr_alert_active{code=\"peer_import_blocked\",severity=\"warning\",component=\"peer_sync\"} 1")
 	requirePrometheusLine(t, body, "zephyr_alert_active{code=\"recent_consensus_diagnostics\",severity=\"warning\",component=\"consensus\"} 1")
-	requirePrometheusLine(t, body, "zephyr_slo_objective_count 3")
+	requirePrometheusLine(t, body, "zephyr_slo_objective_count 4")
 	requirePrometheusLine(t, body, "zephyr_slo_status_count{status=\"at_risk\"} 3")
+	requirePrometheusLine(t, body, "zephyr_slo_status_count{status=\"not_applicable\"} 1")
 	requirePrometheusLine(t, body, "zephyr_slo_objective_status{objective=\"node_readiness\",status=\"at_risk\"} 1")
 	requirePrometheusLine(t, body, "zephyr_slo_objective_status{objective=\"consensus_continuity\",status=\"at_risk\"} 1")
 	requirePrometheusLine(t, body, "zephyr_slo_objective_status{objective=\"peer_sync_continuity\",status=\"at_risk\"} 1")
+	requirePrometheusLine(t, body, "zephyr_slo_objective_status{objective=\"settlement_throughput\",status=\"not_applicable\"} 1")
 	requirePrometheusLine(t, body, "zephyr_consensus_action_by_type_count{type=\"proposal\"} 1")
 	requirePrometheusLine(t, body, "zephyr_consensus_diagnostic_by_code_count{code=\"template_mismatch\"} 1")
 	requirePrometheusLine(t, body, "zephyr_peer_runtime_by_sync_state_count{state=\"unreachable\"} 1")
