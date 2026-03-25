@@ -128,14 +128,14 @@ The store currently persists:
 - bounded recent consensus diagnostics for rejected proposal, vote, commit, and import paths, including peer-sync import failures
 - derived per-height round history for proposal, vote, and certificate state across rounds
 - derived block-readiness inspection for pending-height template, certificate, commit, and import readiness
-- derived recovery summaries for pending replay, pending import backlog, and the latest local snapshot restore
+- derived recovery summaries for pending replay, pending import backlog, successful local certified block commits, and the latest local snapshot restore
 - bounded durable peer-sync incident history for repeated unreachable, unadmitted, import-blocked, sync-error, and snapshot-restored peer states
 - derived peer-sync summaries that roll those incidents up by peer, state, reason, and error code for operator inspection
 - derived consensus-action and diagnostic metric buckets built from persisted WAL and rejection history for machine-readable observability
 
 On startup, the node reloads this state and rebuilds pending balance and nonce reservations from the persisted mempool. Validator state, active round state, consensus artifacts, the local consensus-action WAL, and recent consensus diagnostics also survive restart. When the node applies a peer snapshot for catch-up, it now preserves its own local recovery, diagnostics, and peer-sync incident history instead of replacing that operator context with the peer's local WAL state.
 
-The current ledger can derive a deterministic next block candidate from the current mempool plus chain tip. That candidate is what operators propose and certify in the manual flow, and once a proposal is stored the node can later replay that same candidate from proposal storage without depending on the mempool alone.
+The current ledger can derive a deterministic next block candidate from the current mempool plus chain tip. That candidate is what operators propose and certify in the manual flow, and once a proposal is stored the node can later replay that same candidate from proposal storage without depending on the mempool alone. When a certified local commit succeeds, the API layer now records that `block_commit` event back into the durable consensus-action history so the proposer path remains visible in recovery and metrics surfaces.
 
 ### Consensus Message And Automation Layer
 
@@ -188,9 +188,12 @@ The repository has moved from consensus-preparation-only into certificate-gated 
 - validator nodes can now prove identity and enforce peer admission over the current transport, but peer discovery is still static HTTP configuration rather than authenticated libp2p
 - automation can now rotate proposers on timeout, rebroadcast the latest local proposal or vote after link recovery, and replay persisted local proposal or vote actions after restart
 - the current operator surface is materially better through round warnings, per-height round history, block readiness, replay and import backlog visibility, durable peer-sync history, derived cross-peer summary with state, reason, and error-code rollups, JSON metrics, Prometheus `/metrics`, `/v1/health`, `/v1/alerts` including targeted peer import and admission warnings, `/v1/slo`, `/v1/alert-rules`, `/v1/alert-rules/prometheus`, `/v1/recording-rules`, `/v1/recording-rules/prometheus`, `/v1/dashboards`, `/v1/dashboards/grafana`, structured event logs, snapshot-restore history, leading tallies, and bounded rejection diagnostics, but it is still too thin for full production incident handling across transport, peer-import, longer-horizon retention, broader dashboard coverage, and broader recovery scenarios
-- broader consensus recovery coverage is still needed beyond the current local proposal/vote WAL plus import-repair and snapshot-recovery path
+- broader consensus recovery coverage is still needed beyond the current local proposal, vote, and certified block-commit WAL plus import-repair and snapshot-recovery path
 
 That is why the project has moved beyond replicated prototype, but it is still not a production blockchain.
+
+
+
 
 
 

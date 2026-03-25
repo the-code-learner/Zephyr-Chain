@@ -9,6 +9,7 @@ const (
 	ConsensusActionProposal     = "proposal"
 	ConsensusActionVote         = "vote"
 	ConsensusActionRoundAdvance = "round_advance"
+	ConsensusActionBlockCommit  = "block_commit"
 	ConsensusActionBlockImport  = "block_import"
 	ConsensusActionSnapshotSync = "snapshot_restore"
 

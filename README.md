@@ -34,14 +34,14 @@ Implemented in this iteration:
 
 - `GET /v1/alerts` now separates general peer-sync degradation from targeted `peer_import_blocked` and `peer_admission_blocked` warnings built from durable peer incident rollups
 - `GET /v1/alert-rules` and `GET /v1/alert-rules/prometheus` now export matching peer-import and peer-admission diagnostic rules for scrape-based monitoring stacks
-- `GET /v1/dashboards` and `GET /v1/dashboards/grafana` now tie the peer incident panels back to those alert codes so dashboard exports preserve the diagnostic path from retained incidents to operator warnings
-- the README, roadmap, API, architecture, usage, applications, and private paper docs now keep that richer alerting slice aligned end to end
-- focused tests now cover the new peer import and admission alerts across JSON alerts, Prometheus metrics, and alert-rule export
+- successful local certified commits now record a durable `block_commit` consensus action so recovery history and action metrics cover the full proposer path from proposal and vote through commit
+- the README, roadmap, API, architecture, usage, applications, and private paper docs now keep that richer recovery and alerting slice aligned end to end
+- focused tests now cover the new peer import and admission alerts plus durable `block_commit` history across JSON alerts, action metrics, Prometheus metrics, and alert-rule export
 
 Planned but not implemented yet:
 
 - authenticated peer discovery and replay-safe transport over libp2p on top of the new HTTP admission and binding policy
-- broader consensus recovery coverage plus richer dashboard packages, longer-horizon aggregation, and export adapters beyond the current local proposal, vote, peer-import, snapshot-recovery, JSON metrics, Prometheus text export, alert-rule bundles, recording-rule bundles, dashboard bundles, Grafana dashboard export, derived readiness, alerts, SLO summaries, structured event logs, durable peer-sync history, and derived peer-sync summary surfaces
+- broader consensus recovery coverage plus richer dashboard packages, longer-horizon aggregation, and export adapters beyond the current local proposal, vote, block-commit, peer-import, snapshot-recovery, JSON metrics, Prometheus text export, alert-rule bundles, recording-rule bundles, dashboard bundles, Grafana dashboard export, derived readiness, alerts, SLO summaries, structured event logs, durable peer-sync history, and derived peer-sync summary surfaces
 - on-chain staking and governance-driven validator updates instead of ad hoc election API writes
 - deterministic WASM smart-contract runtime with native fee metering
 - confidential compute marketplace for encrypted off-chain jobs paid in native tokens
@@ -303,8 +303,8 @@ VITE_ZEPHYR_API_BASE=http://localhost:8080
 
 - the current multi-node layer is still HTTP-based under the new transport abstraction, not libp2p networking
 - peer admission and validator pinning can now be enforced over the current HTTP transport, but peer discovery is still static configuration rather than libp2p
-- the round engine now supports timeout-driven proposer rotation, latest-artifact rebroadcast after link recovery, richer `roundEvidence`, per-height `roundHistory`, `blockReadiness`, import-aware `recovery`, durable peer-sync incident history, bounded rejection diagnostics, machine-readable `GET /v1/metrics`, Prometheus-style `GET /metrics`, derived `GET /v1/health`, derived `GET /v1/alerts` including peer import and admission warnings, derived `GET /v1/slo`, recommended `GET /v1/alert-rules`, exported `GET /v1/alert-rules/prometheus`, recommended `GET /v1/recording-rules`, exported `GET /v1/recording-rules/prometheus`, recommended `GET /v1/dashboards`, exported `GET /v1/dashboards/grafana`, and local consensus-action WAL replay across restart, but broader recovery tooling is still missing
-- crash recovery now persists active round metadata plus a bounded local consensus-action WAL, and peer snapshot restore preserves local recovery, diagnostics, and peer-sync incident history, but replay coverage is still centered on local proposal, vote, and import-repair paths rather than the full consensus lifecycle
+- the round engine now supports timeout-driven proposer rotation, latest-artifact rebroadcast after link recovery, richer `roundEvidence`, per-height `roundHistory`, `blockReadiness`, import-aware `recovery`, durable peer-sync incident history, bounded rejection diagnostics, machine-readable `GET /v1/metrics`, Prometheus-style `GET /metrics`, derived `GET /v1/health`, derived `GET /v1/alerts` including peer import and admission warnings, derived `GET /v1/slo`, recommended `GET /v1/alert-rules`, exported `GET /v1/alert-rules/prometheus`, recommended `GET /v1/recording-rules`, exported `GET /v1/recording-rules/prometheus`, recommended `GET /v1/dashboards`, exported `GET /v1/dashboards/grafana`, and local consensus-action history across restart for proposal, vote, round-advance, block-commit, import, and snapshot-repair events, but broader recovery tooling is still missing
+- crash recovery now persists active round metadata plus a bounded local consensus-action WAL, and peer snapshot restore preserves local recovery, diagnostics, and peer-sync incident history, but replay coverage is still centered on local proposal, vote, certified block-commit, and import-repair paths rather than the full consensus lifecycle
 - DPoS elections still happen through an API call, not an on-chain staking/governance flow
 - snapshot restore is a state catch-up mechanism, not a trust-minimized proof-based sync protocol
 - WASM smart-contract execution is planned, but not implemented yet
@@ -338,6 +338,10 @@ Short version:
 ## License
 
 Zephyr Chain is licensed under the MIT License. See [LICENSE](./LICENSE).
+
+
+
+
 
 
 
