@@ -714,9 +714,28 @@ func (s *Server) produceLocalBlock(producedAt time.Time) (ledger.Block, error) {
 	if err != nil {
 		return ledger.Block{}, err
 	}
+	if s.config.RequireConsensusCertificates {
+		s.recordLocalCertifiedCommit(consensus, block)
+	}
 
 	go s.broadcastBlock(block)
 	return block, nil
+}
+
+func (s *Server) recordLocalCertifiedCommit(consensus ledger.ConsensusView, block ledger.Block) {
+	recordedAt := time.Now().UTC()
+	if err := s.ledger.RecordConsensusAction(ledger.ConsensusAction{
+		Type:       ledger.ConsensusActionBlockCommit,
+		Height:     block.Height,
+		Round:      consensus.CurrentRound,
+		BlockHash:  block.Hash,
+		Validator:  s.config.ValidatorAddress,
+		RecordedAt: recordedAt,
+		Status:     ledger.ConsensusActionCompleted,
+		Note:       "local certified block commit",
+	}); err != nil {
+		recordPeerLog("consensus-wal-block-commit", err)
+	}
 }
 
 func (s *Server) startBackgroundLoops() {

@@ -12,7 +12,7 @@ Today the codebase is best suited for:
 
 - wallet, transaction, and settlement demos on a single node or a small admitted-peer devnet
 - validator scheduling, certificate-gated commit, and round-timeout recovery experiments
-- operator drills around peer identity, peer admission, delayed peer recovery, durable per-peer incident history, cross-peer incident summaries by state, reason, and error code, machine-readable `/v1/metrics`, Prometheus `/metrics`, derived `/v1/health`, derived `/v1/alerts`, derived `/v1/slo`, recommended `/v1/alert-rules`, exported `/v1/alert-rules/prometheus`, recommended `/v1/recording-rules`, exported `/v1/recording-rules/prometheus`, recommended `/v1/dashboards`, exported `/v1/dashboards/grafana`, structured event logs, partial quorum, reproposal, per-height round history, block readiness, pending import backlog, snapshot-restore history, rejection diagnostics, and state catch-up
+- operator drills around peer identity, peer admission, delayed peer recovery, durable per-peer incident history, cross-peer incident summaries by state, reason, and error code, machine-readable `/v1/metrics`, Prometheus `/metrics`, derived `/v1/health`, derived `/v1/alerts`, derived `/v1/slo`, recommended `/v1/alert-rules`, exported `/v1/alert-rules/prometheus`, recommended `/v1/recording-rules`, exported `/v1/recording-rules/prometheus`, recommended `/v1/dashboards`, exported `/v1/dashboards/grafana`, structured event logs, partial quorum, reproposal, per-height round history, block readiness, durable local `block_commit` history, pending import backlog, snapshot-restore history, rejection diagnostics, and state catch-up
 - product prototyping for applications that need auditable transfers plus predictable validator coordination
 - architecture work for teams that want to design on top of a Rust-first WASM and confidential-compute roadmap before those phases land
 
@@ -153,6 +153,7 @@ Zephyr is not yet a good production choice for:
 - environments that require mature slashing, governance, or crash-recovery guarantees right now
 
 Those are roadmap targets, not present-day claims.
+
 
 
 

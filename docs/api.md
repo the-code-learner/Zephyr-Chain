@@ -186,11 +186,12 @@ Current fields include:
 - `pendingActionCount`, `pendingReplayCount`, `pendingImportCount`, `pendingImportHeights`, `needsReplay`, and `needsRecovery`
 - `lastSnapshotRestoreAt`, `lastSnapshotRestoreHeight`, and `lastSnapshotRestoreBlockHash`
 - `pendingActions`, which now list replayable local actions plus pending import-repair actions that still need follow-up
-- `recentActions`, which show the latest local consensus actions with `status`, `replayAttempts`, `lastReplayAt`, and `completedAt`
+- `recentActions`, which show the latest local consensus actions with `status`, `replayAttempts`, `lastReplayAt`, and `completedAt`, including successful local certified `block_commit` events
 
 Current behavior:
 
 - locally authored proposals and votes for the configured validator are persisted into this WAL view
+- successful local certified commits are now recorded as completed `block_commit` actions so the proposer-side path remains visible after quorum
 - timeout-driven round advance is also recorded for operator history
 - recoverable peer block-import failures now append a pending `block_import` action so operators can see blocked import heights directly in the recovery view
 - when automation rebroadcasts a stored local proposal or vote, the matching action updates `replayAttempts` and `lastReplayAt`
@@ -470,7 +471,7 @@ Returns a machine-readable observability snapshot built from durable ledger stat
 Current behavior:
 
 - the top-level response includes `generatedAt`, node identity, runtime flags including `structuredLogsEnabled`, and embedded `status`, `consensus`, and `recovery` summaries
-- `consensusActions` rolls up the durable local WAL and recovery actions into `totalCount`, `pendingCount`, `totalReplayAttempts`, latest record or completion times, and `byType` or `byStatus` buckets
+- `consensusActions` rolls up the durable local WAL and recovery actions into `totalCount`, `pendingCount`, `totalReplayAttempts`, latest record or completion times, and `byType` or `byStatus` buckets; current types can include `proposal`, `vote`, `round_advance`, `block_commit`, `block_import`, and `snapshot_restore`
 - `diagnostics` rolls up the bounded rejection history into `totalCount`, `latestObservedAt`, and `byKind`, `byCode`, or `bySource` buckets
 - `peerSyncSummary` reuses the durable cross-peer incident summary also exposed by status, consensus, and block-template responses
 - `peerRuntime` reflects the current configured peer set and live `syncState` distribution, including reachable or admitted counts versus unreachable or unadmitted counts
@@ -598,6 +599,9 @@ If proposals exist for that height but the imported block does not match any sto
 Returns the current durable node snapshot used for catch-up restore.
 
 When another node applies this snapshot through peer sync, it preserves its own local recovery, diagnostic, peer-sync incident history, and derived peer-sync summary context instead of replacing that operator context with the peer's local WAL or diagnostics.
+
+
+
 
 
 

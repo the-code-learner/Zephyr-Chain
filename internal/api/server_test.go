@@ -1597,6 +1597,17 @@ func TestHandleBlockTemplateAndConsensusGatedProduceBlock(t *testing.T) {
 	if produceResponse.Block.Hash != templateResponse.Block.Hash {
 		t.Fatalf("expected produced block hash %s, got %s", templateResponse.Block.Hash, produceResponse.Block.Hash)
 	}
+	recovery := server.ledger.ConsensusRecovery()
+	commitRecorded := false
+	for _, action := range recovery.RecentActions {
+		if action.Type == ledger.ConsensusActionBlockCommit && action.Status == ledger.ConsensusActionCompleted && action.BlockHash == templateResponse.Block.Hash {
+			commitRecorded = true
+			break
+		}
+	}
+	if !commitRecorded {
+		t.Fatalf("expected completed block_commit action after certified local produce, got %+v", recovery.RecentActions)
+	}
 }
 func TestHandleConsensusGatedProduceBlockUsesProposalBodyWithoutMempool(t *testing.T) {
 	proposer := newConsensusSigner(t)
@@ -1730,6 +1741,25 @@ func TestConsensusAutomationSelfProposesVotesAndCommitsCertifiedBlock(t *testing
 	}
 	if sender := server.ledger.View(envelope.From); sender.Balance != 75 || sender.Nonce != 1 {
 		t.Fatalf("unexpected sender state after automated commit: %+v", sender)
+	}
+	recovery := server.ledger.ConsensusRecovery()
+	commitRecorded := false
+	for _, action := range recovery.RecentActions {
+		if action.Type == ledger.ConsensusActionBlockCommit && action.Status == ledger.ConsensusActionCompleted && action.BlockHash == artifacts.LatestCertificate.BlockHash {
+			commitRecorded = true
+			break
+		}
+	}
+	if !commitRecorded {
+		t.Fatalf("expected completed block_commit action after automated commit, got %+v", recovery.RecentActions)
+	}
+	actionMetrics := server.ledger.ConsensusActionMetrics()
+	actionTypes := make(map[string]int)
+	for _, bucket := range actionMetrics.ByType {
+		actionTypes[bucket.Label] = bucket.Count
+	}
+	if actionTypes[ledger.ConsensusActionBlockCommit] != 1 {
+		t.Fatalf("expected one block_commit action in metrics, got %+v", actionMetrics.ByType)
 	}
 }
 
