@@ -241,6 +241,34 @@ func (s *Server) buildRecordingRuleGroups() []RecordingRuleGroup {
 			},
 		},
 		{
+			Name:  "zephyr.throughput",
+			Title: "Settlement throughput and queue-drain rollups",
+			Rules: []RecordingRule{
+				newRecordingRule(
+					"settlement throughput at risk",
+					"zephyr:settlement_throughput:at_risk",
+					"throughput",
+					"Reusable series for slowed queue drain under automatic block production.",
+					"Projects the settlement_throughput SLO into an at-risk series so dashboards can surface slower-than-expected queue drain separately from fully stalled settlement.",
+					"zephyr_slo_objective_status{objective=\"settlement_throughput\",status=\"at_risk\"}",
+					[]string{"zephyr_slo_objective_status"},
+					[]string{settlementThroughputAlertReduced},
+					[]string{"settlement_throughput"},
+				),
+				newRecordingRule(
+					"settlement throughput breached",
+					"zephyr:settlement_throughput:breached",
+					"throughput",
+					"Reusable series for stalled queue drain under automatic block production.",
+					"Projects the settlement_throughput SLO into a breached series so dashboards and fleet rollups can separate settlement stalls from milder queue pressure.",
+					"zephyr_slo_objective_status{objective=\"settlement_throughput\",status=\"breached\"}",
+					[]string{"zephyr_slo_objective_status"},
+					[]string{settlementThroughputAlertStalled},
+					[]string{"settlement_throughput"},
+				),
+			},
+		},
+		{
 			Name:  "zephyr.peer_sync",
 			Title: "Peer sync continuity and repair rollups",
 			Rules: []RecordingRule{
