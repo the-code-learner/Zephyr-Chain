@@ -72,8 +72,8 @@ The API layer now handles:
 - derived alerts through `GET /v1/alerts`, including settlement-throughput reduced or stalled signals when queued transactions outlive the expected block window
 - derived SLO summaries through `GET /v1/slo`, including the settlement-throughput objective alongside readiness and peer-continuity summaries
 - recommended alert-rule bundles through `GET /v1/alert-rules` and `GET /v1/alert-rules/prometheus`
-- recommended recording-rule bundles through `GET /v1/recording-rules` and `GET /v1/recording-rules/prometheus`, including settlement-throughput state rollups, normalized settlement queue-drain utilization rollups, the per-peer incident-pressure rollup used by the peer-sync dashboard, and canonical recent-TPS rollups for the overview dashboard
-- recommended dashboard bundles through `GET /v1/dashboards` and `GET /v1/dashboards/grafana`, including settlement-throughput state, raw settlement queue-drain lag, normalized queue-drain utilization, and recent transaction throughput in the overview bundle plus peer incident-pressure drill-down by peer
+- recommended recording-rule bundles through `GET /v1/recording-rules` and `GET /v1/recording-rules/prometheus`, including settlement-throughput state rollups, normalized settlement queue-drain utilization rollups, the per-peer incident-pressure rollup used by the peer-sync dashboard, canonical recent-TPS rollups for the overview dashboard, and runtime-aware disabled reasons when a producing or synced role is not active
+- recommended dashboard bundles through `GET /v1/dashboards` and `GET /v1/dashboards/grafana`, including settlement-throughput state, raw settlement queue-drain lag, normalized queue-drain utilization, and recent transaction throughput in the overview bundle plus peer incident-pressure drill-down by peer, with JSON metadata preserved for runtime-disabled panels and enabled-only Grafana export
 - runtime status through `GET /v1/status`
 - machine-readable observability through `GET /v1/metrics`
 - peer visibility through `GET /v1/peers`, including admission, identity, live sync/repair telemetry, restart-safe import, snapshot, and replication-failure backfill from durable incidents, durable per-peer incident history, and derived per-peer incident counters
@@ -191,6 +191,8 @@ The repository has moved from consensus-preparation-only into certificate-gated 
 - broader consensus recovery coverage is still needed beyond the current local proposal, vote, and certified block-commit WAL plus import-repair and snapshot-recovery path
 
 That is why the project has moved beyond replicated prototype, but it is still not a production blockchain.
+
+
 
 
 

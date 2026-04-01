@@ -160,6 +160,7 @@ func (s *Server) buildRecordingRuleGroups() []RecordingRuleGroup {
 	case len(s.config.PeerURLs) == 0:
 		peerSyncDisabledReason = "no peers are configured for peer sync"
 	}
+	throughputDisabledReason := s.settlementThroughputDisabledReason()
 
 	groups := []RecordingRuleGroup{
 		{
@@ -244,49 +245,61 @@ func (s *Server) buildRecordingRuleGroups() []RecordingRuleGroup {
 			Name:  "zephyr.throughput",
 			Title: "Settlement throughput and queue-drain rollups",
 			Rules: []RecordingRule{
-				newRecordingRule(
-					"settlement throughput at risk",
-					"zephyr:settlement_throughput:at_risk",
-					"throughput",
-					"Reusable series for slowed queue drain under automatic block production.",
-					"Projects the settlement_throughput SLO into an at-risk series so dashboards can surface slower-than-expected queue drain separately from fully stalled settlement.",
-					"zephyr_slo_objective_status{objective=\"settlement_throughput\",status=\"at_risk\"}",
-					[]string{"zephyr_slo_objective_status"},
-					[]string{settlementThroughputAlertReduced},
-					[]string{"settlement_throughput"},
+				disableRecordingRule(
+					newRecordingRule(
+						"settlement throughput at risk",
+						"zephyr:settlement_throughput:at_risk",
+						"throughput",
+						"Reusable series for slowed queue drain under automatic block production.",
+						"Projects the settlement_throughput SLO into an at-risk series so dashboards can surface slower-than-expected queue drain separately from fully stalled settlement.",
+						"zephyr_slo_objective_status{objective=\"settlement_throughput\",status=\"at_risk\"}",
+						[]string{"zephyr_slo_objective_status"},
+						[]string{settlementThroughputAlertReduced},
+						[]string{"settlement_throughput"},
+					),
+					throughputDisabledReason,
 				),
-				newRecordingRule(
-					"settlement throughput breached",
-					"zephyr:settlement_throughput:breached",
-					"throughput",
-					"Reusable series for stalled queue drain under automatic block production.",
-					"Projects the settlement_throughput SLO into a breached series so dashboards and fleet rollups can separate settlement stalls from milder queue pressure.",
-					"zephyr_slo_objective_status{objective=\"settlement_throughput\",status=\"breached\"}",
-					[]string{"zephyr_slo_objective_status"},
-					[]string{settlementThroughputAlertStalled},
-					[]string{"settlement_throughput"},
+				disableRecordingRule(
+					newRecordingRule(
+						"settlement throughput breached",
+						"zephyr:settlement_throughput:breached",
+						"throughput",
+						"Reusable series for stalled queue drain under automatic block production.",
+						"Projects the settlement_throughput SLO into a breached series so dashboards and fleet rollups can separate settlement stalls from milder queue pressure.",
+						"zephyr_slo_objective_status{objective=\"settlement_throughput\",status=\"breached\"}",
+						[]string{"zephyr_slo_objective_status"},
+						[]string{settlementThroughputAlertStalled},
+						[]string{"settlement_throughput"},
+					),
+					throughputDisabledReason,
 				),
-				newRecordingRule(
-					"settlement queue-drain warn utilization",
-					"zephyr:settlement_queue_drain:warn_utilization",
-					"throughput",
-					"Normalized queue-drain lag versus the warn threshold.",
-					"Projects raw settlement queue-drain lag against the warn threshold so dashboards and fleet summaries can compare backlog pressure across nodes with different block cadences.",
-					"zephyr_settlement_queue_drain_lag_seconds / clamp_min(zephyr_settlement_queue_drain_threshold_seconds{threshold=\"warn\"}, 1)",
-					[]string{"zephyr_settlement_queue_drain_lag_seconds", "zephyr_settlement_queue_drain_threshold_seconds"},
-					[]string{settlementThroughputAlertReduced},
-					[]string{"settlement_throughput"},
+				disableRecordingRule(
+					newRecordingRule(
+						"settlement queue-drain warn utilization",
+						"zephyr:settlement_queue_drain:warn_utilization",
+						"throughput",
+						"Normalized queue-drain lag versus the warn threshold.",
+						"Projects raw settlement queue-drain lag against the warn threshold so dashboards and fleet summaries can compare backlog pressure across nodes with different block cadences.",
+						"zephyr_settlement_queue_drain_lag_seconds / clamp_min(zephyr_settlement_queue_drain_threshold_seconds{threshold=\"warn\"}, 1)",
+						[]string{"zephyr_settlement_queue_drain_lag_seconds", "zephyr_settlement_queue_drain_threshold_seconds"},
+						[]string{settlementThroughputAlertReduced},
+						[]string{"settlement_throughput"},
+					),
+					throughputDisabledReason,
 				),
-				newRecordingRule(
-					"settlement queue-drain fail utilization",
-					"zephyr:settlement_queue_drain:fail_utilization",
-					"throughput",
-					"Normalized queue-drain lag versus the fail threshold.",
-					"Projects raw settlement queue-drain lag against the fail threshold so dashboards and fleet summaries can see how close the node is to a fully stalled settlement window.",
-					"zephyr_settlement_queue_drain_lag_seconds / clamp_min(zephyr_settlement_queue_drain_threshold_seconds{threshold=\"fail\"}, 1)",
-					[]string{"zephyr_settlement_queue_drain_lag_seconds", "zephyr_settlement_queue_drain_threshold_seconds"},
-					[]string{settlementThroughputAlertStalled},
-					[]string{"settlement_throughput"},
+				disableRecordingRule(
+					newRecordingRule(
+						"settlement queue-drain fail utilization",
+						"zephyr:settlement_queue_drain:fail_utilization",
+						"throughput",
+						"Normalized queue-drain lag versus the fail threshold.",
+						"Projects raw settlement queue-drain lag against the fail threshold so dashboards and fleet summaries can see how close the node is to a fully stalled settlement window.",
+						"zephyr_settlement_queue_drain_lag_seconds / clamp_min(zephyr_settlement_queue_drain_threshold_seconds{threshold=\"fail\"}, 1)",
+						[]string{"zephyr_settlement_queue_drain_lag_seconds", "zephyr_settlement_queue_drain_threshold_seconds"},
+						[]string{settlementThroughputAlertStalled},
+						[]string{"settlement_throughput"},
+					),
+					throughputDisabledReason,
 				),
 			},
 		},

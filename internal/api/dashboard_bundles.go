@@ -236,6 +236,7 @@ func (s *Server) buildGrafanaDashboardBundle(now time.Time) GrafanaDashboardBund
 
 func (s *Server) buildDashboards() []Dashboard {
 	peerSyncDisabledReason := dashboardPeerSyncDisabledReason(s.config.EnablePeerSync, s.config.PeerURLs)
+	throughputDisabledReason := s.settlementThroughputDisabledReason()
 
 	return []Dashboard{
 		{
@@ -325,7 +326,7 @@ func (s *Server) buildDashboards() []Dashboard {
 					nil,
 					nil,
 				),
-				newDashboardPanel(
+				disableDashboardPanel(newDashboardPanel(
 					"settlement_throughput_state",
 					"Settlement throughput state",
 					"bargauge",
@@ -341,8 +342,8 @@ func (s *Server) buildDashboards() []Dashboard {
 					[]string{"zephyr:settlement_throughput:at_risk", "zephyr:settlement_throughput:breached"},
 					[]string{settlementThroughputAlertReduced, settlementThroughputAlertStalled},
 					[]string{"settlement_throughput"},
-				),
-				newDashboardPanel(
+				), throughputDisabledReason),
+				disableDashboardPanel(newDashboardPanel(
 					"settlement_queue_drain_lag",
 					"Settlement queue-drain lag",
 					"timeseries",
@@ -359,8 +360,8 @@ func (s *Server) buildDashboards() []Dashboard {
 					nil,
 					[]string{settlementThroughputAlertReduced, settlementThroughputAlertStalled},
 					[]string{"settlement_throughput"},
-				),
-				newDashboardPanel(
+				), throughputDisabledReason),
+				disableDashboardPanel(newDashboardPanel(
 					"settlement_queue_drain_utilization",
 					"Settlement queue-drain utilization",
 					"bargauge",
@@ -376,7 +377,7 @@ func (s *Server) buildDashboards() []Dashboard {
 					[]string{"zephyr:settlement_queue_drain:warn_utilization", "zephyr:settlement_queue_drain:fail_utilization"},
 					[]string{settlementThroughputAlertReduced, settlementThroughputAlertStalled},
 					[]string{"settlement_throughput"},
-				),
+				), throughputDisabledReason),
 				newDashboardPanel(
 					"alert_severity_mix",
 					"Alert severity mix",
@@ -697,6 +698,15 @@ func disableDashboard(dashboard Dashboard, reason string) Dashboard {
 		dashboard.Panels[idx].DisabledReason = reason
 	}
 	return dashboard
+}
+
+func disableDashboardPanel(panel DashboardPanel, reason string) DashboardPanel {
+	if reason == "" {
+		return panel
+	}
+	panel.Enabled = false
+	panel.DisabledReason = reason
+	return panel
 }
 
 func dashboardPeerSyncDisabledReason(enabled bool, peerURLs []string) string {
