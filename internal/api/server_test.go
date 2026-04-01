@@ -3842,7 +3842,7 @@ func TestHandleDashboardsExposeRecommendedBundles(t *testing.T) {
 	if response.DashboardCount != 3 || response.EnabledDashboardCount != 2 || response.DisabledDashboardCount != 1 {
 		t.Fatalf("unexpected dashboard counts %+v", response)
 	}
-	if response.PanelCount != 22 || response.EnabledPanelCount != 11 || response.DisabledPanelCount != 11 {
+	if response.PanelCount != 23 || response.EnabledPanelCount != 11 || response.DisabledPanelCount != 12 {
 		t.Fatalf("unexpected dashboard panel counts %+v", response)
 	}
 	if dashboard, ok := dashboardByName(response.Dashboards, "zephyr.overview"); !ok || !dashboard.Enabled {
@@ -3857,6 +3857,8 @@ func TestHandleDashboardsExposeRecommendedBundles(t *testing.T) {
 		t.Fatalf("expected settlement_queue_drain_lag panel to be disabled with raw settlement lag metadata intact, got %+v", dashboard.Panels)
 	} else if panel, ok := dashboardPanelByID(dashboard.Panels, "settlement_queue_drain_utilization"); !ok || panel.Enabled || !strings.Contains(panel.DisabledReason, "disabled") || len(panel.RecordingRules) != 2 || panel.RecordingRules[0] != "zephyr:settlement_queue_drain:warn_utilization" {
 		t.Fatalf("expected settlement_queue_drain_utilization panel to be disabled with utilization recording rules intact, got %+v", dashboard.Panels)
+	} else if panel, ok := dashboardPanelByID(dashboard.Panels, "settlement_queue_drain_estimate"); !ok || panel.Enabled || !strings.Contains(panel.DisabledReason, "disabled") || len(panel.SourceMetrics) != 1 || panel.SourceMetrics[0] != "zephyr_settlement_estimated_queue_drain_seconds" {
+		t.Fatalf("expected settlement_queue_drain_estimate panel to be disabled with estimated drain metadata intact, got %+v", dashboard.Panels)
 	}
 	if dashboard, ok := dashboardByName(response.Dashboards, "zephyr.peer_sync"); !ok || dashboard.Enabled || !strings.Contains(dashboard.DisabledReason, "disabled") {
 		t.Fatalf("expected disabled peer-sync dashboard, got %+v", response.Dashboards)
@@ -3903,7 +3905,7 @@ func TestHandleGrafanaDashboardsExportsEnabledDashboardsOnly(t *testing.T) {
 	if response.NodeID != "dashboard-export-node" {
 		t.Fatalf("unexpected grafana dashboard node %+v", response)
 	}
-	if response.DashboardCount != 3 || response.PanelCount != 22 {
+	if response.DashboardCount != 3 || response.PanelCount != 23 {
 		t.Fatalf("unexpected grafana dashboard counts %+v", response)
 	}
 	if dashboard, ok := grafanaDashboardByName(response.Dashboards, "zephyr.peer_sync"); !ok {
@@ -3982,6 +3984,13 @@ func TestHandleGrafanaDashboardsExportsEnabledDashboardsOnly(t *testing.T) {
 		if _, ok := grafanaTargetByExpression(panel.Targets, "zephyr:settlement_queue_drain:fail_utilization"); !ok {
 			t.Fatalf("expected settlement queue-drain utilization query in grafana panel, got %+v", panel.Targets)
 		}
+		panel, ok = grafanaPanelByTitle(dashboard.Dashboard.Panels, "Estimated queue-drain time")
+		if !ok || panel.Type != "bargauge" {
+			t.Fatalf("expected estimated queue-drain time bargauge panel, got %+v", dashboard.Dashboard.Panels)
+		}
+		if _, ok := grafanaTargetByExpression(panel.Targets, "zephyr_settlement_estimated_queue_drain_seconds{window=\"5m\"}"); !ok {
+			t.Fatalf("expected estimated queue-drain query in grafana panel, got %+v", panel.Targets)
+		}
 	}
 }
 func TestHandleGrafanaDashboardsOmitDisabledSettlementAndPeerSyncPanels(t *testing.T) {
@@ -4024,6 +4033,9 @@ func TestHandleGrafanaDashboardsOmitDisabledSettlementAndPeerSyncPanels(t *testi
 		}
 		if _, ok := grafanaPanelByTitle(dashboard.Dashboard.Panels, "Settlement queue-drain utilization"); ok {
 			t.Fatalf("expected disabled settlement queue-drain utilization panel to be omitted, got %+v", dashboard.Dashboard.Panels)
+		}
+		if _, ok := grafanaPanelByTitle(dashboard.Dashboard.Panels, "Estimated queue-drain time"); ok {
+			t.Fatalf("expected disabled estimated queue-drain time panel to be omitted, got %+v", dashboard.Dashboard.Panels)
 		}
 	}
 }
@@ -4486,6 +4498,13 @@ func TestMetricsExposeSettlementThroughputLagSignals(t *testing.T) {
 	if response.SettlementThroughput.FailUtilizationRatio < 0.5 || response.SettlementThroughput.FailUtilizationRatio > 0.75 {
 		t.Fatalf("unexpected settlement fail utilization %+v", response.SettlementThroughput)
 	}
+	if estimate, ok := settlementDrainEstimateByWindow(response.SettlementThroughput.DrainEstimates, "1m"); !ok || estimate.Available {
+		t.Fatalf("expected 1m settlement drain estimate to remain unavailable without a recent throughput baseline, got %+v", response.SettlementThroughput.DrainEstimates)
+	} else if estimate, ok := settlementDrainEstimateByWindow(response.SettlementThroughput.DrainEstimates, "5m"); !ok || !estimate.Available || estimate.EstimatedDrainSeconds < 250 || estimate.EstimatedDrainSeconds > 350 {
+		t.Fatalf("expected 5m settlement drain estimate near 300s, got %+v", response.SettlementThroughput.DrainEstimates)
+	} else if estimate, ok := settlementDrainEstimateByWindow(response.SettlementThroughput.DrainEstimates, "15m"); !ok || !estimate.Available || estimate.EstimatedDrainSeconds < 850 || estimate.EstimatedDrainSeconds > 950 {
+		t.Fatalf("expected 15m settlement drain estimate near 900s, got %+v", response.SettlementThroughput.DrainEstimates)
+	}
 
 	prometheusRequest := httptest.NewRequest(http.MethodGet, "/metrics", nil)
 	prometheusRecorder := httptest.NewRecorder()
@@ -4509,6 +4528,11 @@ func TestMetricsExposeSettlementThroughputLagSignals(t *testing.T) {
 	}
 	if !strings.Contains(body, "zephyr_settlement_queue_drain_utilization_ratio{threshold=\"fail\"} ") {
 		t.Fatalf("expected settlement fail utilization metric, got:\n%s", body)
+	}
+	requirePrometheusLine(t, body, "zephyr_settlement_estimated_queue_drain_seconds{window=\"5m\"} 300")
+	requirePrometheusLine(t, body, "zephyr_settlement_estimated_queue_drain_seconds{window=\"15m\"} 900")
+	if strings.Contains(body, "zephyr_settlement_estimated_queue_drain_seconds{window=\"1m\"}") {
+		t.Fatalf("expected 1m settlement drain estimate to stay unavailable without recent throughput, got:\n%s", body)
 	}
 }
 
@@ -4543,6 +4567,13 @@ func TestMetricsExposeIdleSettlementUtilizationWhenMonitoringUnavailable(t *test
 	if response.SettlementThroughput.QueueDrainLagSeconds != 0 || response.SettlementThroughput.WarnUtilizationRatio != 0 || response.SettlementThroughput.FailUtilizationRatio != 0 {
 		t.Fatalf("expected idle settlement utilization on passive node, got %+v", response.SettlementThroughput)
 	}
+	if estimate, ok := settlementDrainEstimateByWindow(response.SettlementThroughput.DrainEstimates, "1m"); !ok || estimate.Available {
+		t.Fatalf("expected passive 1m settlement drain estimate to stay unavailable, got %+v", response.SettlementThroughput.DrainEstimates)
+	} else if estimate, ok := settlementDrainEstimateByWindow(response.SettlementThroughput.DrainEstimates, "5m"); !ok || estimate.Available {
+		t.Fatalf("expected passive 5m settlement drain estimate to stay unavailable, got %+v", response.SettlementThroughput.DrainEstimates)
+	} else if estimate, ok := settlementDrainEstimateByWindow(response.SettlementThroughput.DrainEstimates, "15m"); !ok || estimate.Available {
+		t.Fatalf("expected passive 15m settlement drain estimate to stay unavailable, got %+v", response.SettlementThroughput.DrainEstimates)
+	}
 
 	prometheusRequest := httptest.NewRequest(http.MethodGet, "/metrics", nil)
 	prometheusRecorder := httptest.NewRecorder()
@@ -4554,6 +4585,9 @@ func TestMetricsExposeIdleSettlementUtilizationWhenMonitoringUnavailable(t *test
 	requirePrometheusLine(t, body, "zephyr_settlement_monitoring_applicable 0")
 	requirePrometheusLine(t, body, "zephyr_settlement_queue_drain_utilization_ratio{threshold=\"warn\"} 0")
 	requirePrometheusLine(t, body, "zephyr_settlement_queue_drain_utilization_ratio{threshold=\"fail\"} 0")
+	if strings.Contains(body, "zephyr_settlement_estimated_queue_drain_seconds") {
+		t.Fatalf("expected passive settlement drain estimates to be omitted from prometheus export, got:\n%s", body)
+	}
 }
 
 func TestStructuredLogsEmitConsensusPeerAndRecoveryEvents(t *testing.T) {
@@ -5035,6 +5069,15 @@ func dashboardPanelByID(panels []DashboardPanel, id string) (DashboardPanel, boo
 		}
 	}
 	return DashboardPanel{}, false
+}
+
+func settlementDrainEstimateByWindow(estimates []SettlementDrainEstimateView, window string) (SettlementDrainEstimateView, bool) {
+	for _, estimate := range estimates {
+		if estimate.Window == window {
+			return estimate, true
+		}
+	}
+	return SettlementDrainEstimateView{}, false
 }
 
 func grafanaDashboardByName(dashboards []GrafanaDashboardExport, name string) (GrafanaDashboardExport, bool) {

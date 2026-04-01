@@ -149,6 +149,12 @@ func (s *Server) buildPrometheusMetrics(now time.Time) string {
 		writer.gauge("zephyr_settlement_queue_drain_utilization_ratio", "Normalized settlement queue-drain lag divided by the warn or fail threshold.", settlementThroughput.WarnUtilizationRatio, prometheusLabel{Name: "threshold", Value: "warn"})
 		writer.gauge("zephyr_settlement_queue_drain_utilization_ratio", "Normalized settlement queue-drain lag divided by the warn or fail threshold.", settlementThroughput.FailUtilizationRatio, prometheusLabel{Name: "threshold", Value: "fail"})
 	}
+	for _, estimate := range settlementThroughput.DrainEstimates {
+		if !estimate.Available {
+			continue
+		}
+		writer.gauge("zephyr_settlement_estimated_queue_drain_seconds", "Estimated seconds required to drain the current queued transaction backlog at the recent committed transaction throughput for each window.", estimate.EstimatedDrainSeconds, prometheusLabel{Name: "window", Value: estimate.Window})
+	}
 
 	writer.gauge("zephyr_consensus_current_height", "Current committed consensus height.", float64(consensusView.CurrentHeight))
 	writer.gauge("zephyr_consensus_next_height", "Next block height expected by consensus.", float64(consensusView.NextHeight))
