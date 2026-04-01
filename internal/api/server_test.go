@@ -3695,7 +3695,7 @@ func TestHandleRecordingRulesExposeRecommendedBundles(t *testing.T) {
 	if response.NodeID != "recording-rules-node" || response.PeerSyncEnabled {
 		t.Fatalf("unexpected recording-rules identity/config %+v", response)
 	}
-	if response.RuleCount != 17 || response.EnabledRuleCount != 13 || response.DisabledRuleCount != 4 {
+	if response.RuleCount != 19 || response.EnabledRuleCount != 15 || response.DisabledRuleCount != 4 {
 		t.Fatalf("unexpected recording-rule counts %+v", response)
 	}
 	if rule, ok := recordingRuleByRecord(response.Groups, "zephyr:node_readiness:ready"); !ok || !rule.Enabled || rule.Expression != "zephyr_node_ready" {
@@ -3703,6 +3703,9 @@ func TestHandleRecordingRulesExposeRecommendedBundles(t *testing.T) {
 	}
 	if rule, ok := recordingRuleByRecord(response.Groups, "zephyr:settlement_throughput:breached"); !ok || !rule.Enabled || rule.Expression != "zephyr_slo_objective_status{objective=\"settlement_throughput\",status=\"breached\"}" {
 		t.Fatalf("expected enabled settlement throughput breached recording rule, got %+v", response.Groups)
+	}
+	if rule, ok := recordingRuleByRecord(response.Groups, "zephyr:settlement_queue_drain:fail_utilization"); !ok || !rule.Enabled || rule.Expression != "zephyr_settlement_queue_drain_lag_seconds / clamp_min(zephyr_settlement_queue_drain_threshold_seconds{threshold=\"fail\"}, 1)" {
+		t.Fatalf("expected enabled settlement queue-drain fail utilization recording rule, got %+v", response.Groups)
 	}
 	if rule, ok := recordingRuleByRecord(response.Groups, "zephyr:peer_sync_continuity:breached"); !ok || rule.Enabled || !strings.Contains(rule.DisabledReason, "disabled") {
 		t.Fatalf("expected disabled peer-sync breached recording rule, got %+v", response.Groups)
@@ -3768,6 +3771,12 @@ func TestHandlePrometheusRecordingRulesExportsEnabledRulesOnly(t *testing.T) {
 	if !strings.Contains(body, "        expr: 'zephyr_slo_objective_status{objective=\"settlement_throughput\",status=\"breached\"}'\n") {
 		t.Fatalf("expected settlement throughput breached expression in prometheus recording rules, got:\n%s", body)
 	}
+	if !strings.Contains(body, "      - record: zephyr:settlement_queue_drain:warn_utilization\n") {
+		t.Fatalf("expected settlement queue-drain warn utilization recording rule in prometheus recording rules, got:\n%s", body)
+	}
+	if !strings.Contains(body, "        expr: 'zephyr_settlement_queue_drain_lag_seconds / clamp_min(zephyr_settlement_queue_drain_threshold_seconds{threshold=\"warn\"}, 1)'\n") {
+		t.Fatalf("expected settlement queue-drain warn utilization expression in prometheus recording rules, got:\n%s", body)
+	}
 	if !strings.Contains(body, "      - record: zephyr:consensus:recovery_backlog\n") {
 		t.Fatalf("expected consensus recovery backlog recording rule in prometheus recording rules, got:\n%s", body)
 	}
@@ -3802,7 +3811,7 @@ func TestHandleDashboardsExposeRecommendedBundles(t *testing.T) {
 	if response.DashboardCount != 3 || response.EnabledDashboardCount != 2 || response.DisabledDashboardCount != 1 {
 		t.Fatalf("unexpected dashboard counts %+v", response)
 	}
-	if response.PanelCount != 21 || response.EnabledPanelCount != 13 || response.DisabledPanelCount != 8 {
+	if response.PanelCount != 22 || response.EnabledPanelCount != 14 || response.DisabledPanelCount != 8 {
 		t.Fatalf("unexpected dashboard panel counts %+v", response)
 	}
 	if dashboard, ok := dashboardByName(response.Dashboards, "zephyr.overview"); !ok || !dashboard.Enabled {
@@ -3815,6 +3824,8 @@ func TestHandleDashboardsExposeRecommendedBundles(t *testing.T) {
 		t.Fatalf("expected settlement_throughput_state panel to reference settlement throughput recording rules, got %+v", dashboard.Panels)
 	} else if panel, ok := dashboardPanelByID(dashboard.Panels, "settlement_queue_drain_lag"); !ok || !panel.Enabled || len(panel.SourceMetrics) != 2 || panel.SourceMetrics[0] != "zephyr_settlement_queue_drain_lag_seconds" {
 		t.Fatalf("expected settlement_queue_drain_lag panel to reference raw settlement lag metrics, got %+v", dashboard.Panels)
+	} else if panel, ok := dashboardPanelByID(dashboard.Panels, "settlement_queue_drain_utilization"); !ok || !panel.Enabled || len(panel.RecordingRules) != 2 || panel.RecordingRules[0] != "zephyr:settlement_queue_drain:warn_utilization" {
+		t.Fatalf("expected settlement_queue_drain_utilization panel to reference utilization recording rules, got %+v", dashboard.Panels)
 	}
 	if dashboard, ok := dashboardByName(response.Dashboards, "zephyr.peer_sync"); !ok || dashboard.Enabled || !strings.Contains(dashboard.DisabledReason, "disabled") {
 		t.Fatalf("expected disabled peer-sync dashboard, got %+v", response.Dashboards)
@@ -3861,7 +3872,7 @@ func TestHandleGrafanaDashboardsExportsEnabledDashboardsOnly(t *testing.T) {
 	if response.NodeID != "dashboard-export-node" {
 		t.Fatalf("unexpected grafana dashboard node %+v", response)
 	}
-	if response.DashboardCount != 3 || response.PanelCount != 21 {
+	if response.DashboardCount != 3 || response.PanelCount != 22 {
 		t.Fatalf("unexpected grafana dashboard counts %+v", response)
 	}
 	if dashboard, ok := grafanaDashboardByName(response.Dashboards, "zephyr.peer_sync"); !ok {
@@ -3932,6 +3943,13 @@ func TestHandleGrafanaDashboardsExportsEnabledDashboardsOnly(t *testing.T) {
 		}
 		if _, ok := grafanaTargetByExpression(panel.Targets, "zephyr_settlement_queue_drain_lag_seconds"); !ok {
 			t.Fatalf("expected settlement queue-drain lag query in grafana panel, got %+v", panel.Targets)
+		}
+		panel, ok = grafanaPanelByTitle(dashboard.Dashboard.Panels, "Settlement queue-drain utilization")
+		if !ok || panel.Type != "bargauge" {
+			t.Fatalf("expected settlement queue-drain utilization bargauge panel, got %+v", dashboard.Dashboard.Panels)
+		}
+		if _, ok := grafanaTargetByExpression(panel.Targets, "zephyr:settlement_queue_drain:fail_utilization"); !ok {
+			t.Fatalf("expected settlement queue-drain utilization query in grafana panel, got %+v", panel.Targets)
 		}
 	}
 }

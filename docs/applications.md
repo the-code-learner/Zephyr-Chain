@@ -81,7 +81,7 @@ Zephyr can also fit managed validator services and consortium-operated partner n
 
 Why it fits:
 
-- `/v1/health`, `/v1/alerts`, `/v1/slo`, `/v1/alert-rules`, `/v1/alert-rules/prometheus`, `/v1/recording-rules`, `/v1/recording-rules/prometheus`, `/v1/dashboards`, `/v1/dashboards/grafana`, `/v1/metrics`, Prometheus `/metrics`, structured logs, and durable peer incident history with cross-peer state, reason, and error-code rollups plus per-peer retained incident pressure gauges, rolling chain-throughput windows, canonical recent-TPS recording rules, canonical settlement-throughput state rollups, raw settlement queue-drain lag plus threshold gauges, settlement-throughput health or alert or SLO projections, and recording-rule-backed or raw-metric-backed dashboard panels give operators a concrete base for automated health checks, derived alert polling, targeted peer import, admission, replication, or queue-drain diagnosis, restart-safe peer-context recovery in `/v1/peers`, objective tracking, rule export, dashboard bundle export, scraping, dashboard rollups, throughput baselining, and incident response
+- `/v1/health`, `/v1/alerts`, `/v1/slo`, `/v1/alert-rules`, `/v1/alert-rules/prometheus`, `/v1/recording-rules`, `/v1/recording-rules/prometheus`, `/v1/dashboards`, `/v1/dashboards/grafana`, `/v1/metrics`, Prometheus `/metrics`, structured logs, and durable peer incident history with cross-peer state, reason, and error-code rollups plus per-peer retained incident pressure gauges, rolling chain-throughput windows, canonical recent-TPS recording rules, canonical settlement-throughput state rollups, normalized queue-drain utilization rollups, raw settlement queue-drain lag plus threshold gauges, settlement-throughput health or alert or SLO projections, and recording-rule-backed or raw-metric-backed dashboard panels give operators a concrete base for automated health checks, derived alert polling, targeted peer import, admission, replication, or queue-drain diagnosis, restart-safe peer-context recovery in `/v1/peers`, objective tracking, rule export, dashboard bundle export, scraping, dashboard rollups, throughput baselining, and incident response
 - peer admission and validator binding map well to known-participant topologies
 
 Production prerequisites:
@@ -153,6 +153,7 @@ Zephyr is not yet a good production choice for:
 - environments that require mature slashing, governance, or crash-recovery guarantees right now
 
 Those are roadmap targets, not present-day claims.
+
 
 
 
