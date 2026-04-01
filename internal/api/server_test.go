@@ -4477,6 +4477,15 @@ func TestMetricsExposeSettlementThroughputLagSignals(t *testing.T) {
 	if response.SettlementThroughput.QueueDrainLagSeconds < 70 || response.SettlementThroughput.QueueDrainLagSeconds > 90 {
 		t.Fatalf("unexpected settlement queue-drain lag %+v", response.SettlementThroughput)
 	}
+	if response.SettlementThroughput.AlertCode != settlementThroughputAlertReduced || response.SettlementThroughput.AlertSeverity != alertSeverityWarning || response.SettlementThroughput.ObservedAt == nil {
+		t.Fatalf("expected settlement alert metadata in structured metrics, got %+v", response.SettlementThroughput)
+	}
+	if response.SettlementThroughput.WarnUtilizationRatio < 1 || response.SettlementThroughput.WarnUtilizationRatio > 1.5 {
+		t.Fatalf("unexpected settlement warn utilization %+v", response.SettlementThroughput)
+	}
+	if response.SettlementThroughput.FailUtilizationRatio < 0.5 || response.SettlementThroughput.FailUtilizationRatio > 0.75 {
+		t.Fatalf("unexpected settlement fail utilization %+v", response.SettlementThroughput)
+	}
 
 	prometheusRequest := httptest.NewRequest(http.MethodGet, "/metrics", nil)
 	prometheusRecorder := httptest.NewRecorder()
@@ -4495,6 +4504,56 @@ func TestMetricsExposeSettlementThroughputLagSignals(t *testing.T) {
 	if !strings.Contains(body, "zephyr_settlement_queue_drain_lag_seconds ") {
 		t.Fatalf("expected settlement queue-drain lag metric, got:\n%s", body)
 	}
+	if !strings.Contains(body, "zephyr_settlement_queue_drain_utilization_ratio{threshold=\"warn\"} ") {
+		t.Fatalf("expected settlement warn utilization metric, got:\n%s", body)
+	}
+	if !strings.Contains(body, "zephyr_settlement_queue_drain_utilization_ratio{threshold=\"fail\"} ") {
+		t.Fatalf("expected settlement fail utilization metric, got:\n%s", body)
+	}
+}
+
+func TestMetricsExposeIdleSettlementUtilizationWhenMonitoringUnavailable(t *testing.T) {
+	server := newTestServer(t, Config{
+		DataDir:                 t.TempDir(),
+		NodeID:                  "settlement-metrics-passive-node",
+		BlockInterval:           15 * time.Second,
+		SyncInterval:            0,
+		MaxTransactionsPerBlock: 10,
+		EnableBlockProduction:   false,
+		EnablePeerSync:          false,
+	})
+
+	request := httptest.NewRequest(http.MethodGet, "/v1/metrics", nil)
+	recorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected passive metrics status 200, got %d", recorder.Code)
+	}
+
+	var response MetricsResponse
+	if err := json.NewDecoder(recorder.Body).Decode(&response); err != nil {
+		t.Fatalf("decode passive settlement metrics response: %v", err)
+	}
+	if response.SettlementThroughput.Applicable || response.SettlementThroughput.AlertCode != "" || response.SettlementThroughput.AlertSeverity != "" || response.SettlementThroughput.ObservedAt != nil {
+		t.Fatalf("expected passive settlement throughput alert metadata to stay empty, got %+v", response.SettlementThroughput)
+	}
+	if response.SettlementThroughput.ExpectedIntervalSeconds != 15 || response.SettlementThroughput.WarnAfterSeconds != 60 || response.SettlementThroughput.FailAfterSeconds != 120 {
+		t.Fatalf("unexpected passive settlement throughput thresholds %+v", response.SettlementThroughput)
+	}
+	if response.SettlementThroughput.QueueDrainLagSeconds != 0 || response.SettlementThroughput.WarnUtilizationRatio != 0 || response.SettlementThroughput.FailUtilizationRatio != 0 {
+		t.Fatalf("expected idle settlement utilization on passive node, got %+v", response.SettlementThroughput)
+	}
+
+	prometheusRequest := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+	prometheusRecorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(prometheusRecorder, prometheusRequest)
+	if prometheusRecorder.Code != http.StatusOK {
+		t.Fatalf("expected passive prometheus metrics status 200, got %d", prometheusRecorder.Code)
+	}
+	body := prometheusRecorder.Body.String()
+	requirePrometheusLine(t, body, "zephyr_settlement_monitoring_applicable 0")
+	requirePrometheusLine(t, body, "zephyr_settlement_queue_drain_utilization_ratio{threshold=\"warn\"} 0")
+	requirePrometheusLine(t, body, "zephyr_settlement_queue_drain_utilization_ratio{threshold=\"fail\"} 0")
 }
 
 func TestStructuredLogsEmitConsensusPeerAndRecoveryEvents(t *testing.T) {
