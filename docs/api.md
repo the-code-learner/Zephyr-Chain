@@ -379,7 +379,7 @@ Current behavior:
 - the top-level response includes `generatedAt`, node identity, optional validator address, peer count, `peerSyncEnabled`, current health or alert summary counts, total rule counts, and grouped rule bundles
 - rules are currently grouped into readiness, consensus, throughput, and peer-sync bundles; the throughput group adds queue-drain warnings for automatic block production, and the peer-sync group includes continuity plus targeted peer import, peer admission, and peer replication diagnostics
 - each rule includes `summary`, `description`, `expression`, severity, component, source metrics, related alert codes or SLO objectives, and whether the rule is currently enabled for the node's runtime configuration
-- peer-sync rules stay visible in the JSON surface even when peer sync is disabled or no peers are configured; in those cases they include `enabled=false` plus a `disabledReason` so operators can see what would become active in a synced deployment
+- throughput and peer-sync rules stay visible in the JSON surface even when the related runtime mode is unavailable; settlement-throughput rules include `enabled=false` plus a `disabledReason` when automatic block production is disabled or has no positive block interval, and peer-sync rules do the same when peer sync is disabled or no peers are configured
 - the current bundle is intentionally opinionated: it is a recommended starting point for monitoring stacks built on `zephyr_node_ready`, `zephyr_alert_active`, and `zephyr_slo_objective_status`
 
 ### GET /v1/alert-rules/prometheus
@@ -402,7 +402,7 @@ Current behavior:
 - the top-level response includes `generatedAt`, node identity, optional validator address, peer count, `peerSyncEnabled`, current health or alert summary counts, total rule counts, and grouped rule bundles
 - rules are currently grouped into readiness, consensus, throughput, peer-sync, and operator-summary bundles
 - each rule includes a stable `record` name, `summary`, `description`, `expression`, component, source metrics, related alert codes or SLO objectives, and whether the rule is currently enabled for the node's runtime configuration; the throughput group adds canonical `zephyr:settlement_throughput:at_risk` and `zephyr:settlement_throughput:breached` rollups for queue-drain state plus normalized `zephyr:settlement_queue_drain:warn_utilization` and `zephyr:settlement_queue_drain:fail_utilization` rollups for threshold pressure
-- peer-sync rules stay visible in the JSON surface even when peer sync is disabled or no peers are configured; in those cases they include `enabled=false` plus a `disabledReason` so operators can see what would become active in a synced deployment
+- throughput and peer-sync rules stay visible in the JSON surface even when the related runtime mode is unavailable; settlement-throughput rules include `enabled=false` plus a `disabledReason` when automatic block production is disabled or has no positive block interval, and peer-sync rules do the same when peer sync is disabled or no peers are configured
 - the current bundle is intentionally opinionated: it is a recommended starting point for dashboards, fleet rollups, and downstream Prometheus recording-rule files built on `zephyr_node_ready`, `zephyr_alert_count_by_severity`, `zephyr_slo_objective_status`, recovery or peer-runtime gauges, the settlement-throughput rollups `zephyr:settlement_throughput:at_risk` and `zephyr:settlement_throughput:breached`, the settlement queue-drain utilization rollups `zephyr:settlement_queue_drain:warn_utilization` and `zephyr:settlement_queue_drain:fail_utilization`, the per-peer incident-pressure rollup `zephyr:peer_sync:incident_pressure_by_peer`, and the canonical recent-TPS rollups `zephyr:chain:transactions_per_second_1m`, `zephyr:chain:transactions_per_second_5m`, and `zephyr:chain:transactions_per_second_15m`
 
 ### GET /v1/recording-rules/prometheus
@@ -412,7 +412,7 @@ Returns the enabled portion of the same bundle as Prometheus recording-rule YAML
 Current behavior:
 
 - the response uses `application/yaml; charset=utf-8`
-- only enabled rules are exported, so peer-sync recording rules are omitted when peer sync is disabled or no peers are configured
+- only enabled rules are exported, so settlement-throughput recording rules are omitted when automatic block production is disabled or has no positive block interval, and peer-sync recording rules are omitted when peer sync is disabled or no peers are configured
 - rules are grouped into readiness, consensus, throughput, peer-sync, and operator-summary groups and include stable `record` names plus component, group, related objective, or related alert labels when applicable; the throughput group includes `zephyr:settlement_throughput:at_risk`, `zephyr:settlement_throughput:breached`, `zephyr:settlement_queue_drain:warn_utilization`, and `zephyr:settlement_queue_drain:fail_utilization`, the peer-sync group includes the per-peer incident-pressure rollup `zephyr:peer_sync:incident_pressure_by_peer`, and the operator-summary group includes the canonical recent-TPS rollups `zephyr:chain:transactions_per_second_1m`, `zephyr:chain:transactions_per_second_5m`, and `zephyr:chain:transactions_per_second_15m`
 - this endpoint is designed as an export adapter for monitoring systems that already scrape `GET /metrics` and want reusable dashboard or aggregation series without hand-writing PromQL
 
@@ -425,7 +425,7 @@ Current behavior:
 - the top-level response includes `generatedAt`, node identity, optional validator address, peer count, `peerSyncEnabled`, `structuredLogsEnabled`, current health or objective summary counts, total dashboard counts, total panel counts, and the current dashboard list
 - dashboards are currently grouped into operator overview, consensus-and-recovery, and peer-sync bundles; the overview bundle now includes a `Recent transaction throughput` panel backed by the canonical `zephyr:chain:transactions_per_second_1m`, `zephyr:chain:transactions_per_second_5m`, and `zephyr:chain:transactions_per_second_15m` recording rules, a `Settlement throughput state` panel backed by `zephyr:settlement_throughput:at_risk` and `zephyr:settlement_throughput:breached`, a raw `Settlement queue-drain lag` panel backed by `zephyr_settlement_queue_drain_lag_seconds` plus `zephyr_settlement_queue_drain_threshold_seconds`, and a normalized `Settlement queue-drain utilization` panel backed by `zephyr:settlement_queue_drain:warn_utilization` and `zephyr:settlement_queue_drain:fail_utilization`, while the peer-sync bundle includes incident-by-state, incident-by-reason, incident-by-error-code, and per-peer incident-pressure panels tied back to the peer import, peer admission, and peer replication alert codes, with the per-peer panel using the canonical recording rule `zephyr:peer_sync:incident_pressure_by_peer`
 - each panel includes a stable panel `id`, `kind`, `summary`, `description`, PromQL queries, source metrics, source endpoints, related recording rules, related alert codes or objectives, and whether the panel is currently enabled for the node's runtime configuration
-- the peer-sync dashboard stays visible in the JSON surface even when peer sync is disabled or no peers are configured; in those cases it includes `enabled=false` plus a `disabledReason` and the same disabled reason is reflected on its panels
+- settlement-specific overview panels stay visible in the JSON surface even when automatic block production monitoring is unavailable, and the peer-sync dashboard does the same when peer sync is disabled or no peers are configured; in both cases the affected panels include `enabled=false` plus a `disabledReason` so operators can see what would become active on a producing or synced node
 - the current bundle is intentionally opinionated: it is a recommended starting point for Grafana or other dashboard tooling built on `GET /metrics`, the recording-rule bundle, and the higher-level health, alert, or SLO projections
 
 ### GET /v1/dashboards/grafana
@@ -604,6 +604,9 @@ If proposals exist for that height but the imported block does not match any sto
 Returns the current durable node snapshot used for catch-up restore.
 
 When another node applies this snapshot through peer sync, it preserves its own local recovery, diagnostic, peer-sync incident history, and derived peer-sync summary context instead of replacing that operator context with the peer's local WAL or diagnostics.
+
+
+
 
 
 

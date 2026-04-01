@@ -62,8 +62,8 @@ What to expect:
 - `/v1/slo` groups them into objective states so operators can see whether readiness, consensus continuity, peer sync continuity, or settlement throughput is meeting, at risk, breached, or not applicable
 - `/metrics` exports the alert, health, and SLO state as Prometheus-style gauges such as `zephyr_node_ready`, `zephyr_health_check_status`, `zephyr_alert_active`, and `zephyr_slo_objective_status`, plus peer-incident gauges such as `zephyr_peer_sync_reason_occurrence_count`, `zephyr_peer_sync_error_code_occurrence_count`, per-peer retained-incident gauges like `zephyr_peer_sync_peer_occurrence_count`, chain throughput gauges such as `zephyr_chain_total_committed_transaction_count` and `zephyr_chain_window_transactions_per_second`, and settlement queue-drain gauges such as `zephyr_settlement_queue_drain_lag_seconds` and `zephyr_settlement_queue_drain_threshold_seconds`, while `/v1/metrics` keeps the structured JSON view including `chainThroughput` windows for `1m`, `5m`, and `15m` plus the typed `settlementThroughput` lag and threshold view
 - `/v1/alert-rules` keeps the structured recommended alert bundle, while `/v1/alert-rules/prometheus` exports the enabled subset as Prometheus-rule YAML for scrape-based alerting stacks
-- `/v1/recording-rules` keeps the structured recommended recording bundle, while `/v1/recording-rules/prometheus` exports the enabled subset as Prometheus recording-rule YAML for dashboard and aggregation stacks, including canonical settlement-throughput state, queue-drain utilization, and recent-TPS rollups
-- `/v1/dashboards` keeps the structured recommended dashboard bundle, while `/v1/dashboards/grafana` exports the enabled subset as Grafana-oriented JSON built on the current recording rules and metrics, including the overview throughput, settlement-state, raw queue-drain-lag, and queue-drain-utilization panels
+- `/v1/recording-rules` keeps the structured recommended recording bundle, while `/v1/recording-rules/prometheus` exports the enabled subset as Prometheus recording-rule YAML for dashboard and aggregation stacks, including canonical settlement-throughput state, queue-drain utilization, and recent-TPS rollups; on passive nodes the settlement-specific rules stay visible in JSON with `disabledReason` while the Prometheus export omits them
+- `/v1/dashboards` keeps the structured recommended dashboard bundle, while `/v1/dashboards/grafana` exports the enabled subset as Grafana-oriented JSON built on the current recording rules and metrics, including the overview throughput, settlement-state, raw queue-drain-lag, and queue-drain-utilization panels; on passive nodes the settlement-specific panels stay visible in JSON with `disabledReason` while Grafana export omits them
 - use `/v1/health` together with `/v1/alerts`, `/v1/slo`, `/metrics`, `/v1/metrics`, `GET /v1/status`, `/v1/dashboards`, and structured logs when you need both a quick readiness gate and deeper incident context
 
 ## Export Recommended Alert Rules
@@ -408,6 +408,8 @@ Expected behavior:
 13. Inspect the resulting block, vote tallies, and certificate on both nodes.
 14. Optionally restart a node and confirm the validator snapshot, round state, consensus artifacts, and `recovery` state survived.
 15. If the restarted node had a pending local proposal or vote, confirm the action is replayed and later marked completed once the block finalizes.
+
+
 
 
 
