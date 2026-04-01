@@ -67,7 +67,7 @@ The node entrypoint lives in `cmd/node/main.go` and starts an HTTP server from `
 The API layer now handles:
 
 - liveness through `GET /health`
-- Prometheus-style scrape export through `GET /metrics`, including per-peer retained incident counts, latest observation timestamps, committed-chain throughput gauges plus rolling `1m`, `5m`, and `15m` TPS windows, and raw settlement queue-drain lag plus threshold gauges
+- Prometheus-style scrape export through `GET /metrics`, including per-peer retained incident counts, latest observation timestamps, committed-chain throughput gauges plus rolling `1m`, `5m`, and `15m` TPS windows, and raw settlement queue-drain lag plus threshold and utilization-ratio gauges
 - derived readiness through `GET /v1/health`, including settlement queue-drain checks when automatic block production is enabled
 - derived alerts through `GET /v1/alerts`, including settlement-throughput reduced or stalled signals when queued transactions outlive the expected block window
 - derived SLO summaries through `GET /v1/slo`, including the settlement-throughput objective alongside readiness and peer-continuity summaries
@@ -75,7 +75,7 @@ The API layer now handles:
 - recommended recording-rule bundles through `GET /v1/recording-rules` and `GET /v1/recording-rules/prometheus`, including settlement-throughput state rollups, normalized settlement queue-drain utilization rollups, the per-peer incident-pressure rollup used by the peer-sync dashboard, canonical recent-TPS rollups for the overview dashboard, and runtime-aware disabled reasons when a producing or synced role is not active
 - recommended dashboard bundles through `GET /v1/dashboards` and `GET /v1/dashboards/grafana`, including settlement-throughput state, raw settlement queue-drain lag, normalized queue-drain utilization, and recent transaction throughput in the overview bundle plus peer incident-pressure drill-down by peer, with JSON metadata preserved for runtime-disabled panels and enabled-only Grafana export
 - runtime status through `GET /v1/status`
-- machine-readable observability through `GET /v1/metrics`
+- machine-readable observability through `GET /v1/metrics`, including structured settlement alert metadata and normalized queue-drain utilization ratios
 - peer visibility through `GET /v1/peers`, including admission, identity, live sync/repair telemetry, restart-safe import, snapshot, and replication-failure backfill from durable incidents, durable per-peer incident history, and derived per-peer incident counters
 - consensus visibility through `GET /v1/consensus`
 - validator election inputs through `POST /v1/election`
@@ -191,6 +191,8 @@ The repository has moved from consensus-preparation-only into certificate-gated 
 - broader consensus recovery coverage is still needed beyond the current local proposal, vote, and certified block-commit WAL plus import-repair and snapshot-recovery path
 
 That is why the project has moved beyond replicated prototype, but it is still not a production blockchain.
+
+
 
 
 
