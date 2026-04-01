@@ -45,8 +45,8 @@ Implemented in this iteration:
 - `GET /v1/health` now includes a `settlement_throughput` check that watches queued transaction drain against the configured automatic block interval when block production is enabled
 - `GET /v1/alerts` and `GET /v1/slo` now derive `settlement_throughput_reduced`, `settlement_throughput_stalled`, and the `settlement_throughput` objective so slow or stalled queue drain becomes first-class operator evidence
 - `GET /v1/alert-rules` and `GET /v1/alert-rules/prometheus` now export `ZephyrSettlementThroughputAtRisk` and `ZephyrSettlementThroughputStalled` so the same queue-drain signal can be promoted into Prometheus-based alerting
-- `GET /v1/recording-rules` and `GET /v1/recording-rules/prometheus` now additionally export canonical `zephyr:settlement_throughput:at_risk` and `zephyr:settlement_throughput:breached` rollups for queue-drain dashboards and fleet summaries
-- `GET /v1/dashboards` and `GET /v1/dashboards/grafana` now add both a `Settlement throughput state` overview panel built on those rollups and a raw `Settlement queue-drain lag` panel built on the settlement gauges so operators can see queue-drain pressure next to recent TPS baselines
+- `GET /v1/recording-rules` and `GET /v1/recording-rules/prometheus` now additionally export canonical `zephyr:settlement_throughput:at_risk` and `zephyr:settlement_throughput:breached` rollups plus normalized `zephyr:settlement_queue_drain:warn_utilization` and `zephyr:settlement_queue_drain:fail_utilization` series for queue-drain dashboards and fleet summaries
+- `GET /v1/dashboards` and `GET /v1/dashboards/grafana` now add a `Settlement throughput state` overview panel, a raw `Settlement queue-drain lag` panel, and a normalized `Settlement queue-drain utilization` panel so operators can see both absolute lag and threshold pressure next to recent TPS baselines
 - `GET /v1/peers` now backfills the latest import, snapshot-repair, and replication-failure telemetry from durable peer incidents so operator context survives restart before the next live sync pass
 - successful local certified commits now record a durable `block_commit` consensus action so recovery history and action metrics cover the full proposer path from proposal and vote through commit
 - focused tests now cover peer import, admission, and replication alerts, per-peer Prometheus incident metrics, restart-safe per-peer telemetry reconstruction, JSON and Prometheus throughput metrics including raw settlement-lag gauges, throughput health or alert or SLO projections, alert-rule export, dashboard export, and durable `block_commit` history across the operator surfaces
@@ -351,6 +351,8 @@ Short version:
 ## License
 
 Zephyr Chain is licensed under the MIT License. See [LICENSE](./LICENSE).
+
+
 
 
 
