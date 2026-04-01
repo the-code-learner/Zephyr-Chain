@@ -1,4 +1,4 @@
-# Zephyr Chain Roadmap
+﻿# Zephyr Chain Roadmap
 
 ## Goal
 
@@ -38,12 +38,12 @@ As of this iteration, the repository has:
 - a machine-readable `GET /v1/metrics` surface that rolls up consensus-action counts, rejection-diagnostic buckets, durable peer-sync summary state by peer, state, reason, and error code, live peer runtime counts by sync state, committed-chain throughput windows for recent TPS baselining, and a typed settlement queue-drain view with lag plus thresholds
 - optional structured JSON event logs for consensus diagnostics, peer-sync incidents, and snapshot-restore recovery behind `ZEPHYR_ENABLE_STRUCTURED_LOGS`
 - an operator-facing `GET /v1/health` readiness surface that derives pass, warn, and fail checks from validator-set availability, recovery backlog, consensus warnings, settlement queue-drain lag under automatic block production, peer runtime, and recent diagnostics
-- a Prometheus-style `GET /metrics` export adapter that projects the same readiness, consensus, diagnostic, recovery, peer, and chain-throughput signals into scrape-friendly text metrics, including per-peer retained incident counts, latest observation timestamps, recent TPS gauges, and settlement queue-drain lag, threshold, utilization-ratio, and backlog-drain-estimate gauges
+- a Prometheus-style `GET /metrics` export adapter that projects the same readiness, consensus, diagnostic, recovery, peer, and chain-throughput signals into scrape-friendly text metrics, including per-peer retained incident counts, latest observation timestamps, recent TPS gauges, and settlement queue-drain lag, threshold, utilization-ratio, warn-normalized drain-estimate-pressure, and backlog-drain-estimate gauges
 - an operator-facing `GET /v1/alerts` surface that turns the current readiness, recovery, diagnostics, throughput, and peer-sync state into derived warning and critical alerts, including settlement-throughput reduced or stalled warnings for queued transaction drain plus targeted peer import, peer admission, and peer replication warnings from retained peer incidents
 - an operator-facing `GET /v1/slo` surface that projects those same signals into SLO-oriented objective states for readiness, consensus continuity, peer-sync continuity, and settlement throughput
 - recommended alert-rule bundle exports through JSON `GET /v1/alert-rules` and Prometheus-oriented `GET /v1/alert-rules/prometheus`, now including settlement-throughput at-risk and stalled rules for automatic block production
-- recommended recording-rule bundle exports through JSON `GET /v1/recording-rules` and Prometheus-oriented `GET /v1/recording-rules/prometheus`, now including settlement-throughput state rollups plus normalized queue-drain utilization and queue-drain estimate rollups for queue-drain dashboards, a per-peer incident-pressure rollup for peer-sync dashboards, canonical `1m`, `5m`, and `15m` TPS rollups for the overview dashboard, and runtime-aware disabled reasons when settlement monitoring or peer sync is not applicable
-- recommended dashboard bundle exports through JSON `GET /v1/dashboards` and Grafana-oriented `GET /v1/dashboards/grafana`, including overview throughput, settlement-state, raw queue-drain-lag, queue-drain-utilization, and queue-drain-estimate panels plus peer incident drill-down panels, with runtime-aware disabled reasons in JSON and enabled-only Grafana export
+- recommended recording-rule bundle exports through JSON `GET /v1/recording-rules` and Prometheus-oriented `GET /v1/recording-rules/prometheus`, now including settlement-throughput state rollups plus normalized queue-drain utilization, projected queue-drain pressure, and queue-drain estimate rollups for queue-drain dashboards, a per-peer incident-pressure rollup for peer-sync dashboards, canonical `1m`, `5m`, and `15m` TPS rollups for the overview dashboard, and runtime-aware disabled reasons when settlement monitoring or peer sync is not applicable
+- recommended dashboard bundle exports through JSON `GET /v1/dashboards` and Grafana-oriented `GET /v1/dashboards/grafana`, including overview throughput, settlement-state, raw queue-drain-lag, queue-drain-utilization, queue-drain-pressure, and queue-drain-estimate panels plus peer incident drill-down panels, with runtime-aware disabled reasons in JSON and enabled-only Grafana export
 - a bounded local consensus-action WAL with pending/completed status, replay-attempt metadata, restart-safe persistence, explicit proposer-side `block_commit` history, import-recovery plus snapshot-restore history, and durable peer-sync incident history
 - bounded recent consensus diagnostics for rejected proposal, vote, commit, and import paths, including explicit `template_mismatch` and peer-sync import failures
 - a browser wallet that can create accounts, sign locally, and submit transactions
@@ -97,7 +97,7 @@ Status:
 - valid higher-round proposals and votes can move a node onto the newer round instead of being rejected just because the local timer had not fired yet
 - a first timeout-driven engine now exists: the scheduled proposer can self-propose, active validators can auto-vote, timeout can rotate the proposer, the next proposer can reuse the latest stored candidate body, and the proposer can auto-commit after quorum when certificate enforcement is enabled
 - proposal and vote broadcasts on the automation path are now sent in-order to avoid vote-before-proposal races on the happy path
-- the current automation path now has delayed-link proposal and vote recovery, richer round evidence, per-height round history, block readiness, import-aware recovery state, durable peer-sync history, derived peer-sync summary, bounded rejection diagnostics, a machine-readable `GET /v1/metrics` surface with settlement alert metadata, normalized queue-drain utilization ratios, and recent backlog-drain estimates, Prometheus `GET /metrics`, operator-facing `GET /v1/health` including settlement queue-drain checks, derived `GET /v1/alerts` with settlement-throughput plus peer import, admission, and replication diagnostics, derived `GET /v1/slo`, recommended `GET /v1/alert-rules`, exported `GET /v1/alert-rules/prometheus`, recommended `GET /v1/recording-rules` including canonical settlement drain-estimate rollups, exported `GET /v1/recording-rules/prometheus`, recommended `GET /v1/dashboards` with a rule-backed estimated queue-drain panel, exported `GET /v1/dashboards/grafana`, structured JSON event logs, and a restart-safe local proposal, vote, and certified block-commit history plus snapshot-repair history, but it still lacks broader recovery coverage and longer-horizon incident retention
+- the current automation path now has delayed-link proposal and vote recovery, richer round evidence, per-height round history, block readiness, import-aware recovery state, durable peer-sync history, derived peer-sync summary, bounded rejection diagnostics, a machine-readable `GET /v1/metrics` surface with settlement alert metadata, normalized queue-drain utilization ratios, recent backlog-drain estimates, and per-estimate warn utilization ratios, Prometheus `GET /metrics`, operator-facing `GET /v1/health` including settlement queue-drain checks, derived `GET /v1/alerts` with settlement-throughput plus peer import, admission, and replication diagnostics, derived `GET /v1/slo`, recommended `GET /v1/alert-rules`, exported `GET /v1/alert-rules/prometheus`, recommended `GET /v1/recording-rules` including canonical settlement drain-estimate and projected-pressure rollups, exported `GET /v1/recording-rules/prometheus`, recommended `GET /v1/dashboards` with rule-backed estimated queue-drain pressure and time panels, exported `GET /v1/dashboards/grafana`, structured JSON event logs, and a restart-safe local proposal, vote, and certified block-commit history plus snapshot-repair history, but it still lacks broader recovery coverage and longer-horizon incident retention
 
 Next steps:
 
@@ -124,14 +124,14 @@ Status:
 - admitted-peer policy already gates current HTTP sync and replication behavior
 - proposal, vote, and certified-block replication already ride over that abstraction
 - failed outgoing proposal, vote, and block dissemination now lands in durable `replication_blocked` peer incidents with reason and error-code rollups
-- a first machine-readable `GET /v1/metrics` surface already exposes current transport and consensus observability as JSON for operator tooling and future export adapters, including structured settlement alert metadata, normalized queue-drain utilization ratios, and recent backlog-drain estimates
+- a first machine-readable `GET /v1/metrics` surface already exposes current transport and consensus observability as JSON for operator tooling and future export adapters, including structured settlement alert metadata, normalized queue-drain utilization ratios, recent backlog-drain estimates, and per-estimate warn utilization ratios
 - `GET /metrics` now exposes those same operator signals through a Prometheus-style text exporter for standard scraping stacks
 - `GET /v1/health` now condenses those same runtime signals into a pass, warn, or fail readiness surface for operators and automation
 - `GET /v1/alerts` now exposes derived warning and critical alerts for polling dashboards, operators, and automation, including targeted peer import, admission, and replication diagnostics
 - `GET /v1/slo` now exposes SLO-oriented objective summaries on top of those same signals for dashboards, operators, and automation
 - `GET /v1/alert-rules` and `GET /v1/alert-rules/prometheus` now turn those same metrics and objectives into recommended monitoring bundles for JSON and Prometheus-oriented workflows
-- `GET /v1/recording-rules` and `GET /v1/recording-rules/prometheus` now turn those same metrics and objectives into recommended dashboard and aggregation rollups for JSON and Prometheus-oriented workflows, including settlement-throughput state rollups, normalized queue-drain utilization and queue-drain estimate rollups, a per-peer incident-pressure rollup for peer-sync drill-down, and runtime-aware disabled reasons when a producing or synced role is absent
-- `GET /v1/dashboards` and `GET /v1/dashboards/grafana` now turn those same metrics, rollups, and objectives into recommended operator dashboard bundles and Grafana-oriented export, including settlement-throughput state, raw queue-drain lag, normalized queue-drain utilization, rule-backed estimated queue-drain time, and recent TPS panels in the overview bundle plus peer incident reason, error-code, and per-peer pressure diagnosis in the peer-sync bundle, with JSON metadata preserved even when some panels are runtime-disabled
+- `GET /v1/recording-rules` and `GET /v1/recording-rules/prometheus` now turn those same metrics and objectives into recommended dashboard and aggregation rollups for JSON and Prometheus-oriented workflows, including settlement-throughput state rollups, normalized queue-drain utilization, projected queue-drain pressure, and queue-drain estimate rollups, a per-peer incident-pressure rollup for peer-sync drill-down, and runtime-aware disabled reasons when a producing or synced role is absent
+- `GET /v1/dashboards` and `GET /v1/dashboards/grafana` now turn those same metrics, rollups, and objectives into recommended operator dashboard bundles and Grafana-oriented export, including settlement-throughput state, raw queue-drain lag, normalized queue-drain utilization, rule-backed estimated queue-drain pressure, rule-backed estimated queue-drain time, and recent TPS panels in the overview bundle plus peer incident reason, error-code, and per-peer pressure diagnosis in the peer-sync bundle, with JSON metadata preserved even when some panels are runtime-disabled
 - optional structured JSON event logs already expose consensus diagnostics, peer incidents, and snapshot recovery as line-oriented runtime events
 - the timeout-driven automation slice already uses that transport for proposal and vote dissemination
 - behind nodes can fetch blocks or restore full snapshots
@@ -216,6 +216,13 @@ Broad direction:
 - upgrade strategy and rollback planning
 - monitoring, alerts, and SLOs for operators
 - staged path from devnet to public testnet to mainnet
+
+
+
+
+
+
+
 
 
 

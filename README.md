@@ -1,4 +1,4 @@
-# Zephyr Chain
+﻿# Zephyr Chain
 
 Zephyr Chain is an early-stage blockchain node and wallet stack focused on a production path toward validator-driven consensus, deterministic WASM execution, and a confidential compute marketplace.
 
@@ -38,18 +38,18 @@ Implemented in this iteration:
 - `GET /metrics` now exports retained peer incident counts and latest observation timestamps per peer with the latest state, reason, and error-code labels attached for scrape-based drill-down
 - `GET /v1/recording-rules` and `GET /v1/recording-rules/prometheus` now export a canonical per-peer incident-pressure rollup so downstream dashboards can reuse that peer view without rewriting PromQL
 - `GET /v1/dashboards` and `GET /v1/dashboards/grafana` now expose peer incident reason panels plus a per-peer incident pressure panel built on that recording rule alongside state and error-code rollups so dissemination failures are visible in the peer-sync bundle
-- `GET /v1/metrics` now includes `chainThroughput` totals plus rolling `1m`, `5m`, and `15m` windows for committed blocks, committed transactions, average transactions per block, and recent TPS baselining, along with a `settlementThroughput` view carrying raw queue-drain lag, latest commit age, warn or fail thresholds, active alert metadata, normalized warn or fail utilization ratios, and recent 1m, 5m, and 15m backlog-drain estimates
-- `GET /metrics` now also exports committed-block, committed-transaction, latest-block-interval, and rolling throughput gauges plus settlement queue-drain gauges such as `zephyr_settlement_queue_drain_lag_seconds`, `zephyr_settlement_queue_drain_threshold_seconds`, `zephyr_settlement_queue_drain_utilization_ratio`, and `zephyr_settlement_estimated_queue_drain_seconds` so Prometheus-style monitoring can track both recent TPS and settlement pressure without re-deriving chain history
+- `GET /v1/metrics` now includes `chainThroughput` totals plus rolling `1m`, `5m`, and `15m` windows for committed blocks, committed transactions, average transactions per block, and recent TPS baselining, along with a `settlementThroughput` view carrying raw queue-drain lag, latest commit age, warn or fail thresholds, active alert metadata, normalized warn or fail utilization ratios, recent 1m, 5m, and 15m backlog-drain estimates, and per-estimate warn utilization ratios
+- `GET /metrics` now also exports committed-block, committed-transaction, latest-block-interval, and rolling throughput gauges plus settlement queue-drain gauges such as `zephyr_settlement_queue_drain_lag_seconds`, `zephyr_settlement_queue_drain_threshold_seconds`, `zephyr_settlement_queue_drain_utilization_ratio`, `zephyr_settlement_estimated_queue_drain_warn_utilization_ratio`, and `zephyr_settlement_estimated_queue_drain_seconds` so Prometheus-style monitoring can track both recent TPS and settlement pressure without re-deriving chain history
 - `GET /v1/recording-rules` and `GET /v1/recording-rules/prometheus` now additionally export canonical `zephyr:chain:transactions_per_second_1m`, `zephyr:chain:transactions_per_second_5m`, and `zephyr:chain:transactions_per_second_15m` rollups for dashboard reuse
 - `GET /v1/dashboards` and `GET /v1/dashboards/grafana` now add a `Recent transaction throughput` overview panel built on those rollups so operators can baseline recent TPS alongside readiness and peer health
 - `GET /v1/health` now includes a `settlement_throughput` check that watches queued transaction drain against the configured automatic block interval when block production is enabled
 - `GET /v1/alerts` and `GET /v1/slo` now derive `settlement_throughput_reduced`, `settlement_throughput_stalled`, and the `settlement_throughput` objective so slow or stalled queue drain becomes first-class operator evidence
 - `GET /v1/alert-rules` and `GET /v1/alert-rules/prometheus` now export `ZephyrSettlementThroughputAtRisk` and `ZephyrSettlementThroughputStalled` so the same queue-drain signal can be promoted into Prometheus-based alerting
-- `GET /v1/recording-rules` and `GET /v1/recording-rules/prometheus` now additionally export canonical `zephyr:settlement_throughput:at_risk` and `zephyr:settlement_throughput:breached` rollups plus normalized `zephyr:settlement_queue_drain:warn_utilization` and `zephyr:settlement_queue_drain:fail_utilization` series and canonical `zephyr:settlement_queue_drain:estimate_seconds_1m`, `zephyr:settlement_queue_drain:estimate_seconds_5m`, and `zephyr:settlement_queue_drain:estimate_seconds_15m` rollups for queue-drain dashboards and fleet summaries
-- `GET /v1/dashboards` and `GET /v1/dashboards/grafana` now add a `Settlement throughput state` overview panel, a raw `Settlement queue-drain lag` panel, a normalized `Settlement queue-drain utilization` panel, and an `Estimated queue-drain time` panel built on canonical drain-estimate recording rules so operators can see both absolute lag, threshold pressure, and recent backlog-drain expectations next to recent TPS baselines; on passive nodes these settlement-specific panels now stay visible in JSON with `disabledReason`, while Grafana export keeps only the enabled subset
+- `GET /v1/recording-rules` and `GET /v1/recording-rules/prometheus` now additionally export canonical `zephyr:settlement_throughput:at_risk` and `zephyr:settlement_throughput:breached` rollups plus normalized `zephyr:settlement_queue_drain:warn_utilization` and `zephyr:settlement_queue_drain:fail_utilization` series plus canonical `zephyr:settlement_queue_drain:estimate_seconds_1m`, `zephyr:settlement_queue_drain:estimate_seconds_5m`, and `zephyr:settlement_queue_drain:estimate_seconds_15m` rollups and canonical `zephyr:settlement_queue_drain:estimate_warn_utilization_1m`, `zephyr:settlement_queue_drain:estimate_warn_utilization_5m`, and `zephyr:settlement_queue_drain:estimate_warn_utilization_15m` rollups for queue-drain dashboards and fleet summaries
+- `GET /v1/dashboards` and `GET /v1/dashboards/grafana` now add a `Settlement throughput state` overview panel, a raw `Settlement queue-drain lag` panel, a normalized `Settlement queue-drain utilization` panel, an `Estimated queue-drain pressure` panel built on canonical warn-normalized drain-estimate recording rules, and an `Estimated queue-drain time` panel built on canonical drain-estimate recording rules so operators can see both absolute lag, threshold pressure, and recent backlog-drain expectations next to recent TPS baselines; on passive nodes these settlement-specific panels now stay visible in JSON with `disabledReason`, while Grafana export keeps only the enabled subset
 - `GET /v1/peers` now backfills the latest import, snapshot-repair, and replication-failure telemetry from durable peer incidents so operator context survives restart before the next live sync pass
 - successful local certified commits now record a durable `block_commit` consensus action so recovery history and action metrics cover the full proposer path from proposal and vote through commit
-- focused tests now cover peer import, admission, and replication alerts, per-peer Prometheus incident metrics, restart-safe per-peer telemetry reconstruction, JSON and Prometheus throughput metrics including settlement alert metadata, normalized utilization ratios, raw settlement-lag gauges, and recent backlog-drain estimates, throughput health or alert or SLO projections, alert-rule export, dashboard export, and durable `block_commit` history across the operator surfaces
+- focused tests now cover peer import, admission, and replication alerts, per-peer Prometheus incident metrics, restart-safe per-peer telemetry reconstruction, JSON and Prometheus throughput metrics including settlement alert metadata, normalized utilization ratios, raw settlement-lag gauges, recent backlog-drain estimates, and warn-normalized drain-estimate ratios, throughput health or alert or SLO projections, alert-rule export, dashboard export, and durable `block_commit` history across the operator surfaces
 
 Planned but not implemented yet:
 
@@ -351,6 +351,11 @@ Short version:
 ## License
 
 Zephyr Chain is licensed under the MIT License. See [LICENSE](./LICENSE).
+
+
+
+
+
 
 
 
