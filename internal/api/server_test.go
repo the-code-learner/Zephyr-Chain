@@ -1360,7 +1360,9 @@ func TestConsensusAutomationRebroadcastsVoteAfterPeerLinkRestored(t *testing.T) 
 	voterServer.config.PeerURLs = []string{proposerHTTP.URL}
 
 	waitFor(t, func() bool {
-		return proposerServer.ledger.Status().Height == 1 && voterServer.ledger.Status().Height == 1
+		artifacts := proposerServer.ledger.ConsensusArtifacts()
+		_, voteExists := voterServer.ledger.LatestVoteByValidatorForHeight(1, voter.address)
+		return proposerServer.ledger.Status().Height == 1 && voteExists && artifacts.LatestCertificate != nil
 	})
 
 	voterVote, exists := voterServer.ledger.LatestVoteByValidatorForHeight(1, voter.address)
@@ -2571,8 +2573,11 @@ func TestPeerSyncRestoresSnapshotWhenSameHeightDiverges(t *testing.T) {
 	if len(peers) != 1 {
 		t.Fatalf("expected 1 peer view after divergence repair, got %d", len(peers))
 	}
-	if peers[0].SyncState != "snapshot_restored" {
-		t.Fatalf("expected snapshot_restored sync state after divergence repair, got %+v", peers[0])
+	if peers[0].SyncState != "snapshot_restored" && peers[0].SyncState != "aligned" {
+		t.Fatalf("expected snapshot_restored or aligned sync state after divergence repair, got %+v", peers[0])
+	}
+	if len(peers[0].RecentIncidents) == 0 || peers[0].RecentIncidents[0].State != "snapshot_restored" {
+		t.Fatalf("expected durable snapshot-restored incident after divergence repair, got %+v", peers[0])
 	}
 	if peers[0].LastSnapshotRestoreReason != "peer_diverged" {
 		t.Fatalf("expected peer_diverged snapshot reason, got %+v", peers[0])
@@ -3695,7 +3700,7 @@ func TestHandleRecordingRulesExposeRecommendedBundles(t *testing.T) {
 	if response.NodeID != "recording-rules-node" || response.PeerSyncEnabled {
 		t.Fatalf("unexpected recording-rules identity/config %+v", response)
 	}
-	if response.RuleCount != 22 || response.EnabledRuleCount != 11 || response.DisabledRuleCount != 11 {
+	if response.RuleCount != 25 || response.EnabledRuleCount != 11 || response.DisabledRuleCount != 14 {
 		t.Fatalf("unexpected recording-rule counts %+v", response)
 	}
 	if rule, ok := recordingRuleByRecord(response.Groups, "zephyr:node_readiness:ready"); !ok || !rule.Enabled || rule.Expression != "zephyr_node_ready" {
@@ -3709,6 +3714,9 @@ func TestHandleRecordingRulesExposeRecommendedBundles(t *testing.T) {
 	}
 	if rule, ok := recordingRuleByRecord(response.Groups, "zephyr:settlement_queue_drain:estimate_seconds_5m"); !ok || rule.Enabled || !strings.Contains(rule.DisabledReason, "disabled") {
 		t.Fatalf("expected disabled settlement queue-drain 5m estimate recording rule, got %+v", response.Groups)
+	}
+	if rule, ok := recordingRuleByRecord(response.Groups, "zephyr:settlement_queue_drain:estimate_warn_utilization_5m"); !ok || rule.Enabled || !strings.Contains(rule.DisabledReason, "disabled") {
+		t.Fatalf("expected disabled settlement queue-drain 5m estimate warn-utilization recording rule, got %+v", response.Groups)
 	}
 	if rule, ok := recordingRuleByRecord(response.Groups, "zephyr:peer_sync_continuity:breached"); !ok || rule.Enabled || !strings.Contains(rule.DisabledReason, "disabled") {
 		t.Fatalf("expected disabled peer-sync breached recording rule, got %+v", response.Groups)
@@ -3786,6 +3794,12 @@ func TestHandlePrometheusRecordingRulesExportsEnabledRulesOnly(t *testing.T) {
 	if !strings.Contains(body, "        expr: 'zephyr_settlement_estimated_queue_drain_seconds{window=\"5m\"}'\n") {
 		t.Fatalf("expected settlement queue-drain 5m estimate expression in prometheus recording rules, got:\n%s", body)
 	}
+	if !strings.Contains(body, "      - record: zephyr:settlement_queue_drain:estimate_warn_utilization_5m\n") {
+		t.Fatalf("expected settlement queue-drain 5m estimate warn-utilization recording rule in prometheus recording rules, got:\n%s", body)
+	}
+	if !strings.Contains(body, "        expr: 'zephyr_settlement_estimated_queue_drain_warn_utilization_ratio{window=\"5m\"}'\n") {
+		t.Fatalf("expected settlement queue-drain 5m estimate warn-utilization expression in prometheus recording rules, got:\n%s", body)
+	}
 	if !strings.Contains(body, "      - record: zephyr:consensus:recovery_backlog\n") {
 		t.Fatalf("expected consensus recovery backlog recording rule in prometheus recording rules, got:\n%s", body)
 	}
@@ -3851,7 +3865,7 @@ func TestHandleDashboardsExposeRecommendedBundles(t *testing.T) {
 	if response.DashboardCount != 3 || response.EnabledDashboardCount != 2 || response.DisabledDashboardCount != 1 {
 		t.Fatalf("unexpected dashboard counts %+v", response)
 	}
-	if response.PanelCount != 23 || response.EnabledPanelCount != 11 || response.DisabledPanelCount != 12 {
+	if response.PanelCount != 24 || response.EnabledPanelCount != 11 || response.DisabledPanelCount != 13 {
 		t.Fatalf("unexpected dashboard panel counts %+v", response)
 	}
 	if dashboard, ok := dashboardByName(response.Dashboards, "zephyr.overview"); !ok || !dashboard.Enabled {
@@ -3868,6 +3882,8 @@ func TestHandleDashboardsExposeRecommendedBundles(t *testing.T) {
 		t.Fatalf("expected settlement_queue_drain_utilization panel to be disabled with utilization recording rules intact, got %+v", dashboard.Panels)
 	} else if panel, ok := dashboardPanelByID(dashboard.Panels, "settlement_queue_drain_estimate"); !ok || panel.Enabled || !strings.Contains(panel.DisabledReason, "disabled") || len(panel.RecordingRules) != 3 || panel.RecordingRules[0] != "zephyr:settlement_queue_drain:estimate_seconds_1m" {
 		t.Fatalf("expected settlement_queue_drain_estimate panel to be disabled with estimated drain metadata intact, got %+v", dashboard.Panels)
+	} else if panel, ok := dashboardPanelByID(dashboard.Panels, "settlement_queue_drain_estimate_pressure"); !ok || panel.Enabled || !strings.Contains(panel.DisabledReason, "disabled") || len(panel.RecordingRules) != 3 || panel.RecordingRules[0] != "zephyr:settlement_queue_drain:estimate_warn_utilization_1m" {
+		t.Fatalf("expected settlement_queue_drain_estimate_pressure panel to be disabled with estimate utilization metadata intact, got %+v", dashboard.Panels)
 	}
 	if dashboard, ok := dashboardByName(response.Dashboards, "zephyr.peer_sync"); !ok || dashboard.Enabled || !strings.Contains(dashboard.DisabledReason, "disabled") {
 		t.Fatalf("expected disabled peer-sync dashboard, got %+v", response.Dashboards)
@@ -3914,7 +3930,7 @@ func TestHandleGrafanaDashboardsExportsEnabledDashboardsOnly(t *testing.T) {
 	if response.NodeID != "dashboard-export-node" {
 		t.Fatalf("unexpected grafana dashboard node %+v", response)
 	}
-	if response.DashboardCount != 3 || response.PanelCount != 23 {
+	if response.DashboardCount != 3 || response.PanelCount != 24 {
 		t.Fatalf("unexpected grafana dashboard counts %+v", response)
 	}
 	if dashboard, ok := grafanaDashboardByName(response.Dashboards, "zephyr.peer_sync"); !ok {
@@ -4000,6 +4016,13 @@ func TestHandleGrafanaDashboardsExportsEnabledDashboardsOnly(t *testing.T) {
 		if _, ok := grafanaTargetByExpression(panel.Targets, "zephyr:settlement_queue_drain:estimate_seconds_5m"); !ok {
 			t.Fatalf("expected estimated queue-drain query in grafana panel, got %+v", panel.Targets)
 		}
+		panel, ok = grafanaPanelByTitle(dashboard.Dashboard.Panels, "Estimated queue-drain pressure")
+		if !ok || panel.Type != "bargauge" {
+			t.Fatalf("expected estimated queue-drain pressure bargauge panel, got %+v", dashboard.Dashboard.Panels)
+		}
+		if _, ok := grafanaTargetByExpression(panel.Targets, "zephyr:settlement_queue_drain:estimate_warn_utilization_5m"); !ok {
+			t.Fatalf("expected estimated queue-drain pressure query in grafana panel, got %+v", panel.Targets)
+		}
 	}
 }
 func TestHandleGrafanaDashboardsOmitDisabledSettlementAndPeerSyncPanels(t *testing.T) {
@@ -4045,6 +4068,9 @@ func TestHandleGrafanaDashboardsOmitDisabledSettlementAndPeerSyncPanels(t *testi
 		}
 		if _, ok := grafanaPanelByTitle(dashboard.Dashboard.Panels, "Estimated queue-drain time"); ok {
 			t.Fatalf("expected disabled estimated queue-drain time panel to be omitted, got %+v", dashboard.Dashboard.Panels)
+		}
+		if _, ok := grafanaPanelByTitle(dashboard.Dashboard.Panels, "Estimated queue-drain pressure"); ok {
+			t.Fatalf("expected disabled estimated queue-drain pressure panel to be omitted, got %+v", dashboard.Dashboard.Panels)
 		}
 	}
 }
@@ -4509,10 +4535,10 @@ func TestMetricsExposeSettlementThroughputLagSignals(t *testing.T) {
 	}
 	if estimate, ok := settlementDrainEstimateByWindow(response.SettlementThroughput.DrainEstimates, "1m"); !ok || estimate.Available {
 		t.Fatalf("expected 1m settlement drain estimate to remain unavailable without a recent throughput baseline, got %+v", response.SettlementThroughput.DrainEstimates)
-	} else if estimate, ok := settlementDrainEstimateByWindow(response.SettlementThroughput.DrainEstimates, "5m"); !ok || !estimate.Available || estimate.EstimatedDrainSeconds < 250 || estimate.EstimatedDrainSeconds > 350 {
-		t.Fatalf("expected 5m settlement drain estimate near 300s, got %+v", response.SettlementThroughput.DrainEstimates)
-	} else if estimate, ok := settlementDrainEstimateByWindow(response.SettlementThroughput.DrainEstimates, "15m"); !ok || !estimate.Available || estimate.EstimatedDrainSeconds < 850 || estimate.EstimatedDrainSeconds > 950 {
-		t.Fatalf("expected 15m settlement drain estimate near 900s, got %+v", response.SettlementThroughput.DrainEstimates)
+	} else if estimate, ok := settlementDrainEstimateByWindow(response.SettlementThroughput.DrainEstimates, "5m"); !ok || !estimate.Available || estimate.EstimatedDrainSeconds < 250 || estimate.EstimatedDrainSeconds > 350 || estimate.WarnUtilizationRatio < 4.5 || estimate.WarnUtilizationRatio > 5.5 {
+		t.Fatalf("expected 5m settlement drain estimate near 300s with warn utilization near 5, got %+v", response.SettlementThroughput.DrainEstimates)
+	} else if estimate, ok := settlementDrainEstimateByWindow(response.SettlementThroughput.DrainEstimates, "15m"); !ok || !estimate.Available || estimate.EstimatedDrainSeconds < 850 || estimate.EstimatedDrainSeconds > 950 || estimate.WarnUtilizationRatio < 14.5 || estimate.WarnUtilizationRatio > 15.5 {
+		t.Fatalf("expected 15m settlement drain estimate near 900s with warn utilization near 15, got %+v", response.SettlementThroughput.DrainEstimates)
 	}
 
 	prometheusRequest := httptest.NewRequest(http.MethodGet, "/metrics", nil)
@@ -4540,8 +4566,13 @@ func TestMetricsExposeSettlementThroughputLagSignals(t *testing.T) {
 	}
 	requirePrometheusLine(t, body, "zephyr_settlement_estimated_queue_drain_seconds{window=\"5m\"} 300")
 	requirePrometheusLine(t, body, "zephyr_settlement_estimated_queue_drain_seconds{window=\"15m\"} 900")
+	requirePrometheusLine(t, body, "zephyr_settlement_estimated_queue_drain_warn_utilization_ratio{window=\"5m\"} 5")
+	requirePrometheusLine(t, body, "zephyr_settlement_estimated_queue_drain_warn_utilization_ratio{window=\"15m\"} 15")
 	if strings.Contains(body, "zephyr_settlement_estimated_queue_drain_seconds{window=\"1m\"}") {
 		t.Fatalf("expected 1m settlement drain estimate to stay unavailable without recent throughput, got:\n%s", body)
+	}
+	if strings.Contains(body, "zephyr_settlement_estimated_queue_drain_warn_utilization_ratio{window=\"1m\"}") {
+		t.Fatalf("expected 1m settlement drain estimate warn utilization to stay unavailable without recent throughput, got:\n%s", body)
 	}
 }
 
@@ -4576,11 +4607,11 @@ func TestMetricsExposeIdleSettlementUtilizationWhenMonitoringUnavailable(t *test
 	if response.SettlementThroughput.QueueDrainLagSeconds != 0 || response.SettlementThroughput.WarnUtilizationRatio != 0 || response.SettlementThroughput.FailUtilizationRatio != 0 {
 		t.Fatalf("expected idle settlement utilization on passive node, got %+v", response.SettlementThroughput)
 	}
-	if estimate, ok := settlementDrainEstimateByWindow(response.SettlementThroughput.DrainEstimates, "1m"); !ok || estimate.Available {
+	if estimate, ok := settlementDrainEstimateByWindow(response.SettlementThroughput.DrainEstimates, "1m"); !ok || estimate.Available || estimate.WarnUtilizationRatio != 0 {
 		t.Fatalf("expected passive 1m settlement drain estimate to stay unavailable, got %+v", response.SettlementThroughput.DrainEstimates)
-	} else if estimate, ok := settlementDrainEstimateByWindow(response.SettlementThroughput.DrainEstimates, "5m"); !ok || estimate.Available {
+	} else if estimate, ok := settlementDrainEstimateByWindow(response.SettlementThroughput.DrainEstimates, "5m"); !ok || estimate.Available || estimate.WarnUtilizationRatio != 0 {
 		t.Fatalf("expected passive 5m settlement drain estimate to stay unavailable, got %+v", response.SettlementThroughput.DrainEstimates)
-	} else if estimate, ok := settlementDrainEstimateByWindow(response.SettlementThroughput.DrainEstimates, "15m"); !ok || estimate.Available {
+	} else if estimate, ok := settlementDrainEstimateByWindow(response.SettlementThroughput.DrainEstimates, "15m"); !ok || estimate.Available || estimate.WarnUtilizationRatio != 0 {
 		t.Fatalf("expected passive 15m settlement drain estimate to stay unavailable, got %+v", response.SettlementThroughput.DrainEstimates)
 	}
 
@@ -4596,6 +4627,9 @@ func TestMetricsExposeIdleSettlementUtilizationWhenMonitoringUnavailable(t *test
 	requirePrometheusLine(t, body, "zephyr_settlement_queue_drain_utilization_ratio{threshold=\"fail\"} 0")
 	if strings.Contains(body, "zephyr_settlement_estimated_queue_drain_seconds") {
 		t.Fatalf("expected passive settlement drain estimates to be omitted from prometheus export, got:\n%s", body)
+	}
+	if strings.Contains(body, "zephyr_settlement_estimated_queue_drain_warn_utilization_ratio") {
+		t.Fatalf("expected passive settlement drain estimate warn-utilization metrics to be omitted from prometheus export, got:\n%s", body)
 	}
 }
 

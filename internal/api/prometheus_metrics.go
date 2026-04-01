@@ -154,6 +154,7 @@ func (s *Server) buildPrometheusMetrics(now time.Time) string {
 			continue
 		}
 		writer.gauge("zephyr_settlement_estimated_queue_drain_seconds", "Estimated seconds required to drain the current queued transaction backlog at the recent committed transaction throughput for each window.", estimate.EstimatedDrainSeconds, prometheusLabel{Name: "window", Value: estimate.Window})
+		writer.gauge("zephyr_settlement_estimated_queue_drain_warn_utilization_ratio", "Normalized estimated queue-drain time divided by the warn threshold for each recent throughput window.", estimate.WarnUtilizationRatio, prometheusLabel{Name: "window", Value: estimate.Window})
 	}
 
 	writer.gauge("zephyr_consensus_current_height", "Current committed consensus height.", float64(consensusView.CurrentHeight))

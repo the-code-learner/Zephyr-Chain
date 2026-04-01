@@ -11,6 +11,7 @@ type SettlementDrainEstimateView struct {
 	WindowSeconds         int64   `json:"windowSeconds"`
 	TransactionsPerSecond float64 `json:"transactionsPerSecond"`
 	EstimatedDrainSeconds float64 `json:"estimatedDrainSeconds"`
+	WarnUtilizationRatio  float64 `json:"warnUtilizationRatio"`
 	Available             bool    `json:"available"`
 }
 
@@ -52,7 +53,6 @@ func (s *Server) buildSettlementThroughputMetrics(now time.Time) SettlementThrou
 		AlertCode:               assessment.AlertCode,
 		AlertSeverity:           assessment.AlertSeverity,
 		MempoolTransactionCount: status.MempoolSize,
-		DrainEstimates:          buildSettlementDrainEstimates(assessment.Applicable, status.MempoolSize, throughput.Windows),
 	}
 	if assessment.ObservedAt != nil {
 		observedAt := assessment.ObservedAt.UTC()
@@ -81,11 +81,12 @@ func (s *Server) buildSettlementThroughputMetrics(now time.Time) SettlementThrou
 	if view.FailAfterSeconds > 0 {
 		view.FailUtilizationRatio = view.QueueDrainLagSeconds / view.FailAfterSeconds
 	}
+	view.DrainEstimates = buildSettlementDrainEstimates(assessment.Applicable, status.MempoolSize, throughput.Windows, view.WarnAfterSeconds)
 
 	return view
 }
 
-func buildSettlementDrainEstimates(applicable bool, mempoolTransactionCount int, windows []ledger.ChainThroughputWindowView) []SettlementDrainEstimateView {
+func buildSettlementDrainEstimates(applicable bool, mempoolTransactionCount int, windows []ledger.ChainThroughputWindowView, warnAfterSeconds float64) []SettlementDrainEstimateView {
 	if len(windows) == 0 {
 		return nil
 	}
@@ -104,6 +105,9 @@ func buildSettlementDrainEstimates(applicable bool, mempoolTransactionCount int,
 		case window.TransactionsPerSecond > 0:
 			estimate.Available = true
 			estimate.EstimatedDrainSeconds = float64(mempoolTransactionCount) / window.TransactionsPerSecond
+		}
+		if estimate.Available && warnAfterSeconds > 0 {
+			estimate.WarnUtilizationRatio = estimate.EstimatedDrainSeconds / warnAfterSeconds
 		}
 		estimates = append(estimates, estimate)
 	}
