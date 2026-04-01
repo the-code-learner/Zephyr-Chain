@@ -385,6 +385,20 @@ func (s *Server) buildRecordingRuleGroups() []RecordingRuleGroup {
 					),
 					throughputDisabledReason,
 				),
+				disableRecordingRule(
+					newRecordingRule(
+						"settlement queue-drain estimate warn utilization max",
+						"zephyr:settlement_queue_drain:estimate_warn_utilization_max",
+						"throughput",
+						"Highest estimated queue-drain time normalized against the warn threshold across recent throughput windows.",
+						"Projects the worst available settlement drain estimate against the warn threshold so dashboards and fleet summaries can track the highest projected queue-drain pressure without re-aggregating per-window series in PromQL.",
+						"max without(window) (zephyr_settlement_estimated_queue_drain_warn_utilization_ratio)",
+						[]string{"zephyr_settlement_estimated_queue_drain_warn_utilization_ratio"},
+						[]string{settlementThroughputAlertReduced},
+						[]string{"settlement_throughput"},
+					),
+					throughputDisabledReason,
+				),
 			},
 		},
 		{
