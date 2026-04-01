@@ -1,4 +1,4 @@
-﻿# Zephyr Chain MVP Architecture
+# Zephyr Chain MVP Architecture
 
 ## Overview
 
@@ -72,8 +72,8 @@ The API layer now handles:
 - derived alerts through `GET /v1/alerts`, including settlement-throughput reduced or stalled signals when queued transactions outlive the expected block window
 - derived SLO summaries through `GET /v1/slo`, including the settlement-throughput objective alongside readiness and peer-continuity summaries
 - recommended alert-rule bundles through `GET /v1/alert-rules` and `GET /v1/alert-rules/prometheus`
-- recommended recording-rule bundles through `GET /v1/recording-rules` and `GET /v1/recording-rules/prometheus`, including settlement-throughput state rollups, normalized settlement queue-drain utilization, projected queue-drain pressure, max projected queue-drain pressure, and queue-drain estimate rollups, the per-peer incident-pressure rollup used by the peer-sync dashboard, canonical recent-TPS rollups for the overview dashboard, and runtime-aware disabled reasons when a producing or synced role is not active
-- recommended dashboard bundles through `GET /v1/dashboards` and `GET /v1/dashboards/grafana`, including settlement-throughput state, raw settlement queue-drain lag, normalized queue-drain utilization, recording-rule-backed estimated queue-drain pressure, a recording-rule-backed worst-case projected-pressure stat, recording-rule-backed estimated queue-drain time, and recent transaction throughput in the overview bundle plus peer incident-pressure drill-down by peer, with JSON metadata preserved for runtime-disabled panels and enabled-only Grafana export
+- recommended recording-rule bundles through `GET /v1/recording-rules` and `GET /v1/recording-rules/prometheus`, including settlement-throughput state rollups, normalized settlement queue-drain utilization, projected queue-drain pressure, max projected queue-drain pressure, queue-drain estimate, and max queue-drain estimate rollups, the per-peer incident-pressure rollup used by the peer-sync dashboard, canonical recent-TPS rollups for the overview dashboard, and runtime-aware disabled reasons when a producing or synced role is not active
+- recommended dashboard bundles through `GET /v1/dashboards` and `GET /v1/dashboards/grafana`, including settlement-throughput state, raw settlement queue-drain lag, normalized queue-drain utilization, recording-rule-backed estimated queue-drain pressure, a recording-rule-backed worst-case projected-pressure stat, recording-rule-backed estimated queue-drain time, a recording-rule-backed worst-case estimated queue-drain time stat, and recent transaction throughput in the overview bundle plus peer incident-pressure drill-down by peer, with JSON metadata preserved for runtime-disabled panels and enabled-only Grafana export
 - runtime status through `GET /v1/status`
 - machine-readable observability through `GET /v1/metrics`, including structured settlement alert metadata, normalized queue-drain utilization ratios, recent backlog-drain estimates, and per-estimate warn utilization ratios
 - peer visibility through `GET /v1/peers`, including admission, identity, live sync/repair telemetry, restart-safe import, snapshot, and replication-failure backfill from durable incidents, durable per-peer incident history, and derived per-peer incident counters
