@@ -3695,7 +3695,7 @@ func TestHandleRecordingRulesExposeRecommendedBundles(t *testing.T) {
 	if response.NodeID != "recording-rules-node" || response.PeerSyncEnabled {
 		t.Fatalf("unexpected recording-rules identity/config %+v", response)
 	}
-	if response.RuleCount != 19 || response.EnabledRuleCount != 11 || response.DisabledRuleCount != 8 {
+	if response.RuleCount != 22 || response.EnabledRuleCount != 11 || response.DisabledRuleCount != 11 {
 		t.Fatalf("unexpected recording-rule counts %+v", response)
 	}
 	if rule, ok := recordingRuleByRecord(response.Groups, "zephyr:node_readiness:ready"); !ok || !rule.Enabled || rule.Expression != "zephyr_node_ready" {
@@ -3706,6 +3706,9 @@ func TestHandleRecordingRulesExposeRecommendedBundles(t *testing.T) {
 	}
 	if rule, ok := recordingRuleByRecord(response.Groups, "zephyr:settlement_queue_drain:fail_utilization"); !ok || rule.Enabled || !strings.Contains(rule.DisabledReason, "disabled") {
 		t.Fatalf("expected disabled settlement queue-drain fail utilization recording rule, got %+v", response.Groups)
+	}
+	if rule, ok := recordingRuleByRecord(response.Groups, "zephyr:settlement_queue_drain:estimate_seconds_5m"); !ok || rule.Enabled || !strings.Contains(rule.DisabledReason, "disabled") {
+		t.Fatalf("expected disabled settlement queue-drain 5m estimate recording rule, got %+v", response.Groups)
 	}
 	if rule, ok := recordingRuleByRecord(response.Groups, "zephyr:peer_sync_continuity:breached"); !ok || rule.Enabled || !strings.Contains(rule.DisabledReason, "disabled") {
 		t.Fatalf("expected disabled peer-sync breached recording rule, got %+v", response.Groups)
@@ -3776,6 +3779,12 @@ func TestHandlePrometheusRecordingRulesExportsEnabledRulesOnly(t *testing.T) {
 	}
 	if !strings.Contains(body, "        expr: 'zephyr_settlement_queue_drain_lag_seconds / clamp_min(zephyr_settlement_queue_drain_threshold_seconds{threshold=\"warn\"}, 1)'\n") {
 		t.Fatalf("expected settlement queue-drain warn utilization expression in prometheus recording rules, got:\n%s", body)
+	}
+	if !strings.Contains(body, "      - record: zephyr:settlement_queue_drain:estimate_seconds_5m\n") {
+		t.Fatalf("expected settlement queue-drain 5m estimate recording rule in prometheus recording rules, got:\n%s", body)
+	}
+	if !strings.Contains(body, "        expr: 'zephyr_settlement_estimated_queue_drain_seconds{window=\"5m\"}'\n") {
+		t.Fatalf("expected settlement queue-drain 5m estimate expression in prometheus recording rules, got:\n%s", body)
 	}
 	if !strings.Contains(body, "      - record: zephyr:consensus:recovery_backlog\n") {
 		t.Fatalf("expected consensus recovery backlog recording rule in prometheus recording rules, got:\n%s", body)
@@ -3857,7 +3866,7 @@ func TestHandleDashboardsExposeRecommendedBundles(t *testing.T) {
 		t.Fatalf("expected settlement_queue_drain_lag panel to be disabled with raw settlement lag metadata intact, got %+v", dashboard.Panels)
 	} else if panel, ok := dashboardPanelByID(dashboard.Panels, "settlement_queue_drain_utilization"); !ok || panel.Enabled || !strings.Contains(panel.DisabledReason, "disabled") || len(panel.RecordingRules) != 2 || panel.RecordingRules[0] != "zephyr:settlement_queue_drain:warn_utilization" {
 		t.Fatalf("expected settlement_queue_drain_utilization panel to be disabled with utilization recording rules intact, got %+v", dashboard.Panels)
-	} else if panel, ok := dashboardPanelByID(dashboard.Panels, "settlement_queue_drain_estimate"); !ok || panel.Enabled || !strings.Contains(panel.DisabledReason, "disabled") || len(panel.SourceMetrics) != 1 || panel.SourceMetrics[0] != "zephyr_settlement_estimated_queue_drain_seconds" {
+	} else if panel, ok := dashboardPanelByID(dashboard.Panels, "settlement_queue_drain_estimate"); !ok || panel.Enabled || !strings.Contains(panel.DisabledReason, "disabled") || len(panel.RecordingRules) != 3 || panel.RecordingRules[0] != "zephyr:settlement_queue_drain:estimate_seconds_1m" {
 		t.Fatalf("expected settlement_queue_drain_estimate panel to be disabled with estimated drain metadata intact, got %+v", dashboard.Panels)
 	}
 	if dashboard, ok := dashboardByName(response.Dashboards, "zephyr.peer_sync"); !ok || dashboard.Enabled || !strings.Contains(dashboard.DisabledReason, "disabled") {
@@ -3988,7 +3997,7 @@ func TestHandleGrafanaDashboardsExportsEnabledDashboardsOnly(t *testing.T) {
 		if !ok || panel.Type != "bargauge" {
 			t.Fatalf("expected estimated queue-drain time bargauge panel, got %+v", dashboard.Dashboard.Panels)
 		}
-		if _, ok := grafanaTargetByExpression(panel.Targets, "zephyr_settlement_estimated_queue_drain_seconds{window=\"5m\"}"); !ok {
+		if _, ok := grafanaTargetByExpression(panel.Targets, "zephyr:settlement_queue_drain:estimate_seconds_5m"); !ok {
 			t.Fatalf("expected estimated queue-drain query in grafana panel, got %+v", panel.Targets)
 		}
 	}
