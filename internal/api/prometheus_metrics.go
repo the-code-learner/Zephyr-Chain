@@ -156,6 +156,11 @@ func (s *Server) buildPrometheusMetrics(now time.Time) string {
 		writer.gauge("zephyr_settlement_estimated_queue_drain_seconds", "Estimated seconds required to drain the current queued transaction backlog at the recent committed transaction throughput for each window.", estimate.EstimatedDrainSeconds, prometheusLabel{Name: "window", Value: estimate.Window})
 		writer.gauge("zephyr_settlement_estimated_queue_drain_warn_utilization_ratio", "Normalized estimated queue-drain time divided by the warn threshold for each recent throughput window.", estimate.WarnUtilizationRatio, prometheusLabel{Name: "window", Value: estimate.Window})
 	}
+	if settlementThroughput.PeakDrainEstimate != nil {
+		labels := []prometheusLabel{{Name: "window", Value: settlementThroughput.PeakDrainEstimate.Window}}
+		writer.gauge("zephyr_settlement_estimated_queue_drain_seconds_max", "Highest estimated queue-drain time across the recent throughput windows, labeled by the selected worst-case window.", settlementThroughput.PeakDrainEstimate.EstimatedDrainSeconds, labels...)
+		writer.gauge("zephyr_settlement_estimated_queue_drain_warn_utilization_ratio_max", "Highest estimated queue-drain warn utilization ratio across the recent throughput windows, labeled by the selected worst-case window.", settlementThroughput.PeakDrainEstimate.WarnUtilizationRatio, labels...)
+	}
 
 	writer.gauge("zephyr_consensus_current_height", "Current committed consensus height.", float64(consensusView.CurrentHeight))
 	writer.gauge("zephyr_consensus_next_height", "Next block height expected by consensus.", float64(consensusView.NextHeight))
