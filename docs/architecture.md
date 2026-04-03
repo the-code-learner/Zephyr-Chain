@@ -67,7 +67,7 @@ The node entrypoint lives in `cmd/node/main.go` and starts an HTTP server from `
 The API layer now handles:
 
 - liveness through `GET /health`
-- Prometheus-style scrape export through `GET /metrics`, including per-peer retained incident counts, latest observation timestamps, committed-chain throughput gauges plus rolling `1m`, `5m`, and `15m` TPS windows, and raw settlement queue-drain lag plus threshold, utilization-ratio, warn-normalized drain-estimate-pressure, and backlog-drain-estimate gauges
+- Prometheus-style scrape export through `GET /metrics`, including per-peer retained incident counts, latest observation timestamps, committed-chain throughput gauges plus rolling `1m`, `5m`, and `15m` TPS windows, and raw settlement queue-drain lag plus threshold, utilization-ratio, warn-normalized drain-estimate-pressure, backlog-drain-estimate, and explicit max drain gauges
 - derived readiness through `GET /v1/health`, including settlement queue-drain checks when automatic block production is enabled
 - derived alerts through `GET /v1/alerts`, including settlement-throughput reduced or stalled signals when queued transactions outlive the expected block window
 - derived SLO summaries through `GET /v1/slo`, including the settlement-throughput objective alongside readiness and peer-continuity summaries
@@ -75,7 +75,7 @@ The API layer now handles:
 - recommended recording-rule bundles through `GET /v1/recording-rules` and `GET /v1/recording-rules/prometheus`, including settlement-throughput state rollups, normalized settlement queue-drain utilization, projected queue-drain pressure, max projected queue-drain pressure, queue-drain estimate, and max queue-drain estimate rollups, the per-peer incident-pressure rollup used by the peer-sync dashboard, canonical recent-TPS rollups for the overview dashboard, and runtime-aware disabled reasons when a producing or synced role is not active
 - recommended dashboard bundles through `GET /v1/dashboards` and `GET /v1/dashboards/grafana`, including settlement-throughput state, raw settlement queue-drain lag, normalized queue-drain utilization, recording-rule-backed estimated queue-drain pressure, a recording-rule-backed worst-case projected-pressure stat, recording-rule-backed estimated queue-drain time, a recording-rule-backed worst-case estimated queue-drain time stat, and recent transaction throughput in the overview bundle plus peer incident-pressure drill-down by peer, with JSON metadata preserved for runtime-disabled panels and enabled-only Grafana export
 - runtime status through `GET /v1/status`
-- machine-readable observability through `GET /v1/metrics`, including structured settlement alert metadata, normalized queue-drain utilization ratios, recent backlog-drain estimates, and per-estimate warn utilization ratios
+- machine-readable observability through `GET /v1/metrics`, including structured settlement alert metadata, normalized queue-drain utilization ratios, recent backlog-drain estimates, per-estimate warn utilization ratios, and an explicit peak drain-estimate summary
 - peer visibility through `GET /v1/peers`, including admission, identity, live sync/repair telemetry, restart-safe import, snapshot, and replication-failure backfill from durable incidents, durable per-peer incident history, and derived per-peer incident counters
 - consensus visibility through `GET /v1/consensus`
 - validator election inputs through `POST /v1/election`

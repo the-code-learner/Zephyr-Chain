@@ -33,6 +33,7 @@ type SettlementThroughputMetricsView struct {
 	WarnUtilizationRatio    float64                       `json:"warnUtilizationRatio"`
 	FailUtilizationRatio    float64                       `json:"failUtilizationRatio"`
 	DrainEstimates          []SettlementDrainEstimateView `json:"drainEstimates,omitempty"`
+	PeakDrainEstimate       *SettlementDrainEstimateView  `json:"peakDrainEstimate,omitempty"`
 }
 
 func (s *Server) buildSettlementThroughputMetrics(now time.Time) SettlementThroughputMetricsView {
@@ -82,6 +83,7 @@ func (s *Server) buildSettlementThroughputMetrics(now time.Time) SettlementThrou
 		view.FailUtilizationRatio = view.QueueDrainLagSeconds / view.FailAfterSeconds
 	}
 	view.DrainEstimates = buildSettlementDrainEstimates(assessment.Applicable, status.MempoolSize, throughput.Windows, view.WarnAfterSeconds)
+	view.PeakDrainEstimate = peakSettlementDrainEstimate(view.DrainEstimates)
 
 	return view
 }
@@ -112,4 +114,31 @@ func buildSettlementDrainEstimates(applicable bool, mempoolTransactionCount int,
 		estimates = append(estimates, estimate)
 	}
 	return estimates
+}
+
+func peakSettlementDrainEstimate(estimates []SettlementDrainEstimateView) *SettlementDrainEstimateView {
+	bestIndex := -1
+	for i, estimate := range estimates {
+		if !estimate.Available {
+			continue
+		}
+		if bestIndex < 0 {
+			bestIndex = i
+			continue
+		}
+		best := estimates[bestIndex]
+		switch {
+		case estimate.EstimatedDrainSeconds > best.EstimatedDrainSeconds:
+			bestIndex = i
+		case estimate.EstimatedDrainSeconds == best.EstimatedDrainSeconds && estimate.WarnUtilizationRatio > best.WarnUtilizationRatio:
+			bestIndex = i
+		case estimate.EstimatedDrainSeconds == best.EstimatedDrainSeconds && estimate.WarnUtilizationRatio == best.WarnUtilizationRatio && estimate.WindowSeconds > best.WindowSeconds:
+			bestIndex = i
+		}
+	}
+	if bestIndex < 0 {
+		return nil
+	}
+	peak := estimates[bestIndex]
+	return &peak
 }

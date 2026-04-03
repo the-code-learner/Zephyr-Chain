@@ -3803,7 +3803,7 @@ func TestHandlePrometheusRecordingRulesExportsEnabledRulesOnly(t *testing.T) {
 	if !strings.Contains(body, "      - record: zephyr:settlement_queue_drain:estimate_seconds_max\n") {
 		t.Fatalf("expected settlement queue-drain max estimate recording rule in prometheus recording rules, got:\n%s", body)
 	}
-	if !strings.Contains(body, "        expr: 'max without(window) (zephyr_settlement_estimated_queue_drain_seconds)'\n") {
+	if !strings.Contains(body, "        expr: 'zephyr_settlement_estimated_queue_drain_seconds_max'\n") {
 		t.Fatalf("expected settlement queue-drain max estimate expression in prometheus recording rules, got:\n%s", body)
 	}
 	if !strings.Contains(body, "      - record: zephyr:settlement_queue_drain:estimate_warn_utilization_5m\n") {
@@ -3815,7 +3815,7 @@ func TestHandlePrometheusRecordingRulesExportsEnabledRulesOnly(t *testing.T) {
 	if !strings.Contains(body, "      - record: zephyr:settlement_queue_drain:estimate_warn_utilization_max\n") {
 		t.Fatalf("expected settlement queue-drain max estimate warn-utilization recording rule in prometheus recording rules, got:\n%s", body)
 	}
-	if !strings.Contains(body, "        expr: 'max without(window) (zephyr_settlement_estimated_queue_drain_warn_utilization_ratio)'\n") {
+	if !strings.Contains(body, "        expr: 'zephyr_settlement_estimated_queue_drain_warn_utilization_ratio_max'\n") {
 		t.Fatalf("expected settlement queue-drain max estimate warn-utilization expression in prometheus recording rules, got:\n%s", body)
 	}
 	if !strings.Contains(body, "      - record: zephyr:consensus:recovery_backlog\n") {
@@ -4582,6 +4582,9 @@ func TestMetricsExposeSettlementThroughputLagSignals(t *testing.T) {
 	} else if estimate, ok := settlementDrainEstimateByWindow(response.SettlementThroughput.DrainEstimates, "15m"); !ok || !estimate.Available || estimate.EstimatedDrainSeconds < 850 || estimate.EstimatedDrainSeconds > 950 || estimate.WarnUtilizationRatio < 14.5 || estimate.WarnUtilizationRatio > 15.5 {
 		t.Fatalf("expected 15m settlement drain estimate near 900s with warn utilization near 15, got %+v", response.SettlementThroughput.DrainEstimates)
 	}
+	if response.SettlementThroughput.PeakDrainEstimate == nil || !response.SettlementThroughput.PeakDrainEstimate.Available || response.SettlementThroughput.PeakDrainEstimate.Window != "15m" || response.SettlementThroughput.PeakDrainEstimate.EstimatedDrainSeconds < 850 || response.SettlementThroughput.PeakDrainEstimate.EstimatedDrainSeconds > 950 || response.SettlementThroughput.PeakDrainEstimate.WarnUtilizationRatio < 14.5 || response.SettlementThroughput.PeakDrainEstimate.WarnUtilizationRatio > 15.5 {
+		t.Fatalf("expected peak settlement drain estimate to select the 15m backlog projection, got %+v", response.SettlementThroughput.PeakDrainEstimate)
+	}
 
 	prometheusRequest := httptest.NewRequest(http.MethodGet, "/metrics", nil)
 	prometheusRecorder := httptest.NewRecorder()
@@ -4608,8 +4611,10 @@ func TestMetricsExposeSettlementThroughputLagSignals(t *testing.T) {
 	}
 	requirePrometheusLine(t, body, "zephyr_settlement_estimated_queue_drain_seconds{window=\"5m\"} 300")
 	requirePrometheusLine(t, body, "zephyr_settlement_estimated_queue_drain_seconds{window=\"15m\"} 900")
+	requirePrometheusLine(t, body, "zephyr_settlement_estimated_queue_drain_seconds_max{window=\"15m\"} 900")
 	requirePrometheusLine(t, body, "zephyr_settlement_estimated_queue_drain_warn_utilization_ratio{window=\"5m\"} 5")
 	requirePrometheusLine(t, body, "zephyr_settlement_estimated_queue_drain_warn_utilization_ratio{window=\"15m\"} 15")
+	requirePrometheusLine(t, body, "zephyr_settlement_estimated_queue_drain_warn_utilization_ratio_max{window=\"15m\"} 15")
 	if strings.Contains(body, "zephyr_settlement_estimated_queue_drain_seconds{window=\"1m\"}") {
 		t.Fatalf("expected 1m settlement drain estimate to stay unavailable without recent throughput, got:\n%s", body)
 	}
@@ -4648,6 +4653,9 @@ func TestMetricsExposeIdleSettlementUtilizationWhenMonitoringUnavailable(t *test
 	}
 	if response.SettlementThroughput.QueueDrainLagSeconds != 0 || response.SettlementThroughput.WarnUtilizationRatio != 0 || response.SettlementThroughput.FailUtilizationRatio != 0 {
 		t.Fatalf("expected idle settlement utilization on passive node, got %+v", response.SettlementThroughput)
+	}
+	if response.SettlementThroughput.PeakDrainEstimate != nil {
+		t.Fatalf("expected passive peak settlement drain estimate to stay empty, got %+v", response.SettlementThroughput.PeakDrainEstimate)
 	}
 	if estimate, ok := settlementDrainEstimateByWindow(response.SettlementThroughput.DrainEstimates, "1m"); !ok || estimate.Available || estimate.WarnUtilizationRatio != 0 {
 		t.Fatalf("expected passive 1m settlement drain estimate to stay unavailable, got %+v", response.SettlementThroughput.DrainEstimates)
