@@ -2947,7 +2947,7 @@ func TestHandleSettlementThroughputSignalsStalledQueueDrain(t *testing.T) {
 	if healthResponse.Ready || healthResponse.Status != healthStatusFail {
 		t.Fatalf("expected failing stalled throughput health response, got %+v", healthResponse)
 	}
-	if check, ok := healthCheckByName(healthResponse.Checks, settlementThroughputCheckName); !ok || check.Status != healthCheckFail || !strings.Contains(check.Detail, "mempool=1") {
+	if check, ok := healthCheckByName(healthResponse.Checks, settlementThroughputCheckName); !ok || check.Status != healthCheckFail || !strings.Contains(check.Detail, "mempool=1") || !strings.Contains(check.Detail, "peakDrain=900s@15m") {
 		t.Fatalf("expected failing settlement throughput check, got %+v", healthResponse.Checks)
 	}
 
@@ -2965,7 +2965,7 @@ func TestHandleSettlementThroughputSignalsStalledQueueDrain(t *testing.T) {
 	if alertsResponse.AlertCount != 2 || alertsResponse.CriticalCount != 1 || alertsResponse.WarningCount != 1 {
 		t.Fatalf("unexpected stalled throughput alert counts %+v", alertsResponse)
 	}
-	if alert, ok := alertByCode(alertsResponse.Alerts, settlementThroughputAlertStalled); !ok || alert.Severity != alertSeverityCritical || alert.ObservedAt == nil || !strings.Contains(alert.Detail, "failAfter=120s") {
+	if alert, ok := alertByCode(alertsResponse.Alerts, settlementThroughputAlertStalled); !ok || alert.Severity != alertSeverityCritical || alert.ObservedAt == nil || !strings.Contains(alert.Detail, "failAfter=120s") || !strings.Contains(alert.Detail, "peakDrainWarnRatio=15@15m") {
 		t.Fatalf("expected stalled throughput alert with timing detail, got %+v", alertsResponse.Alerts)
 	}
 
@@ -2983,7 +2983,7 @@ func TestHandleSettlementThroughputSignalsStalledQueueDrain(t *testing.T) {
 	if sloResponse.ObjectiveCount != 4 || sloResponse.MeetingCount != 0 || sloResponse.AtRiskCount != 1 || sloResponse.BreachedCount != 2 || sloResponse.NotApplicableCount != 1 {
 		t.Fatalf("unexpected stalled throughput slo counts %+v", sloResponse)
 	}
-	if objective, ok := sloObjectiveByName(sloResponse.Objectives, "settlement_throughput"); !ok || objective.Status != sloStatusBreached || !strings.Contains(objective.Detail, "mempool=1") {
+	if objective, ok := sloObjectiveByName(sloResponse.Objectives, "settlement_throughput"); !ok || objective.Status != sloStatusBreached || !strings.Contains(objective.Detail, "mempool=1") || !strings.Contains(objective.Detail, "peakDrain=900s@15m") {
 		t.Fatalf("expected breached settlement_throughput objective, got %+v", sloResponse.Objectives)
 	}
 
@@ -3044,7 +3044,7 @@ func TestHandleSettlementThroughputWarnsOnSlowQueueDrain(t *testing.T) {
 	if !healthResponse.Ready || healthResponse.Status != healthStatusWarn {
 		t.Fatalf("expected warning slow throughput health response, got %+v", healthResponse)
 	}
-	if check, ok := healthCheckByName(healthResponse.Checks, settlementThroughputCheckName); !ok || check.Status != healthCheckWarn || !strings.Contains(check.Detail, "warnAfter=60s") {
+	if check, ok := healthCheckByName(healthResponse.Checks, settlementThroughputCheckName); !ok || check.Status != healthCheckWarn || !strings.Contains(check.Detail, "warnAfter=60s") || !strings.Contains(check.Detail, "peakDrain=900s@15m") {
 		t.Fatalf("expected warning settlement throughput check, got %+v", healthResponse.Checks)
 	}
 
@@ -3062,7 +3062,7 @@ func TestHandleSettlementThroughputWarnsOnSlowQueueDrain(t *testing.T) {
 	if alertsResponse.AlertCount != 2 || alertsResponse.CriticalCount != 0 || alertsResponse.WarningCount != 2 {
 		t.Fatalf("unexpected slow throughput alert counts %+v", alertsResponse)
 	}
-	if alert, ok := alertByCode(alertsResponse.Alerts, settlementThroughputAlertReduced); !ok || alert.Severity != alertSeverityWarning || alert.ObservedAt == nil || !strings.Contains(alert.Detail, "mempool=1") {
+	if alert, ok := alertByCode(alertsResponse.Alerts, settlementThroughputAlertReduced); !ok || alert.Severity != alertSeverityWarning || alert.ObservedAt == nil || !strings.Contains(alert.Detail, "mempool=1") || !strings.Contains(alert.Detail, "peakDrainWarnRatio=15@15m") {
 		t.Fatalf("expected reduced settlement throughput alert, got %+v", alertsResponse.Alerts)
 	}
 
@@ -3080,7 +3080,7 @@ func TestHandleSettlementThroughputWarnsOnSlowQueueDrain(t *testing.T) {
 	if sloResponse.ObjectiveCount != 4 || sloResponse.MeetingCount != 0 || sloResponse.AtRiskCount != 3 || sloResponse.BreachedCount != 0 || sloResponse.NotApplicableCount != 1 {
 		t.Fatalf("unexpected slow throughput slo counts %+v", sloResponse)
 	}
-	if objective, ok := sloObjectiveByName(sloResponse.Objectives, "settlement_throughput"); !ok || objective.Status != sloStatusAtRisk || !strings.Contains(objective.Detail, "mempool=1") {
+	if objective, ok := sloObjectiveByName(sloResponse.Objectives, "settlement_throughput"); !ok || objective.Status != sloStatusAtRisk || !strings.Contains(objective.Detail, "mempool=1") || !strings.Contains(objective.Detail, "peakDrain=900s@15m") {
 		t.Fatalf("expected at_risk settlement_throughput objective, got %+v", sloResponse.Objectives)
 	}
 

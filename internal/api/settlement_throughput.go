@@ -130,6 +130,20 @@ func buildSettlementThroughputDetail(now time.Time, status ledger.StatusView, th
 	if window, ok := throughputWindowByName(throughput.Windows, "5m"); ok {
 		parts = append(parts, fmt.Sprintf("tps5m=%.4g", window.TransactionsPerSecond))
 	}
+	if status.MempoolSize > 0 {
+		warnAfterSeconds := 0.0
+		if blockInterval > 0 {
+			warnAfterSeconds = (time.Duration(settlementThroughputWarnMultiplier) * blockInterval).Seconds()
+		}
+		estimates := buildSettlementDrainEstimates(true, status.MempoolSize, throughput.Windows, warnAfterSeconds)
+		if peak := peakSettlementDrainEstimate(estimates); peak != nil {
+			peakDuration := time.Duration(peak.EstimatedDrainSeconds * float64(time.Second))
+			parts = append(parts, "peakDrain="+durationSecondsString(peakDuration)+"@"+peak.Window)
+			if peak.WarnUtilizationRatio > 0 {
+				parts = append(parts, fmt.Sprintf("peakDrainWarnRatio=%.4g@%s", peak.WarnUtilizationRatio, peak.Window))
+			}
+		}
+	}
 	return strings.Join(parts, ", ")
 }
 
