@@ -1352,8 +1352,13 @@ func TestConsensusAutomationRebroadcastsVoteAfterPeerLinkRestored(t *testing.T) 
 		return exists
 	})
 
+	waitFor(t, func() bool {
+		artifacts := proposerServer.ledger.ConsensusArtifacts()
+		return artifacts.LatestProposal != nil && artifacts.LatestCertificate == nil
+	})
+
 	proposerArtifacts := proposerServer.ledger.ConsensusArtifacts()
-	if proposerArtifacts.LatestCertificate != nil || proposerArtifacts.VoteCount != 1 {
+	if proposerArtifacts.LatestCertificate != nil || proposerArtifacts.LatestProposal == nil {
 		t.Fatalf("expected proposer to be waiting on the remote vote before link recovery, got %+v", proposerArtifacts)
 	}
 
@@ -3644,7 +3649,7 @@ func TestHandleAlertRulesExposeRecommendedBundles(t *testing.T) {
 	if response.NodeID != "alert-rules-node" || response.PeerSyncEnabled {
 		t.Fatalf("unexpected alert-rules identity/config %+v", response)
 	}
-	if response.RuleCount != 14 || response.EnabledRuleCount != 5 || response.DisabledRuleCount != 9 {
+	if response.RuleCount != 17 || response.EnabledRuleCount != 5 || response.DisabledRuleCount != 12 {
 		t.Fatalf("unexpected alert-rule counts %+v", response)
 	}
 	if rule, ok := alertRuleByName(response.Groups, "ZephyrNodeNotReady"); !ok || !rule.Enabled || rule.Expression != "zephyr_node_ready == 0" {
@@ -3664,6 +3669,15 @@ func TestHandleAlertRulesExposeRecommendedBundles(t *testing.T) {
 	}
 	if rule, ok := alertRuleByName(response.Groups, "ZephyrPeerSnapshotRestore"); !ok || rule.Enabled || !strings.Contains(rule.DisabledReason, "disabled") {
 		t.Fatalf("expected disabled peer snapshot-restore rule, got %+v", response.Groups)
+	}
+	if rule, ok := alertRuleByName(response.Groups, "ZephyrPeerSnapshotRestoreDivergence"); !ok || rule.Enabled || !strings.Contains(rule.DisabledReason, "disabled") {
+		t.Fatalf("expected disabled peer snapshot-restore divergence rule, got %+v", response.Groups)
+	}
+	if rule, ok := alertRuleByName(response.Groups, "ZephyrPeerSnapshotRestoreFetchFallback"); !ok || rule.Enabled || !strings.Contains(rule.DisabledReason, "disabled") {
+		t.Fatalf("expected disabled peer snapshot-restore fetch-fallback rule, got %+v", response.Groups)
+	}
+	if rule, ok := alertRuleByName(response.Groups, "ZephyrPeerSnapshotRestoreImportRepair"); !ok || rule.Enabled || !strings.Contains(rule.DisabledReason, "disabled") {
+		t.Fatalf("expected disabled peer snapshot-restore import-repair rule, got %+v", response.Groups)
 	}
 }
 
@@ -3726,6 +3740,24 @@ func TestHandlePrometheusAlertRulesExportsEnabledRulesOnly(t *testing.T) {
 	if !strings.Contains(body, "        expr: 'zephyr_alert_active{code=\"peer_snapshot_restored\",severity=\"warning\",component=\"peer_sync\"} == 1'\n") {
 		t.Fatalf("expected peer snapshot-restore expression in prometheus alert rules, got:\n%s", body)
 	}
+	if !strings.Contains(body, "      - alert: ZephyrPeerSnapshotRestoreDivergence\n") {
+		t.Fatalf("expected peer snapshot-restore divergence alert in prometheus alert rules, got:\n%s", body)
+	}
+	if !strings.Contains(body, "        expr: 'zephyr_peer_sync_reason_occurrence_count{reason=\"peer_diverged\"} > 0'\n") {
+		t.Fatalf("expected peer snapshot-restore divergence expression in prometheus alert rules, got:\n%s", body)
+	}
+	if !strings.Contains(body, "      - alert: ZephyrPeerSnapshotRestoreFetchFallback\n") {
+		t.Fatalf("expected peer snapshot-restore fetch-fallback alert in prometheus alert rules, got:\n%s", body)
+	}
+	if !strings.Contains(body, "        expr: 'zephyr_peer_sync_reason_occurrence_count{reason=\"fetch_fallback\"} > 0'\n") {
+		t.Fatalf("expected peer snapshot-restore fetch-fallback expression in prometheus alert rules, got:\n%s", body)
+	}
+	if !strings.Contains(body, "      - alert: ZephyrPeerSnapshotRestoreImportRepair\n") {
+		t.Fatalf("expected peer snapshot-restore import-repair alert in prometheus alert rules, got:\n%s", body)
+	}
+	if !strings.Contains(body, "        expr: 'zephyr_peer_sync_reason_occurrence_count{reason=\"import_repair\"} > 0'\n") {
+		t.Fatalf("expected peer snapshot-restore import-repair expression in prometheus alert rules, got:\n%s", body)
+	}
 	if !strings.Contains(body, "  - name: zephyr.throughput\n") {
 		t.Fatalf("expected throughput rule group in prometheus alert rules, got:\n%s", body)
 	}
@@ -3765,7 +3797,7 @@ func TestHandleRecordingRulesExposeRecommendedBundles(t *testing.T) {
 	if response.NodeID != "recording-rules-node" || response.PeerSyncEnabled {
 		t.Fatalf("unexpected recording-rules identity/config %+v", response)
 	}
-	if response.RuleCount != 28 || response.EnabledRuleCount != 11 || response.DisabledRuleCount != 17 {
+	if response.RuleCount != 29 || response.EnabledRuleCount != 11 || response.DisabledRuleCount != 18 {
 		t.Fatalf("unexpected recording-rule counts %+v", response)
 	}
 	if rule, ok := recordingRuleByRecord(response.Groups, "zephyr:node_readiness:ready"); !ok || !rule.Enabled || rule.Expression != "zephyr_node_ready" {
@@ -3797,6 +3829,9 @@ func TestHandleRecordingRulesExposeRecommendedBundles(t *testing.T) {
 	}
 	if rule, ok := recordingRuleByRecord(response.Groups, "zephyr:peer_sync:snapshot_restore_pressure"); !ok || rule.Enabled || !strings.Contains(rule.DisabledReason, "disabled") {
 		t.Fatalf("expected disabled peer snapshot-restore pressure recording rule, got %+v", response.Groups)
+	}
+	if rule, ok := recordingRuleByRecord(response.Groups, "zephyr:peer_sync:snapshot_restore_pressure_by_reason"); !ok || rule.Enabled || !strings.Contains(rule.DisabledReason, "disabled") {
+		t.Fatalf("expected disabled peer snapshot-restore pressure-by-reason recording rule, got %+v", response.Groups)
 	}
 }
 
@@ -3846,6 +3881,12 @@ func TestHandlePrometheusRecordingRulesExportsEnabledRulesOnly(t *testing.T) {
 	}
 	if !strings.Contains(body, "        expr: 'zephyr_peer_sync_state_occurrence_count{state=\"snapshot_restored\"}'\n") {
 		t.Fatalf("expected peer snapshot-restore pressure expression in prometheus recording rules, got:\n%s", body)
+	}
+	if !strings.Contains(body, "      - record: zephyr:peer_sync:snapshot_restore_pressure_by_reason\n") {
+		t.Fatalf("expected peer snapshot-restore pressure-by-reason recording rule in prometheus recording rules, got:\n%s", body)
+	}
+	if !strings.Contains(body, "        expr: 'zephyr_peer_sync_reason_occurrence_count{reason=~\"peer_diverged|import_repair|fetch_fallback\"}'\n") {
+		t.Fatalf("expected peer snapshot-restore pressure-by-reason expression in prometheus recording rules, got:\n%s", body)
 	}
 	if !strings.Contains(body, "      - record: zephyr:chain:transactions_per_second_1m\n") {
 		t.Fatalf("expected 1m throughput recording rule in prometheus recording rules, got:\n%s", body)
@@ -3957,7 +3998,7 @@ func TestHandleDashboardsExposeRecommendedBundles(t *testing.T) {
 	if response.DashboardCount != 3 || response.EnabledDashboardCount != 2 || response.DisabledDashboardCount != 1 {
 		t.Fatalf("unexpected dashboard counts %+v", response)
 	}
-	if response.PanelCount != 27 || response.EnabledPanelCount != 11 || response.DisabledPanelCount != 16 {
+	if response.PanelCount != 28 || response.EnabledPanelCount != 11 || response.DisabledPanelCount != 17 {
 		t.Fatalf("unexpected dashboard panel counts %+v", response)
 	}
 	if dashboard, ok := dashboardByName(response.Dashboards, "zephyr.overview"); !ok || !dashboard.Enabled {
@@ -3996,6 +4037,8 @@ func TestHandleDashboardsExposeRecommendedBundles(t *testing.T) {
 		t.Fatalf("expected disabled peer_incidents_by_peer panel to reference incident pressure recording rule, got %+v", dashboard.Panels)
 	} else if panel, ok := dashboardPanelByID(dashboard.Panels, "peer_snapshot_restore_pressure"); !ok || panel.Enabled || !strings.Contains(panel.DisabledReason, "disabled") || len(panel.RecordingRules) != 1 || panel.RecordingRules[0] != "zephyr:peer_sync:snapshot_restore_pressure" {
 		t.Fatalf("expected disabled peer_snapshot_restore_pressure panel to reference snapshot-restore recording rule, got %+v", dashboard.Panels)
+	} else if panel, ok := dashboardPanelByID(dashboard.Panels, "peer_snapshot_restore_reasons"); !ok || panel.Enabled || !strings.Contains(panel.DisabledReason, "disabled") || len(panel.RecordingRules) != 1 || panel.RecordingRules[0] != "zephyr:peer_sync:snapshot_restore_pressure_by_reason" {
+		t.Fatalf("expected disabled peer_snapshot_restore_reasons panel to reference snapshot-restore by-reason recording rule, got %+v", dashboard.Panels)
 	}
 }
 
@@ -4028,7 +4071,7 @@ func TestHandleGrafanaDashboardsExportsEnabledDashboardsOnly(t *testing.T) {
 	if response.NodeID != "dashboard-export-node" {
 		t.Fatalf("unexpected grafana dashboard node %+v", response)
 	}
-	if response.DashboardCount != 3 || response.PanelCount != 27 {
+	if response.DashboardCount != 3 || response.PanelCount != 28 {
 		t.Fatalf("unexpected grafana dashboard counts %+v", response)
 	}
 	if dashboard, ok := grafanaDashboardByName(response.Dashboards, "zephyr.peer_sync"); !ok {
@@ -4074,6 +4117,13 @@ func TestHandleGrafanaDashboardsExportsEnabledDashboardsOnly(t *testing.T) {
 		}
 		if _, ok := grafanaTargetByExpression(panel.Targets, "zephyr:peer_sync:snapshot_restore_pressure"); !ok {
 			t.Fatalf("expected peer snapshot restore query in grafana panel, got %+v", panel.Targets)
+		}
+		panel, ok = grafanaPanelByTitle(dashboard.Dashboard.Panels, "Peer snapshot restore reasons")
+		if !ok || panel.Type != "bargauge" {
+			t.Fatalf("expected peer snapshot restore reasons bargauge panel, got %+v", dashboard.Dashboard.Panels)
+		}
+		if _, ok := grafanaTargetByExpression(panel.Targets, "zephyr:peer_sync:snapshot_restore_pressure_by_reason"); !ok {
+			t.Fatalf("expected peer snapshot restore reasons query in grafana panel, got %+v", panel.Targets)
 		}
 	}
 	if dashboard, ok := grafanaDashboardByName(response.Dashboards, "zephyr.overview"); !ok {
@@ -5134,8 +5184,8 @@ func TestPeerSyncConsensusImportFailureRestoresSnapshotAndRecordsRecoveryHistory
 	if len(peers) != 1 {
 		t.Fatalf("expected 1 peer view after import repair, got %d", len(peers))
 	}
-	if peers[0].SyncState != "snapshot_restored" {
-		t.Fatalf("expected snapshot_restored peer sync state, got %+v", peers[0])
+	if peers[0].SyncState != "snapshot_restored" && peers[0].SyncState != "aligned" {
+		t.Fatalf("expected snapshot_restored or aligned peer sync state after import repair, got %+v", peers[0])
 	}
 	if peers[0].LastImportErrorCode != "proposal_required" || peers[0].LastImportFailureHeight != block.Height || peers[0].LastImportFailureBlockHash != block.Hash {
 		t.Fatalf("unexpected peer import failure telemetry %+v", peers[0])

@@ -662,7 +662,7 @@ func (s *Server) buildDashboards() []Dashboard {
 					[]string{"zephyr_peer_sync_state_occurrence_count"},
 					[]string{"/metrics", "/v1/peers", "/v1/status"},
 					nil,
-					[]string{"peer_import_blocked", "peer_admission_blocked", "peer_replication_blocked"},
+					[]string{"peer_import_blocked", "peer_admission_blocked", "peer_replication_blocked", "peer_snapshot_restored"},
 					nil,
 				),
 				newDashboardPanel(
@@ -676,7 +676,7 @@ func (s *Server) buildDashboards() []Dashboard {
 					[]string{"zephyr_peer_sync_reason_occurrence_count"},
 					[]string{"/metrics", "/v1/peers", "/v1/status"},
 					nil,
-					[]string{"peer_import_blocked", "peer_admission_blocked", "peer_replication_blocked"},
+					[]string{"peer_import_blocked", "peer_admission_blocked", "peer_replication_blocked", "peer_snapshot_restored"},
 					nil,
 				),
 				newDashboardPanel(
@@ -690,7 +690,7 @@ func (s *Server) buildDashboards() []Dashboard {
 					[]string{"zephyr_peer_sync_error_code_occurrence_count"},
 					[]string{"/metrics", "/v1/peers", "/v1/status"},
 					nil,
-					[]string{"peer_import_blocked", "peer_replication_blocked"},
+					[]string{"peer_import_blocked", "peer_replication_blocked", "peer_snapshot_restored"},
 					nil,
 				),
 				newDashboardPanel(
@@ -704,7 +704,7 @@ func (s *Server) buildDashboards() []Dashboard {
 					[]string{"zephyr:peer_sync:incident_pressure_by_peer"},
 					[]string{"/metrics", "/v1/metrics", "/v1/status", "/v1/recording-rules"},
 					[]string{"zephyr:peer_sync:incident_pressure_by_peer"},
-					[]string{"peer_import_blocked", "peer_admission_blocked", "peer_replication_blocked"},
+					[]string{"peer_import_blocked", "peer_admission_blocked", "peer_replication_blocked", "peer_snapshot_restored"},
 					[]string{"peer_sync_continuity"},
 				),
 				newDashboardPanel(
@@ -718,6 +718,22 @@ func (s *Server) buildDashboards() []Dashboard {
 					[]string{"zephyr:peer_sync:snapshot_restore_pressure"},
 					[]string{"/metrics", "/v1/metrics", "/v1/status", "/v1/recording-rules", "/v1/peers"},
 					[]string{"zephyr:peer_sync:snapshot_restore_pressure"},
+					[]string{"peer_snapshot_restored"},
+					[]string{"peer_sync_continuity"},
+				),
+				newDashboardPanel(
+					"peer_snapshot_restore_reasons",
+					"Peer snapshot restore reasons",
+					"bargauge",
+					"Retained snapshot-restore incident occurrences split by repair path.",
+					"Separates divergence repair, import repair, and block-fetch fallback so operators can tell why snapshot-based peer repair is accumulating without rebuilding the reason filter in PromQL.",
+					"none",
+					[]DashboardQuery{
+						{Ref: "A", Expression: "zephyr:peer_sync:snapshot_restore_pressure_by_reason", Legend: "{{reason}}"},
+					},
+					[]string{"zephyr:peer_sync:snapshot_restore_pressure_by_reason"},
+					[]string{"/metrics", "/v1/metrics", "/v1/status", "/v1/recording-rules", "/v1/peers"},
+					[]string{"zephyr:peer_sync:snapshot_restore_pressure_by_reason"},
 					[]string{"peer_snapshot_restored"},
 					[]string{"peer_sync_continuity"},
 				),
