@@ -3478,6 +3478,7 @@ func TestHandleAlertsExposePeerSnapshotRestoreWarnings(t *testing.T) {
 	requirePrometheusLine(t, body, "zephyr_alert_active{code=\"peer_snapshot_restored\",severity=\"warning\",component=\"peer_sync\"} 1")
 	requirePrometheusLine(t, body, "zephyr_peer_sync_state_occurrence_count{state=\"snapshot_restored\"} 1")
 	requirePrometheusLine(t, body, "zephyr_peer_sync_reason_occurrence_count{reason=\"peer_diverged\"} 1")
+	requirePrometheusLine(t, body, "zephyr_peer_snapshot_restore_last_height{peer_url=\"http://peer-a.example\",reason=\"peer_diverged\"} 3")
 }
 
 func TestPeersExposeRetainedReplicationTelemetryAfterRestart(t *testing.T) {
@@ -3811,7 +3812,7 @@ func TestHandleRecordingRulesExposeRecommendedBundles(t *testing.T) {
 	if response.NodeID != "recording-rules-node" || response.PeerSyncEnabled {
 		t.Fatalf("unexpected recording-rules identity/config %+v", response)
 	}
-	if response.RuleCount != 30 || response.EnabledRuleCount != 11 || response.DisabledRuleCount != 19 {
+	if response.RuleCount != 31 || response.EnabledRuleCount != 11 || response.DisabledRuleCount != 20 {
 		t.Fatalf("unexpected recording-rule counts %+v", response)
 	}
 	if rule, ok := recordingRuleByRecord(response.Groups, "zephyr:node_readiness:ready"); !ok || !rule.Enabled || rule.Expression != "zephyr_node_ready" {
@@ -3843,6 +3844,9 @@ func TestHandleRecordingRulesExposeRecommendedBundles(t *testing.T) {
 	}
 	if rule, ok := recordingRuleByRecord(response.Groups, "zephyr:peer_sync:incident_pressure_by_horizon"); !ok || rule.Enabled || !strings.Contains(rule.DisabledReason, "disabled") {
 		t.Fatalf("expected disabled peer incident pressure by horizon recording rule, got %+v", response.Groups)
+	}
+	if rule, ok := recordingRuleByRecord(response.Groups, "zephyr:peer_sync:snapshot_restore_pressure_by_peer"); !ok || rule.Enabled || !strings.Contains(rule.DisabledReason, "disabled") {
+		t.Fatalf("expected disabled peer snapshot-restore pressure by peer recording rule, got %+v", response.Groups)
 	}
 	if rule, ok := recordingRuleByRecord(response.Groups, "zephyr:peer_sync:snapshot_restore_pressure"); !ok || rule.Enabled || !strings.Contains(rule.DisabledReason, "disabled") {
 		t.Fatalf("expected disabled peer snapshot-restore pressure recording rule, got %+v", response.Groups)
@@ -3898,6 +3902,12 @@ func TestHandlePrometheusRecordingRulesExportsEnabledRulesOnly(t *testing.T) {
 	}
 	if !strings.Contains(body, "        expr: 'zephyr_peer_sync_horizon_occurrence_count'\n") {
 		t.Fatalf("expected peer incident pressure by horizon expression in prometheus recording rules, got:\n%s", body)
+	}
+	if !strings.Contains(body, "      - record: zephyr:peer_sync:snapshot_restore_pressure_by_peer\n") {
+		t.Fatalf("expected peer snapshot-restore pressure by peer recording rule in prometheus recording rules, got:\n%s", body)
+	}
+	if !strings.Contains(body, "        expr: 'zephyr_peer_sync_peer_occurrence_count{latest_state=\"snapshot_restored\"}'\n") {
+		t.Fatalf("expected peer snapshot-restore pressure by peer expression in prometheus recording rules, got:\n%s", body)
 	}
 	if !strings.Contains(body, "      - record: zephyr:peer_sync:snapshot_restore_pressure\n") {
 		t.Fatalf("expected peer snapshot-restore pressure recording rule in prometheus recording rules, got:\n%s", body)
@@ -4021,7 +4031,7 @@ func TestHandleDashboardsExposeRecommendedBundles(t *testing.T) {
 	if response.DashboardCount != 3 || response.EnabledDashboardCount != 2 || response.DisabledDashboardCount != 1 {
 		t.Fatalf("unexpected dashboard counts %+v", response)
 	}
-	if response.PanelCount != 29 || response.EnabledPanelCount != 11 || response.DisabledPanelCount != 18 {
+	if response.PanelCount != 31 || response.EnabledPanelCount != 11 || response.DisabledPanelCount != 20 {
 		t.Fatalf("unexpected dashboard panel counts %+v", response)
 	}
 	if dashboard, ok := dashboardByName(response.Dashboards, "zephyr.overview"); !ok || !dashboard.Enabled {
@@ -4060,6 +4070,10 @@ func TestHandleDashboardsExposeRecommendedBundles(t *testing.T) {
 		t.Fatalf("expected disabled peer_incidents_by_peer panel to reference incident pressure recording rule, got %+v", dashboard.Panels)
 	} else if panel, ok := dashboardPanelByID(dashboard.Panels, "peer_incident_horizons"); !ok || panel.Enabled || !strings.Contains(panel.DisabledReason, "disabled") || len(panel.RecordingRules) != 1 || panel.RecordingRules[0] != "zephyr:peer_sync:incident_pressure_by_horizon" {
 		t.Fatalf("expected disabled peer_incident_horizons panel to reference horizon recording rule, got %+v", dashboard.Panels)
+	} else if panel, ok := dashboardPanelByID(dashboard.Panels, "peer_snapshot_restore_by_peer"); !ok || panel.Enabled || !strings.Contains(panel.DisabledReason, "disabled") || len(panel.RecordingRules) != 1 || panel.RecordingRules[0] != "zephyr:peer_sync:snapshot_restore_pressure_by_peer" {
+		t.Fatalf("expected disabled peer_snapshot_restore_by_peer panel to reference snapshot-restore by-peer recording rule, got %+v", dashboard.Panels)
+	} else if panel, ok := dashboardPanelByID(dashboard.Panels, "peer_snapshot_restore_heights"); !ok || panel.Enabled || !strings.Contains(panel.DisabledReason, "disabled") || len(panel.SourceMetrics) != 2 || panel.SourceMetrics[0] != "zephyr_peer_snapshot_restore_last_height" {
+		t.Fatalf("expected disabled peer_snapshot_restore_heights panel to preserve latest height source metrics, got %+v", dashboard.Panels)
 	} else if panel, ok := dashboardPanelByID(dashboard.Panels, "peer_snapshot_restore_pressure"); !ok || panel.Enabled || !strings.Contains(panel.DisabledReason, "disabled") || len(panel.RecordingRules) != 1 || panel.RecordingRules[0] != "zephyr:peer_sync:snapshot_restore_pressure" {
 		t.Fatalf("expected disabled peer_snapshot_restore_pressure panel to reference snapshot-restore recording rule, got %+v", dashboard.Panels)
 	} else if panel, ok := dashboardPanelByID(dashboard.Panels, "peer_snapshot_restore_reasons"); !ok || panel.Enabled || !strings.Contains(panel.DisabledReason, "disabled") || len(panel.RecordingRules) != 1 || panel.RecordingRules[0] != "zephyr:peer_sync:snapshot_restore_pressure_by_reason" {
@@ -4096,7 +4110,7 @@ func TestHandleGrafanaDashboardsExportsEnabledDashboardsOnly(t *testing.T) {
 	if response.NodeID != "dashboard-export-node" {
 		t.Fatalf("unexpected grafana dashboard node %+v", response)
 	}
-	if response.DashboardCount != 3 || response.PanelCount != 29 {
+	if response.DashboardCount != 3 || response.PanelCount != 31 {
 		t.Fatalf("unexpected grafana dashboard counts %+v", response)
 	}
 	if dashboard, ok := grafanaDashboardByName(response.Dashboards, "zephyr.peer_sync"); !ok {
@@ -4142,6 +4156,20 @@ func TestHandleGrafanaDashboardsExportsEnabledDashboardsOnly(t *testing.T) {
 		}
 		if _, ok := grafanaTargetByExpression(panel.Targets, "zephyr:peer_sync:incident_pressure_by_horizon"); !ok {
 			t.Fatalf("expected peer incident pressure horizons query in grafana panel, got %+v", panel.Targets)
+		}
+		panel, ok = grafanaPanelByTitle(dashboard.Dashboard.Panels, "Peer snapshot restore pressure by peer")
+		if !ok || panel.Type != "bargauge" {
+			t.Fatalf("expected peer snapshot restore pressure by peer bargauge panel, got %+v", dashboard.Dashboard.Panels)
+		}
+		if _, ok := grafanaTargetByExpression(panel.Targets, "zephyr:peer_sync:snapshot_restore_pressure_by_peer"); !ok {
+			t.Fatalf("expected peer snapshot restore pressure by peer query in grafana panel, got %+v", panel.Targets)
+		}
+		panel, ok = grafanaPanelByTitle(dashboard.Dashboard.Panels, "Peer snapshot restore heights")
+		if !ok || panel.Type != "bargauge" {
+			t.Fatalf("expected peer snapshot restore heights bargauge panel, got %+v", dashboard.Dashboard.Panels)
+		}
+		if _, ok := grafanaTargetByExpression(panel.Targets, "zephyr_peer_snapshot_restore_last_height"); !ok {
+			t.Fatalf("expected peer snapshot restore heights query in grafana panel, got %+v", panel.Targets)
 		}
 		panel, ok = grafanaPanelByTitle(dashboard.Dashboard.Panels, "Peer snapshot restore pressure")
 		if !ok || panel.Type != "stat" {

@@ -43,7 +43,8 @@ func (s *Server) buildPrometheusMetrics(now time.Time) string {
 	throughput := s.ledger.ChainThroughputMetrics(now)
 	settlementThroughput := s.buildSettlementThroughputMetrics(now)
 	peerSummary := s.ledger.PeerSyncSummary()
-	peerRuntime := buildPeerRuntimeMetrics(s.peerSnapshot())
+	peers := s.peerSnapshot()
+	peerRuntime := buildPeerRuntimeMetrics(peers)
 	health := s.buildHealthResponse(now)
 	alerts := s.buildAlertsResponse(now)
 	slo := s.buildSLOSummary(now)
@@ -370,6 +371,31 @@ func (s *Server) buildPrometheusMetrics(now time.Time) string {
 				"zephyr_peer_sync_peer_latest_observed_at_seconds",
 				"Unix timestamp of the latest retained peer-sync incident grouped by peer with the latest dominant state, reason, and error code attached as labels.",
 				unixSeconds(*peer.LatestObservedAt),
+				labels...,
+			)
+		}
+	}
+	for _, peer := range peers {
+		if strings.TrimSpace(peer.URL) == "" {
+			continue
+		}
+		labels := []prometheusLabel{
+			{Name: "peer_url", Value: peer.URL},
+			{Name: "reason", Value: normalizePeerSyncPrometheusLabel(peer.LastSnapshotRestoreReason)},
+		}
+		if peer.LastSnapshotRestoreHeight > 0 {
+			writer.gauge(
+				"zephyr_peer_snapshot_restore_last_height",
+				"Latest snapshot-restore height grouped by peer with the retained repair reason attached as a label.",
+				float64(peer.LastSnapshotRestoreHeight),
+				labels...,
+			)
+		}
+		if peer.LastSnapshotRestoreAt != nil {
+			writer.gauge(
+				"zephyr_peer_snapshot_restore_last_observed_at_seconds",
+				"Unix timestamp of the latest snapshot restore grouped by peer with the retained repair reason attached as a label.",
+				unixSeconds(*peer.LastSnapshotRestoreAt),
 				labels...,
 			)
 		}
