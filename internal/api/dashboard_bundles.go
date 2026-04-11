@@ -754,6 +754,22 @@ func (s *Server) buildDashboards() []Dashboard {
 					[]string{"peer_sync_continuity"},
 				),
 				newDashboardPanel(
+					"peer_snapshot_restore_age",
+					"Peer snapshot restore age",
+					"bargauge",
+					"Seconds since the latest snapshot restore grouped by peer.",
+					"Shows whether snapshot-based peer repair is happening right now or is only lingering as retained history, while preserving the repair reason on each series label for drill-down.",
+					"s",
+					[]DashboardQuery{
+						{Ref: "A", Expression: "zephyr:peer_sync:snapshot_restore_age_by_peer", Legend: "{{peer_url}} {{reason}}"},
+					},
+					[]string{"zephyr_peer_snapshot_restore_age_seconds"},
+					[]string{"/metrics", "/v1/peers", "/v1/recording-rules"},
+					[]string{"zephyr:peer_sync:snapshot_restore_age_by_peer"},
+					[]string{"peer_snapshot_restored"},
+					[]string{"peer_sync_continuity"},
+				),
+				newDashboardPanel(
 					"peer_snapshot_restore_pressure",
 					"Peer snapshot restore pressure",
 					"stat",

@@ -398,6 +398,16 @@ func (s *Server) buildPrometheusMetrics(now time.Time) string {
 				unixSeconds(*peer.LastSnapshotRestoreAt),
 				labels...,
 			)
+			ageSeconds := now.Sub(peer.LastSnapshotRestoreAt.UTC()).Seconds()
+			if ageSeconds < 0 {
+				ageSeconds = 0
+			}
+			writer.gauge(
+				"zephyr_peer_snapshot_restore_age_seconds",
+				"Seconds since the latest snapshot restore grouped by peer with the retained repair reason attached as a label.",
+				ageSeconds,
+				labels...,
+			)
 		}
 	}
 

@@ -477,6 +477,20 @@ func (s *Server) buildRecordingRuleGroups() []RecordingRuleGroup {
 				),
 				disableRecordingRule(
 					newRecordingRule(
+						"peer sync snapshot restore age by peer",
+						"zephyr:peer_sync:snapshot_restore_age_by_peer",
+						"peer_sync",
+						"Reusable per-peer snapshot-restore age series for peer repair drill-down.",
+						"Carries seconds since the latest retained snapshot restore into a canonical per-peer series so dashboards can distinguish fresh repair from stale retained repair history without rebuilding time-delta math in PromQL.",
+						"zephyr_peer_snapshot_restore_age_seconds",
+						[]string{"zephyr_peer_snapshot_restore_age_seconds"},
+						[]string{"peer_snapshot_restored"},
+						[]string{"peer_sync_continuity"},
+					),
+					peerSyncDisabledReason,
+				),
+				disableRecordingRule(
+					newRecordingRule(
 						"peer sync snapshot restore pressure",
 						"zephyr:peer_sync:snapshot_restore_pressure",
 						"peer_sync",
