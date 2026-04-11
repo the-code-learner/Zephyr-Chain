@@ -183,6 +183,38 @@ func (s *Server) buildAlertsResponse(now time.Time) AlertsResponse {
 			ObservedAt: cloneAlertTime(state.LatestObservedAt),
 		})
 	}
+	if _, ok := peerSyncStateSummary(peerSummary, "snapshot_restored"); ok {
+		if reason, ok := peerSyncReasonSummary(peerSummary, "peer_diverged"); ok {
+			appendAlert(&response, Alert{
+				Code:       "peer_snapshot_restore_divergence",
+				Severity:   alertSeverityWarning,
+				Component:  "peer_sync",
+				Summary:    "peer divergence is triggering snapshot restore repair",
+				Detail:     buildPeerReasonAlertDetail(reason),
+				ObservedAt: cloneAlertTime(reason.LatestObservedAt),
+			})
+		}
+		if reason, ok := peerSyncReasonSummary(peerSummary, "import_repair"); ok {
+			appendAlert(&response, Alert{
+				Code:       "peer_snapshot_restore_import_repair",
+				Severity:   alertSeverityWarning,
+				Component:  "peer_sync",
+				Summary:    "peer import repair is triggering snapshot restore",
+				Detail:     buildPeerReasonAlertDetail(reason),
+				ObservedAt: cloneAlertTime(reason.LatestObservedAt),
+			})
+		}
+		if reason, ok := peerSyncReasonSummary(peerSummary, "fetch_fallback"); ok {
+			appendAlert(&response, Alert{
+				Code:       "peer_snapshot_restore_fetch_fallback",
+				Severity:   alertSeverityWarning,
+				Component:  "peer_sync",
+				Summary:    "peer block fetch fallback is triggering snapshot restore",
+				Detail:     buildPeerReasonAlertDetail(reason),
+				ObservedAt: cloneAlertTime(reason.LatestObservedAt),
+			})
+		}
+	}
 
 	if check, ok := findHealthCheck(health.Checks, "diagnostics"); ok && check.Status == healthCheckWarn {
 		appendAlert(&response, Alert{
@@ -266,6 +298,25 @@ func buildPeerStateAlertDetail(state ledger.PeerSyncStateSummary, labelName stri
 		parts = append(parts, labelName+"="+labelValue)
 	}
 	return strings.Join(parts, ", ")
+}
+
+func peerSyncReasonSummary(summary ledger.PeerSyncSummaryView, reason string) (ledger.PeerSyncReasonSummary, bool) {
+	reason = strings.TrimSpace(reason)
+	for _, bucket := range summary.Reasons {
+		if bucket.Reason == reason {
+			return bucket, true
+		}
+	}
+	return ledger.PeerSyncReasonSummary{}, false
+}
+
+func buildPeerReasonAlertDetail(reason ledger.PeerSyncReasonSummary) string {
+	return strings.Join([]string{
+		"incidents=" + strconv.Itoa(reason.IncidentCount),
+		"affectedPeers=" + strconv.Itoa(reason.AffectedPeerCount),
+		"occurrences=" + strconv.Itoa(reason.TotalOccurrences),
+		"reason=" + strings.TrimSpace(reason.Reason),
+	}, ", ")
 }
 
 func appendPeerStateAlertLabel(detail string, labelName string, labelValue string) string {

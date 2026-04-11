@@ -3467,11 +3467,14 @@ func TestHandleAlertsExposePeerSnapshotRestoreWarnings(t *testing.T) {
 	if err := json.NewDecoder(recorder.Body).Decode(&response); err != nil {
 		t.Fatalf("decode alerts response: %v", err)
 	}
-	if response.AlertCount != 1 || response.WarningCount != 1 || response.CriticalCount != 0 {
+	if response.AlertCount != 2 || response.WarningCount != 2 || response.CriticalCount != 0 {
 		t.Fatalf("unexpected snapshot-restore alert counts %+v", response)
 	}
 	if alert, ok := alertByCode(response.Alerts, "peer_snapshot_restored"); !ok || alert.Severity != alertSeverityWarning || alert.ObservedAt == nil || !alert.ObservedAt.Equal(restoredAt) || !strings.Contains(alert.Summary, "divergence") || !strings.Contains(alert.Detail, "reason=peer_diverged") {
 		t.Fatalf("expected peer_snapshot_restored warning with divergence detail, got %+v", response.Alerts)
+	}
+	if alert, ok := alertByCode(response.Alerts, "peer_snapshot_restore_divergence"); !ok || alert.Severity != alertSeverityWarning || alert.ObservedAt == nil || !alert.ObservedAt.Equal(restoredAt) || !strings.Contains(alert.Detail, "reason=peer_diverged") {
+		t.Fatalf("expected peer_snapshot_restore_divergence warning with repair-path detail, got %+v", response.Alerts)
 	}
 
 	metricsRequest := httptest.NewRequest(http.MethodGet, "/metrics", nil)
@@ -3481,7 +3484,10 @@ func TestHandleAlertsExposePeerSnapshotRestoreWarnings(t *testing.T) {
 		t.Fatalf("expected prometheus metrics status 200, got %d", metricsRecorder.Code)
 	}
 	body := metricsRecorder.Body.String()
+	requirePrometheusLine(t, body, "zephyr_alert_count 2")
+	requirePrometheusLine(t, body, "zephyr_alert_count_by_severity{severity=\"warning\"} 2")
 	requirePrometheusLine(t, body, "zephyr_alert_active{code=\"peer_snapshot_restored\",severity=\"warning\",component=\"peer_sync\"} 1")
+	requirePrometheusLine(t, body, "zephyr_alert_active{code=\"peer_snapshot_restore_divergence\",severity=\"warning\",component=\"peer_sync\"} 1")
 	requirePrometheusLine(t, body, "zephyr_peer_sync_state_occurrence_count{state=\"snapshot_restored\"} 1")
 	requirePrometheusLine(t, body, "zephyr_peer_sync_reason_occurrence_count{reason=\"peer_diverged\"} 1")
 	requirePrometheusLine(t, body, "zephyr_peer_snapshot_restore_last_height{peer_url=\"http://peer-a.example\",reason=\"peer_diverged\"} 3")
@@ -3765,19 +3771,19 @@ func TestHandlePrometheusAlertRulesExportsEnabledRulesOnly(t *testing.T) {
 	if !strings.Contains(body, "      - alert: ZephyrPeerSnapshotRestoreDivergence\n") {
 		t.Fatalf("expected peer snapshot-restore divergence alert in prometheus alert rules, got:\n%s", body)
 	}
-	if !strings.Contains(body, "        expr: 'zephyr_peer_sync_reason_occurrence_count{reason=\"peer_diverged\"} > 0'\n") {
+	if !strings.Contains(body, "        expr: 'zephyr_alert_active{code=\"peer_snapshot_restore_divergence\",severity=\"warning\",component=\"peer_sync\"} == 1'\n") {
 		t.Fatalf("expected peer snapshot-restore divergence expression in prometheus alert rules, got:\n%s", body)
 	}
 	if !strings.Contains(body, "      - alert: ZephyrPeerSnapshotRestoreFetchFallback\n") {
 		t.Fatalf("expected peer snapshot-restore fetch-fallback alert in prometheus alert rules, got:\n%s", body)
 	}
-	if !strings.Contains(body, "        expr: 'zephyr_peer_sync_reason_occurrence_count{reason=\"fetch_fallback\"} > 0'\n") {
+	if !strings.Contains(body, "        expr: 'zephyr_alert_active{code=\"peer_snapshot_restore_fetch_fallback\",severity=\"warning\",component=\"peer_sync\"} == 1'\n") {
 		t.Fatalf("expected peer snapshot-restore fetch-fallback expression in prometheus alert rules, got:\n%s", body)
 	}
 	if !strings.Contains(body, "      - alert: ZephyrPeerSnapshotRestoreImportRepair\n") {
 		t.Fatalf("expected peer snapshot-restore import-repair alert in prometheus alert rules, got:\n%s", body)
 	}
-	if !strings.Contains(body, "        expr: 'zephyr_peer_sync_reason_occurrence_count{reason=\"import_repair\"} > 0'\n") {
+	if !strings.Contains(body, "        expr: 'zephyr_alert_active{code=\"peer_snapshot_restore_import_repair\",severity=\"warning\",component=\"peer_sync\"} == 1'\n") {
 		t.Fatalf("expected peer snapshot-restore import-repair expression in prometheus alert rules, got:\n%s", body)
 	}
 	if !strings.Contains(body, "  - name: zephyr.throughput\n") {
