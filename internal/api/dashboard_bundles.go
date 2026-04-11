@@ -662,7 +662,7 @@ func (s *Server) buildDashboards() []Dashboard {
 					[]string{"zephyr_peer_sync_state_occurrence_count"},
 					[]string{"/metrics", "/v1/peers", "/v1/status"},
 					nil,
-					[]string{"peer_import_blocked", "peer_admission_blocked", "peer_replication_blocked", "peer_snapshot_restored"},
+					peerIncidentAlertCodes(),
 					nil,
 				),
 				newDashboardPanel(
@@ -676,7 +676,7 @@ func (s *Server) buildDashboards() []Dashboard {
 					[]string{"zephyr_peer_sync_reason_occurrence_count"},
 					[]string{"/metrics", "/v1/peers", "/v1/status"},
 					nil,
-					[]string{"peer_import_blocked", "peer_admission_blocked", "peer_replication_blocked", "peer_snapshot_restored"},
+					peerIncidentAlertCodes(),
 					nil,
 				),
 				newDashboardPanel(
@@ -690,7 +690,7 @@ func (s *Server) buildDashboards() []Dashboard {
 					[]string{"zephyr_peer_sync_error_code_occurrence_count"},
 					[]string{"/metrics", "/v1/peers", "/v1/status"},
 					nil,
-					[]string{"peer_import_blocked", "peer_replication_blocked", "peer_snapshot_restored"},
+					append([]string{"peer_import_blocked", "peer_replication_blocked"}, peerSnapshotRestoreAlertCodes()...),
 					nil,
 				),
 				newDashboardPanel(
@@ -704,7 +704,7 @@ func (s *Server) buildDashboards() []Dashboard {
 					[]string{"zephyr:peer_sync:incident_pressure_by_peer"},
 					[]string{"/metrics", "/v1/metrics", "/v1/status", "/v1/recording-rules"},
 					[]string{"zephyr:peer_sync:incident_pressure_by_peer"},
-					[]string{"peer_import_blocked", "peer_admission_blocked", "peer_replication_blocked", "peer_snapshot_restored"},
+					peerIncidentAlertCodes(),
 					[]string{"peer_sync_continuity"},
 				),
 				newDashboardPanel(
@@ -718,7 +718,7 @@ func (s *Server) buildDashboards() []Dashboard {
 					[]string{"zephyr:peer_sync:incident_pressure_by_horizon"},
 					[]string{"/metrics", "/v1/metrics", "/v1/status", "/v1/recording-rules"},
 					[]string{"zephyr:peer_sync:incident_pressure_by_horizon"},
-					[]string{"peer_sync_degraded", "peer_sync_unavailable", "peer_import_blocked", "peer_admission_blocked", "peer_replication_blocked", "peer_snapshot_restored"},
+					peerIncidentContinuityAlertCodes(),
 					[]string{"peer_sync_continuity"},
 				),
 				newDashboardPanel(
@@ -734,7 +734,7 @@ func (s *Server) buildDashboards() []Dashboard {
 					[]string{"zephyr:peer_sync:snapshot_restore_pressure_by_peer"},
 					[]string{"/metrics", "/v1/metrics", "/v1/peers", "/v1/status", "/v1/recording-rules"},
 					[]string{"zephyr:peer_sync:snapshot_restore_pressure_by_peer"},
-					[]string{"peer_snapshot_restored"},
+					peerSnapshotRestoreAlertCodes(),
 					[]string{"peer_sync_continuity"},
 				),
 				newDashboardPanel(
@@ -750,7 +750,7 @@ func (s *Server) buildDashboards() []Dashboard {
 					[]string{"zephyr_peer_snapshot_restore_last_height", "zephyr_peer_snapshot_restore_last_observed_at_seconds"},
 					[]string{"/metrics", "/v1/peers"},
 					nil,
-					[]string{"peer_snapshot_restored"},
+					peerSnapshotRestoreAlertCodes(),
 					[]string{"peer_sync_continuity"},
 				),
 				newDashboardPanel(
@@ -766,7 +766,7 @@ func (s *Server) buildDashboards() []Dashboard {
 					[]string{"zephyr_peer_snapshot_restore_age_seconds"},
 					[]string{"/metrics", "/v1/peers", "/v1/recording-rules"},
 					[]string{"zephyr:peer_sync:snapshot_restore_age_by_peer"},
-					[]string{"peer_snapshot_restored"},
+					peerSnapshotRestoreAlertCodes(),
 					[]string{"peer_sync_continuity"},
 				),
 				newDashboardPanel(
@@ -780,7 +780,7 @@ func (s *Server) buildDashboards() []Dashboard {
 					[]string{"zephyr:peer_sync:snapshot_restore_pressure"},
 					[]string{"/metrics", "/v1/metrics", "/v1/status", "/v1/recording-rules", "/v1/peers"},
 					[]string{"zephyr:peer_sync:snapshot_restore_pressure"},
-					[]string{"peer_snapshot_restored"},
+					peerSnapshotRestoreAlertCodes(),
 					[]string{"peer_sync_continuity"},
 				),
 				newDashboardPanel(
@@ -796,7 +796,7 @@ func (s *Server) buildDashboards() []Dashboard {
 					[]string{"zephyr:peer_sync:snapshot_restore_pressure_by_reason"},
 					[]string{"/metrics", "/v1/metrics", "/v1/status", "/v1/recording-rules", "/v1/peers"},
 					[]string{"zephyr:peer_sync:snapshot_restore_pressure_by_reason"},
-					[]string{"peer_snapshot_restored"},
+					peerSnapshotRestoreAlertCodes(),
 					[]string{"peer_sync_continuity"},
 				),
 				newDashboardPanel(

@@ -145,6 +145,10 @@ func (s *Server) buildPrometheusRecordingRules(now time.Time) string {
 				builder.WriteString("          alert_code: ")
 				builder.WriteString(rule.RelatedAlertCodes[0])
 				builder.WriteByte('\n')
+			} else if len(rule.RelatedAlertCodes) > 1 {
+				builder.WriteString("          alert_codes: ")
+				builder.WriteString(strings.Join(rule.RelatedAlertCodes, ","))
+				builder.WriteByte('\n')
 			}
 		}
 	}
@@ -442,7 +446,7 @@ func (s *Server) buildRecordingRuleGroups() []RecordingRuleGroup {
 						"Carries the retained per-peer incident occurrence metric into the recording-rule bundle so dashboards can pivot on peer pressure without rebuilding labels or rollup conventions in PromQL.",
 						"zephyr_peer_sync_peer_occurrence_count",
 						[]string{"zephyr_peer_sync_peer_occurrence_count"},
-						[]string{"peer_import_blocked", "peer_admission_blocked", "peer_replication_blocked", "peer_snapshot_restored"},
+						peerIncidentAlertCodes(),
 						[]string{"peer_sync_continuity"},
 					),
 					peerSyncDisabledReason,
@@ -456,7 +460,7 @@ func (s *Server) buildRecordingRuleGroups() []RecordingRuleGroup {
 						"Carries retained peer incident pressure into a canonical horizon-labeled series so dashboards can compare the current bounded retained window across short and long recent horizons without rebuilding label filters in PromQL.",
 						"zephyr_peer_sync_horizon_occurrence_count",
 						[]string{"zephyr_peer_sync_horizon_occurrence_count"},
-						[]string{"peer_sync_degraded", "peer_sync_unavailable", "peer_import_blocked", "peer_admission_blocked", "peer_replication_blocked", "peer_snapshot_restored"},
+						peerIncidentContinuityAlertCodes(),
 						[]string{"peer_sync_continuity"},
 					),
 					peerSyncDisabledReason,
@@ -470,7 +474,7 @@ func (s *Server) buildRecordingRuleGroups() []RecordingRuleGroup {
 						"Carries retained snapshot-restore pressure into a canonical per-peer series so dashboards can pivot from peer-level repair pressure into `/v1/peers` recent incident and latest repair metadata without rebuilding the latest-state filter in PromQL.",
 						"zephyr_peer_sync_peer_occurrence_count{latest_state=\"snapshot_restored\"}",
 						[]string{"zephyr_peer_sync_peer_occurrence_count"},
-						[]string{"peer_snapshot_restored"},
+						peerSnapshotRestoreAlertCodes(),
 						[]string{"peer_sync_continuity"},
 					),
 					peerSyncDisabledReason,
@@ -484,7 +488,7 @@ func (s *Server) buildRecordingRuleGroups() []RecordingRuleGroup {
 						"Carries seconds since the latest retained snapshot restore into a canonical per-peer series so dashboards can distinguish fresh repair from stale retained repair history without rebuilding time-delta math in PromQL.",
 						"zephyr_peer_snapshot_restore_age_seconds",
 						[]string{"zephyr_peer_snapshot_restore_age_seconds"},
-						[]string{"peer_snapshot_restored"},
+						peerSnapshotRestoreAlertCodes(),
 						[]string{"peer_sync_continuity"},
 					),
 					peerSyncDisabledReason,
@@ -498,7 +502,7 @@ func (s *Server) buildRecordingRuleGroups() []RecordingRuleGroup {
 						"Carries retained snapshot-restored peer incident occurrences into a canonical series so dashboards can highlight divergence repair and snapshot-based catch-up without rebuilding the state filter in PromQL.",
 						"zephyr_peer_sync_state_occurrence_count{state=\"snapshot_restored\"}",
 						[]string{"zephyr_peer_sync_state_occurrence_count"},
-						[]string{"peer_snapshot_restored"},
+						peerSnapshotRestoreAlertCodes(),
 						[]string{"peer_sync_continuity"},
 					),
 					peerSyncDisabledReason,
@@ -512,7 +516,7 @@ func (s *Server) buildRecordingRuleGroups() []RecordingRuleGroup {
 						"Carries retained snapshot-restored incidents into a canonical repair-path series so dashboards and downstream alerting can separate divergence repair from import repair and block-fetch fallback without rebuilding the reason filter in PromQL.",
 						"zephyr_peer_sync_reason_occurrence_count{reason=~\"peer_diverged|import_repair|fetch_fallback\"}",
 						[]string{"zephyr_peer_sync_reason_occurrence_count"},
-						[]string{"peer_snapshot_restored"},
+						peerSnapshotRestoreAlertCodes(),
 						[]string{"peer_sync_continuity"},
 					),
 					peerSyncDisabledReason,

@@ -3857,6 +3857,13 @@ func TestHandleRecordingRulesExposeRecommendedBundles(t *testing.T) {
 	}
 	if rule, ok := recordingRuleByRecord(response.Groups, "zephyr:peer_sync:incident_pressure_by_horizon"); !ok || rule.Enabled || !strings.Contains(rule.DisabledReason, "disabled") {
 		t.Fatalf("expected disabled peer incident pressure by horizon recording rule, got %+v", response.Groups)
+	} else {
+		requireStringSliceContainsAll(t, rule.RelatedAlertCodes,
+			"peer_snapshot_restored",
+			"peer_snapshot_restore_divergence",
+			"peer_snapshot_restore_import_repair",
+			"peer_snapshot_restore_fetch_fallback",
+		)
 	}
 	if rule, ok := recordingRuleByRecord(response.Groups, "zephyr:peer_sync:snapshot_restore_pressure_by_peer"); !ok || rule.Enabled || !strings.Contains(rule.DisabledReason, "disabled") {
 		t.Fatalf("expected disabled peer snapshot-restore pressure by peer recording rule, got %+v", response.Groups)
@@ -3869,6 +3876,13 @@ func TestHandleRecordingRulesExposeRecommendedBundles(t *testing.T) {
 	}
 	if rule, ok := recordingRuleByRecord(response.Groups, "zephyr:peer_sync:snapshot_restore_pressure_by_reason"); !ok || rule.Enabled || !strings.Contains(rule.DisabledReason, "disabled") {
 		t.Fatalf("expected disabled peer snapshot-restore pressure-by-reason recording rule, got %+v", response.Groups)
+	} else {
+		requireStringSliceContainsAll(t, rule.RelatedAlertCodes,
+			"peer_snapshot_restored",
+			"peer_snapshot_restore_divergence",
+			"peer_snapshot_restore_import_repair",
+			"peer_snapshot_restore_fetch_fallback",
+		)
 	}
 }
 
@@ -3942,6 +3956,9 @@ func TestHandlePrometheusRecordingRulesExportsEnabledRulesOnly(t *testing.T) {
 	}
 	if !strings.Contains(body, "        expr: 'zephyr_peer_sync_reason_occurrence_count{reason=~\"peer_diverged|import_repair|fetch_fallback\"}'\n") {
 		t.Fatalf("expected peer snapshot-restore pressure-by-reason expression in prometheus recording rules, got:\n%s", body)
+	}
+	if !strings.Contains(body, "          alert_codes: peer_snapshot_restored,peer_snapshot_restore_divergence,peer_snapshot_restore_import_repair,peer_snapshot_restore_fetch_fallback\n") {
+		t.Fatalf("expected multi-alert-code metadata for snapshot-restore recording rules in prometheus recording rules, got:\n%s", body)
 	}
 	if !strings.Contains(body, "      - record: zephyr:chain:transactions_per_second_1m\n") {
 		t.Fatalf("expected 1m throughput recording rule in prometheus recording rules, got:\n%s", body)
@@ -4102,6 +4119,30 @@ func TestHandleDashboardsExposeRecommendedBundles(t *testing.T) {
 		t.Fatalf("expected disabled peer_snapshot_restore_pressure panel to reference snapshot-restore recording rule, got %+v", dashboard.Panels)
 	} else if panel, ok := dashboardPanelByID(dashboard.Panels, "peer_snapshot_restore_reasons"); !ok || panel.Enabled || !strings.Contains(panel.DisabledReason, "disabled") || len(panel.RecordingRules) != 1 || panel.RecordingRules[0] != "zephyr:peer_sync:snapshot_restore_pressure_by_reason" {
 		t.Fatalf("expected disabled peer_snapshot_restore_reasons panel to reference snapshot-restore by-reason recording rule, got %+v", dashboard.Panels)
+	}
+	if dashboard, ok := dashboardByName(response.Dashboards, "zephyr.peer_sync"); !ok {
+		t.Fatalf("expected peer-sync dashboard metadata for related alert checks, got %+v", response.Dashboards)
+	} else {
+		panel, ok := dashboardPanelByID(dashboard.Panels, "peer_incident_horizons")
+		if !ok {
+			t.Fatalf("expected peer_incident_horizons panel metadata, got %+v", dashboard.Panels)
+		}
+		requireStringSliceContainsAll(t, panel.RelatedAlertCodes,
+			"peer_snapshot_restored",
+			"peer_snapshot_restore_divergence",
+			"peer_snapshot_restore_import_repair",
+			"peer_snapshot_restore_fetch_fallback",
+		)
+		panel, ok = dashboardPanelByID(dashboard.Panels, "peer_snapshot_restore_reasons")
+		if !ok {
+			t.Fatalf("expected peer_snapshot_restore_reasons panel metadata, got %+v", dashboard.Panels)
+		}
+		requireStringSliceContainsAll(t, panel.RelatedAlertCodes,
+			"peer_snapshot_restored",
+			"peer_snapshot_restore_divergence",
+			"peer_snapshot_restore_import_repair",
+			"peer_snapshot_restore_fetch_fallback",
+		)
 	}
 }
 
@@ -5412,6 +5453,22 @@ func dashboardPanelByID(panels []DashboardPanel, id string) (DashboardPanel, boo
 		}
 	}
 	return DashboardPanel{}, false
+}
+
+func requireStringSliceContainsAll(t *testing.T, values []string, wants ...string) {
+	t.Helper()
+	for _, want := range wants {
+		found := false
+		for _, value := range values {
+			if value == want {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("expected %q in slice %v", want, values)
+		}
+	}
 }
 
 func settlementDrainEstimateByWindow(estimates []SettlementDrainEstimateView, window string) (SettlementDrainEstimateView, bool) {
