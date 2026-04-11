@@ -3405,6 +3405,62 @@ func TestHandleAlertsExposePeerReplicationWarnings(t *testing.T) {
 	requirePrometheusLine(t, body, "zephyr_peer_sync_peer_occurrence_count{peer_url=\"http://peer-a.example\",latest_state=\"replication_blocked\",latest_reason=\"proposal\",latest_error_code=\"timeout\"} 1")
 }
 
+func TestHandleAlertsExposePeerSnapshotRestoreWarnings(t *testing.T) {
+	server := newTestServer(t, Config{
+		DataDir:                 t.TempDir(),
+		NodeID:                  "alerts-peer-snapshot-restore",
+		PeerURLs:                []string{"http://peer-a.example"},
+		BlockInterval:           0,
+		SyncInterval:            0,
+		MaxTransactionsPerBlock: 10,
+		EnableBlockProduction:   false,
+		EnablePeerSync:          false,
+	})
+
+	restoredAt := time.Date(2026, time.March, 24, 22, 0, 0, 0, time.UTC)
+	if err := server.ledger.RecordPeerSyncIncident(ledger.PeerSyncIncident{
+		PeerURL:         "http://peer-a.example",
+		State:           "snapshot_restored",
+		Reason:          "peer_diverged",
+		LocalHeight:     3,
+		PeerHeight:      3,
+		BlockHash:       consensusTestHash("alerts-peer-snapshot-restore"),
+		FirstObservedAt: restoredAt,
+		LastObservedAt:  restoredAt,
+	}); err != nil {
+		t.Fatalf("record snapshot-restored incident: %v", err)
+	}
+
+	request := httptest.NewRequest(http.MethodGet, "/v1/alerts", nil)
+	recorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected alerts status 200, got %d", recorder.Code)
+	}
+
+	var response AlertsResponse
+	if err := json.NewDecoder(recorder.Body).Decode(&response); err != nil {
+		t.Fatalf("decode alerts response: %v", err)
+	}
+	if response.AlertCount != 1 || response.WarningCount != 1 || response.CriticalCount != 0 {
+		t.Fatalf("unexpected snapshot-restore alert counts %+v", response)
+	}
+	if alert, ok := alertByCode(response.Alerts, "peer_snapshot_restored"); !ok || alert.Severity != alertSeverityWarning || alert.ObservedAt == nil || !alert.ObservedAt.Equal(restoredAt) || !strings.Contains(alert.Summary, "divergence") || !strings.Contains(alert.Detail, "reason=peer_diverged") {
+		t.Fatalf("expected peer_snapshot_restored warning with divergence detail, got %+v", response.Alerts)
+	}
+
+	metricsRequest := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+	metricsRecorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(metricsRecorder, metricsRequest)
+	if metricsRecorder.Code != http.StatusOK {
+		t.Fatalf("expected prometheus metrics status 200, got %d", metricsRecorder.Code)
+	}
+	body := metricsRecorder.Body.String()
+	requirePrometheusLine(t, body, "zephyr_alert_active{code=\"peer_snapshot_restored\",severity=\"warning\",component=\"peer_sync\"} 1")
+	requirePrometheusLine(t, body, "zephyr_peer_sync_state_occurrence_count{state=\"snapshot_restored\"} 1")
+	requirePrometheusLine(t, body, "zephyr_peer_sync_reason_occurrence_count{reason=\"peer_diverged\"} 1")
+}
+
 func TestPeersExposeRetainedReplicationTelemetryAfterRestart(t *testing.T) {
 	dataDir := t.TempDir()
 	server := newTestServer(t, Config{
@@ -3588,7 +3644,7 @@ func TestHandleAlertRulesExposeRecommendedBundles(t *testing.T) {
 	if response.NodeID != "alert-rules-node" || response.PeerSyncEnabled {
 		t.Fatalf("unexpected alert-rules identity/config %+v", response)
 	}
-	if response.RuleCount != 13 || response.EnabledRuleCount != 5 || response.DisabledRuleCount != 8 {
+	if response.RuleCount != 14 || response.EnabledRuleCount != 5 || response.DisabledRuleCount != 9 {
 		t.Fatalf("unexpected alert-rule counts %+v", response)
 	}
 	if rule, ok := alertRuleByName(response.Groups, "ZephyrNodeNotReady"); !ok || !rule.Enabled || rule.Expression != "zephyr_node_ready == 0" {
@@ -3605,6 +3661,9 @@ func TestHandleAlertRulesExposeRecommendedBundles(t *testing.T) {
 	}
 	if rule, ok := alertRuleByName(response.Groups, "ZephyrPeerReplicationBlocked"); !ok || rule.Enabled || !strings.Contains(rule.DisabledReason, "disabled") {
 		t.Fatalf("expected disabled peer replication rule, got %+v", response.Groups)
+	}
+	if rule, ok := alertRuleByName(response.Groups, "ZephyrPeerSnapshotRestore"); !ok || rule.Enabled || !strings.Contains(rule.DisabledReason, "disabled") {
+		t.Fatalf("expected disabled peer snapshot-restore rule, got %+v", response.Groups)
 	}
 }
 
@@ -3661,6 +3720,12 @@ func TestHandlePrometheusAlertRulesExportsEnabledRulesOnly(t *testing.T) {
 	if !strings.Contains(body, "        expr: 'zephyr_alert_active{code=\"peer_replication_blocked\",severity=\"warning\",component=\"peer_sync\"} == 1'\n") {
 		t.Fatalf("expected peer replication blocked expression in prometheus alert rules, got:\n%s", body)
 	}
+	if !strings.Contains(body, "      - alert: ZephyrPeerSnapshotRestore\n") {
+		t.Fatalf("expected peer snapshot-restore alert in prometheus alert rules, got:\n%s", body)
+	}
+	if !strings.Contains(body, "        expr: 'zephyr_alert_active{code=\"peer_snapshot_restored\",severity=\"warning\",component=\"peer_sync\"} == 1'\n") {
+		t.Fatalf("expected peer snapshot-restore expression in prometheus alert rules, got:\n%s", body)
+	}
 	if !strings.Contains(body, "  - name: zephyr.throughput\n") {
 		t.Fatalf("expected throughput rule group in prometheus alert rules, got:\n%s", body)
 	}
@@ -3700,7 +3765,7 @@ func TestHandleRecordingRulesExposeRecommendedBundles(t *testing.T) {
 	if response.NodeID != "recording-rules-node" || response.PeerSyncEnabled {
 		t.Fatalf("unexpected recording-rules identity/config %+v", response)
 	}
-	if response.RuleCount != 27 || response.EnabledRuleCount != 11 || response.DisabledRuleCount != 16 {
+	if response.RuleCount != 28 || response.EnabledRuleCount != 11 || response.DisabledRuleCount != 17 {
 		t.Fatalf("unexpected recording-rule counts %+v", response)
 	}
 	if rule, ok := recordingRuleByRecord(response.Groups, "zephyr:node_readiness:ready"); !ok || !rule.Enabled || rule.Expression != "zephyr_node_ready" {
@@ -3729,6 +3794,9 @@ func TestHandleRecordingRulesExposeRecommendedBundles(t *testing.T) {
 	}
 	if rule, ok := recordingRuleByRecord(response.Groups, "zephyr:peer_sync:incident_pressure_by_peer"); !ok || rule.Enabled || !strings.Contains(rule.DisabledReason, "disabled") {
 		t.Fatalf("expected disabled peer incident pressure recording rule, got %+v", response.Groups)
+	}
+	if rule, ok := recordingRuleByRecord(response.Groups, "zephyr:peer_sync:snapshot_restore_pressure"); !ok || rule.Enabled || !strings.Contains(rule.DisabledReason, "disabled") {
+		t.Fatalf("expected disabled peer snapshot-restore pressure recording rule, got %+v", response.Groups)
 	}
 }
 
@@ -3772,6 +3840,12 @@ func TestHandlePrometheusRecordingRulesExportsEnabledRulesOnly(t *testing.T) {
 	}
 	if !strings.Contains(body, "        expr: 'zephyr_peer_sync_peer_occurrence_count'\n") {
 		t.Fatalf("expected peer incident pressure expression in prometheus recording rules, got:\n%s", body)
+	}
+	if !strings.Contains(body, "      - record: zephyr:peer_sync:snapshot_restore_pressure\n") {
+		t.Fatalf("expected peer snapshot-restore pressure recording rule in prometheus recording rules, got:\n%s", body)
+	}
+	if !strings.Contains(body, "        expr: 'zephyr_peer_sync_state_occurrence_count{state=\"snapshot_restored\"}'\n") {
+		t.Fatalf("expected peer snapshot-restore pressure expression in prometheus recording rules, got:\n%s", body)
 	}
 	if !strings.Contains(body, "      - record: zephyr:chain:transactions_per_second_1m\n") {
 		t.Fatalf("expected 1m throughput recording rule in prometheus recording rules, got:\n%s", body)
@@ -3883,7 +3957,7 @@ func TestHandleDashboardsExposeRecommendedBundles(t *testing.T) {
 	if response.DashboardCount != 3 || response.EnabledDashboardCount != 2 || response.DisabledDashboardCount != 1 {
 		t.Fatalf("unexpected dashboard counts %+v", response)
 	}
-	if response.PanelCount != 26 || response.EnabledPanelCount != 11 || response.DisabledPanelCount != 15 {
+	if response.PanelCount != 27 || response.EnabledPanelCount != 11 || response.DisabledPanelCount != 16 {
 		t.Fatalf("unexpected dashboard panel counts %+v", response)
 	}
 	if dashboard, ok := dashboardByName(response.Dashboards, "zephyr.overview"); !ok || !dashboard.Enabled {
@@ -3920,6 +3994,8 @@ func TestHandleDashboardsExposeRecommendedBundles(t *testing.T) {
 		t.Fatalf("expected disabled peer_incident_reasons panel, got %+v", dashboard.Panels)
 	} else if panel, ok := dashboardPanelByID(dashboard.Panels, "peer_incidents_by_peer"); !ok || panel.Enabled || !strings.Contains(panel.DisabledReason, "disabled") || len(panel.RecordingRules) != 1 || panel.RecordingRules[0] != "zephyr:peer_sync:incident_pressure_by_peer" {
 		t.Fatalf("expected disabled peer_incidents_by_peer panel to reference incident pressure recording rule, got %+v", dashboard.Panels)
+	} else if panel, ok := dashboardPanelByID(dashboard.Panels, "peer_snapshot_restore_pressure"); !ok || panel.Enabled || !strings.Contains(panel.DisabledReason, "disabled") || len(panel.RecordingRules) != 1 || panel.RecordingRules[0] != "zephyr:peer_sync:snapshot_restore_pressure" {
+		t.Fatalf("expected disabled peer_snapshot_restore_pressure panel to reference snapshot-restore recording rule, got %+v", dashboard.Panels)
 	}
 }
 
@@ -3952,7 +4028,7 @@ func TestHandleGrafanaDashboardsExportsEnabledDashboardsOnly(t *testing.T) {
 	if response.NodeID != "dashboard-export-node" {
 		t.Fatalf("unexpected grafana dashboard node %+v", response)
 	}
-	if response.DashboardCount != 3 || response.PanelCount != 26 {
+	if response.DashboardCount != 3 || response.PanelCount != 27 {
 		t.Fatalf("unexpected grafana dashboard counts %+v", response)
 	}
 	if dashboard, ok := grafanaDashboardByName(response.Dashboards, "zephyr.peer_sync"); !ok {
@@ -3991,6 +4067,13 @@ func TestHandleGrafanaDashboardsExportsEnabledDashboardsOnly(t *testing.T) {
 		}
 		if _, ok := grafanaTargetByExpression(panel.Targets, "zephyr:peer_sync:incident_pressure_by_peer"); !ok {
 			t.Fatalf("expected peer incident pressure query in grafana panel, got %+v", panel.Targets)
+		}
+		panel, ok = grafanaPanelByTitle(dashboard.Dashboard.Panels, "Peer snapshot restore pressure")
+		if !ok || panel.Type != "stat" {
+			t.Fatalf("expected peer snapshot restore stat panel, got %+v", dashboard.Dashboard.Panels)
+		}
+		if _, ok := grafanaTargetByExpression(panel.Targets, "zephyr:peer_sync:snapshot_restore_pressure"); !ok {
+			t.Fatalf("expected peer snapshot restore query in grafana panel, got %+v", panel.Targets)
 		}
 	}
 	if dashboard, ok := grafanaDashboardByName(response.Dashboards, "zephyr.overview"); !ok {

@@ -171,6 +171,18 @@ func (s *Server) buildAlertsResponse(now time.Time) AlertsResponse {
 			ObservedAt: cloneAlertTime(state.LatestObservedAt),
 		})
 	}
+	if state, ok := peerSyncStateSummary(peerSummary, "snapshot_restored"); ok {
+		detail := buildPeerStateAlertDetail(state, "reason", representativePeerSyncReason(peerSummary, "snapshot_restored"))
+		detail = appendPeerStateAlertLabel(detail, "errorCode", representativePeerSyncErrorCode(peerSummary, "snapshot_restored"))
+		appendAlert(&response, Alert{
+			Code:       "peer_snapshot_restored",
+			Severity:   alertSeverityWarning,
+			Component:  "peer_sync",
+			Summary:    peerSnapshotRestoreAlertSummary(peerSummary),
+			Detail:     detail,
+			ObservedAt: cloneAlertTime(state.LatestObservedAt),
+		})
+	}
 
 	if check, ok := findHealthCheck(health.Checks, "diagnostics"); ok && check.Status == healthCheckWarn {
 		appendAlert(&response, Alert{
@@ -295,6 +307,19 @@ func representativePeerSyncReason(summary ledger.PeerSyncSummaryView, state stri
 		}
 	}
 	return ""
+}
+
+func peerSnapshotRestoreAlertSummary(summary ledger.PeerSyncSummaryView) string {
+	switch representativePeerSyncReason(summary, "snapshot_restored") {
+	case "peer_diverged":
+		return "peer divergence required snapshot restore on one or more peers"
+	case "import_repair":
+		return "peer import repair required snapshot restore on one or more peers"
+	case "fetch_fallback":
+		return "peer block fetch fallback required snapshot restore on one or more peers"
+	default:
+		return "peer sync required snapshot restore on one or more peers"
+	}
 }
 
 func latestPeerSummaryForState(summary ledger.PeerSyncSummaryView, state string) (ledger.PeerSyncPeerSummary, bool) {

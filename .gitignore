@@ -24,3 +24,6 @@ data/
 
 # Private manuscript workspace
 paper/
+
+# Local technical memory
+LOCAL_CONTEXT.md

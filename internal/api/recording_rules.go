@@ -449,6 +449,20 @@ func (s *Server) buildRecordingRuleGroups() []RecordingRuleGroup {
 				),
 				disableRecordingRule(
 					newRecordingRule(
+						"peer sync snapshot restore pressure",
+						"zephyr:peer_sync:snapshot_restore_pressure",
+						"peer_sync",
+						"Reusable retained snapshot-restore pressure series for peer repair dashboards.",
+						"Carries retained snapshot-restored peer incident occurrences into a canonical series so dashboards can highlight divergence repair and snapshot-based catch-up without rebuilding the state filter in PromQL.",
+						"zephyr_peer_sync_state_occurrence_count{state=\"snapshot_restored\"}",
+						[]string{"zephyr_peer_sync_state_occurrence_count"},
+						[]string{"peer_snapshot_restored"},
+						[]string{"peer_sync_continuity"},
+					),
+					peerSyncDisabledReason,
+				),
+				disableRecordingRule(
+					newRecordingRule(
 						"peer sync continuity at risk",
 						"zephyr:peer_sync_continuity:at_risk",
 						"peer_sync",

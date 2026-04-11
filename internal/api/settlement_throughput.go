@@ -136,6 +136,10 @@ func buildSettlementThroughputDetail(now time.Time, status ledger.StatusView, th
 			warnAfterSeconds = (time.Duration(settlementThroughputWarnMultiplier) * blockInterval).Seconds()
 		}
 		estimates := buildSettlementDrainEstimates(true, status.MempoolSize, throughput.Windows, warnAfterSeconds)
+		totalEstimateWindows, availableEstimateWindows := settlementDrainEstimateCounts(estimates)
+		if totalEstimateWindows > 0 {
+			parts = append(parts, fmt.Sprintf("forecastWindows=%d/%d", availableEstimateWindows, totalEstimateWindows))
+		}
 		if peak := peakSettlementDrainEstimate(estimates); peak != nil {
 			peakDuration := time.Duration(peak.EstimatedDrainSeconds * float64(time.Second))
 			parts = append(parts, "peakDrain="+durationSecondsString(peakDuration)+"@"+peak.Window)

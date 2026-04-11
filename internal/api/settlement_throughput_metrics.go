@@ -30,10 +30,12 @@ type SettlementThroughputMetricsView struct {
 	ExpectedIntervalSeconds float64                       `json:"expectedIntervalSeconds,omitempty"`
 	WarnAfterSeconds        float64                       `json:"warnAfterSeconds,omitempty"`
 	FailAfterSeconds        float64                       `json:"failAfterSeconds,omitempty"`
-	WarnUtilizationRatio    float64                       `json:"warnUtilizationRatio"`
-	FailUtilizationRatio    float64                       `json:"failUtilizationRatio"`
-	DrainEstimates          []SettlementDrainEstimateView `json:"drainEstimates,omitempty"`
-	PeakDrainEstimate       *SettlementDrainEstimateView  `json:"peakDrainEstimate,omitempty"`
+	WarnUtilizationRatio        float64                       `json:"warnUtilizationRatio"`
+	FailUtilizationRatio        float64                       `json:"failUtilizationRatio"`
+	DrainEstimateWindowCount    int                           `json:"drainEstimateWindowCount"`
+	AvailableDrainEstimateCount int                           `json:"availableDrainEstimateCount"`
+	DrainEstimates              []SettlementDrainEstimateView `json:"drainEstimates,omitempty"`
+	PeakDrainEstimate           *SettlementDrainEstimateView  `json:"peakDrainEstimate,omitempty"`
 }
 
 func (s *Server) buildSettlementThroughputMetrics(now time.Time) SettlementThroughputMetricsView {
@@ -83,9 +85,21 @@ func (s *Server) buildSettlementThroughputMetrics(now time.Time) SettlementThrou
 		view.FailUtilizationRatio = view.QueueDrainLagSeconds / view.FailAfterSeconds
 	}
 	view.DrainEstimates = buildSettlementDrainEstimates(assessment.Applicable, status.MempoolSize, throughput.Windows, view.WarnAfterSeconds)
+	view.DrainEstimateWindowCount, view.AvailableDrainEstimateCount = settlementDrainEstimateCounts(view.DrainEstimates)
 	view.PeakDrainEstimate = peakSettlementDrainEstimate(view.DrainEstimates)
 
 	return view
+}
+
+func settlementDrainEstimateCounts(estimates []SettlementDrainEstimateView) (int, int) {
+	total := len(estimates)
+	available := 0
+	for _, estimate := range estimates {
+		if estimate.Available {
+			available++
+		}
+	}
+	return total, available
 }
 
 func buildSettlementDrainEstimates(applicable bool, mempoolTransactionCount int, windows []ledger.ChainThroughputWindowView, warnAfterSeconds float64) []SettlementDrainEstimateView {

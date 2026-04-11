@@ -385,6 +385,21 @@ func (s *Server) buildAlertRuleGroups() []AlertRuleGroup {
 					),
 					peerSyncDisabledReason,
 				),
+				disableAlertRule(
+					newAlertRule(
+						"ZephyrPeerSnapshotRestore",
+						alertSeverityWarning,
+						"peer_sync",
+						"Peer sync required snapshot restore repair",
+						"One or more peers recently required snapshot restore during repair. Inspect /v1/alerts, /v1/status peerSyncSummary, /v1/metrics, and /v1/peers to separate divergence repair from import fallback or fetch fallback paths.",
+						"zephyr_alert_active{code=\"peer_snapshot_restored\",severity=\"warning\",component=\"peer_sync\"} == 1",
+						"5m",
+						[]string{"zephyr_alert_active", "zephyr_peer_sync_state_occurrence_count", "zephyr_peer_sync_reason_occurrence_count", "zephyr_peer_sync_error_code_occurrence_count"},
+						[]string{"peer_snapshot_restored"},
+						[]string{"peer_sync_continuity"},
+					),
+					peerSyncDisabledReason,
+				),
 			},
 		},
 	}

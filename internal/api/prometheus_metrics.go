@@ -150,12 +150,15 @@ func (s *Server) buildPrometheusMetrics(now time.Time) string {
 		writer.gauge("zephyr_settlement_queue_drain_utilization_ratio", "Normalized settlement queue-drain lag divided by the warn or fail threshold.", settlementThroughput.FailUtilizationRatio, prometheusLabel{Name: "threshold", Value: "fail"})
 	}
 	for _, estimate := range settlementThroughput.DrainEstimates {
+		windowLabel := prometheusLabel{Name: "window", Value: estimate.Window}
+		writer.gauge("zephyr_settlement_estimated_queue_drain_available", "Whether a settlement queue-drain estimate is currently available for each recent throughput window.", boolMetric(estimate.Available), windowLabel)
 		if !estimate.Available {
 			continue
 		}
-		writer.gauge("zephyr_settlement_estimated_queue_drain_seconds", "Estimated seconds required to drain the current queued transaction backlog at the recent committed transaction throughput for each window.", estimate.EstimatedDrainSeconds, prometheusLabel{Name: "window", Value: estimate.Window})
-		writer.gauge("zephyr_settlement_estimated_queue_drain_warn_utilization_ratio", "Normalized estimated queue-drain time divided by the warn threshold for each recent throughput window.", estimate.WarnUtilizationRatio, prometheusLabel{Name: "window", Value: estimate.Window})
+		writer.gauge("zephyr_settlement_estimated_queue_drain_seconds", "Estimated seconds required to drain the current queued transaction backlog at the recent committed transaction throughput for each window.", estimate.EstimatedDrainSeconds, windowLabel)
+		writer.gauge("zephyr_settlement_estimated_queue_drain_warn_utilization_ratio", "Normalized estimated queue-drain time divided by the warn threshold for each recent throughput window.", estimate.WarnUtilizationRatio, windowLabel)
 	}
+	writer.gauge("zephyr_settlement_estimated_queue_drain_available_window_count", "Number of recent throughput windows that currently provide a settlement queue-drain estimate.", float64(settlementThroughput.AvailableDrainEstimateCount))
 	if settlementThroughput.PeakDrainEstimate != nil {
 		labels := []prometheusLabel{{Name: "window", Value: settlementThroughput.PeakDrainEstimate.Window}}
 		writer.gauge("zephyr_settlement_estimated_queue_drain_seconds_max", "Highest estimated queue-drain time across the recent throughput windows, labeled by the selected worst-case window.", settlementThroughput.PeakDrainEstimate.EstimatedDrainSeconds, labels...)
