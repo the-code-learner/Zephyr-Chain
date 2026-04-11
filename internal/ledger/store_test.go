@@ -1131,8 +1131,8 @@ func TestStorePeerSyncSummaryExposesHorizons(t *testing.T) {
 	}
 
 	summary := store.PeerSyncSummary()
-	if len(summary.Horizons) != 3 {
-		t.Fatalf("expected 3 peer sync horizons, got %+v", summary.Horizons)
+	if len(summary.Horizons) != 5 {
+		t.Fatalf("expected 5 peer sync horizons, got %+v", summary.Horizons)
 	}
 
 	horizon5m, ok := peerSyncHorizonByWindow(summary.Horizons, "5m")
@@ -1157,6 +1157,16 @@ func TestStorePeerSyncSummaryExposesHorizons(t *testing.T) {
 	}
 	if len(horizon1h.Reasons) != 2 || horizon1h.Reasons[0].Reason != "import_repair" || horizon1h.Reasons[0].TotalOccurrences != 3 || horizon1h.Reasons[1].Reason != "unknown" || horizon1h.Reasons[1].TotalOccurrences != 3 {
 		t.Fatalf("unexpected 1h horizon reasons %+v", horizon1h.Reasons)
+	}
+
+	horizon6h, ok := peerSyncHorizonByWindow(summary.Horizons, "6h")
+	if !ok || horizon6h.IncidentCount != 4 || horizon6h.AffectedPeerCount != 4 || horizon6h.TotalOccurrences != 10 {
+		t.Fatalf("unexpected 6h peer sync horizon %+v", summary.Horizons)
+	}
+
+	horizon24h, ok := peerSyncHorizonByWindow(summary.Horizons, "24h")
+	if !ok || horizon24h.IncidentCount != 4 || horizon24h.AffectedPeerCount != 4 || horizon24h.TotalOccurrences != 10 {
+		t.Fatalf("unexpected 24h peer sync horizon %+v", summary.Horizons)
 	}
 }
 

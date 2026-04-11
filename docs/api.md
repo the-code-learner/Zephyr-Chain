@@ -324,7 +324,7 @@ Current behavior:
 
 - the response uses `text/plain; version=0.0.4; charset=utf-8`
 - the endpoint keeps returning `200` while the HTTP API is alive; readiness is exported through `zephyr_node_ready`, `zephyr_health_status`, and `zephyr_health_check_status` instead of surfacing failure as HTTP `503`
-- the current metric families cover node flags, chain height and mempool size, consensus height and round state, recovery backlog, retained consensus action history, retained consensus diagnostic buckets, live peer runtime counts, durable peer-sync incident summaries including recent `5m`, `15m`, and `1h` horizon gauges keyed by incident `LastObservedAt`, active derived alert gauges, and SLO-oriented objective gauges
+- the current metric families cover node flags, chain height and mempool size, consensus height and round state, recovery backlog, retained consensus action history, retained consensus diagnostic buckets, live peer runtime counts, durable peer-sync incident summaries including recent `5m`, `15m`, `1h`, `6h`, and `24h` horizon gauges keyed by incident `LastObservedAt`, active derived alert gauges, and SLO-oriented objective gauges
 - `GET /v1/metrics` remains the structured JSON surface for automation that wants typed objects, while `GET /metrics` is the scrape-friendly adapter for Prometheus-style monitoring stacks
 
 ### GET /v1/health
@@ -455,7 +455,7 @@ Current behavior:
 - `recovery` exposes pending replayable local actions, pending import backlog, and recent replay/completion plus snapshot-restore metadata from the local consensus-action WAL
 - `diagnostics` exposes recent rejected proposal, vote, commit, and import events
 - `peerSyncHistory` exposes a durable recent history of cross-peer sync incidents, including repeated failures merged by occurrence count
-- `peerSyncSummary` exposes affected-peer totals, dominant states, dominant reasons, dominant error codes, the latest incident summary across peers, and fixed recent horizons for `5m`, `15m`, and `1h` keyed by each retained incident's latest observation time
+- `peerSyncSummary` exposes affected-peer totals, dominant states, dominant reasons, dominant error codes, the latest incident summary across peers, and fixed recent horizons for `5m`, `15m`, `1h`, `6h`, and `24h` keyed by each retained incident's latest observation time
 - `GET /v1/metrics` offers a machine-readable roll-up of that durable summary plus live peer runtime counts
 - `GET /metrics` offers a Prometheus-style text projection of the same operator signals for scrape-based monitoring and alerting
 - `GET /v1/health` offers a pass, warn, or fail readiness summary derived from the same durable and live operator signals; unlike `/health`, it can return HTTP `503` when fail checks are active
@@ -476,7 +476,7 @@ Current behavior:
 - the top-level response includes `generatedAt`, node identity, runtime flags including `structuredLogsEnabled`, and embedded `status`, `consensus`, and `recovery` summaries
 - `consensusActions` rolls up the durable local WAL and recovery actions into `totalCount`, `pendingCount`, `totalReplayAttempts`, latest record or completion times, and `byType` or `byStatus` buckets; current types can include `proposal`, `vote`, `round_advance`, `block_commit`, `block_import`, and `snapshot_restore`
 - `diagnostics` rolls up the bounded rejection history into `totalCount`, `latestObservedAt`, and `byKind`, `byCode`, or `bySource` buckets
-- `peerSyncSummary` reuses the durable cross-peer incident summary also exposed by status, consensus, and block-template responses, including fixed recent horizons for `5m`, `15m`, and `1h` that filter retained incidents by `LastObservedAt`
+- `peerSyncSummary` reuses the durable cross-peer incident summary also exposed by status, consensus, and block-template responses, including fixed recent horizons for `5m`, `15m`, `1h`, `6h`, and `24h` that filter retained incidents by `LastObservedAt`
 - `peerRuntime` reflects the current configured peer set and live `syncState` distribution, including reachable or admitted counts versus unreachable or unadmitted counts
 - unlike `peerSyncSummary`, `peerRuntime` is derived from the latest in-memory peer view and may reset on process restart until peers are seen again
 - `chainThroughput` summarizes committed-chain throughput with total committed block and transaction counts, latest committed block time and interval, and fixed `1m`, `5m`, and `15m` windows carrying block counts, transaction counts, blocks per second, transactions per second, and average transactions per block

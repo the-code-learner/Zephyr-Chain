@@ -453,7 +453,7 @@ func (s *Server) buildRecordingRuleGroups() []RecordingRuleGroup {
 						"zephyr:peer_sync:incident_pressure_by_horizon",
 						"peer_sync",
 						"Reusable retained peer incident pressure series split by recent horizon.",
-						"Carries retained peer incident pressure into a canonical horizon-labeled series so dashboards can compare the current bounded retained window against short and medium recent horizons without rebuilding label filters in PromQL.",
+						"Carries retained peer incident pressure into a canonical horizon-labeled series so dashboards can compare the current bounded retained window across short and long recent horizons without rebuilding label filters in PromQL.",
 						"zephyr_peer_sync_horizon_occurrence_count",
 						[]string{"zephyr_peer_sync_horizon_occurrence_count"},
 						[]string{"peer_sync_degraded", "peer_sync_unavailable", "peer_import_blocked", "peer_admission_blocked", "peer_replication_blocked", "peer_snapshot_restored"},

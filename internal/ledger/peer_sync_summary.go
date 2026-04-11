@@ -13,6 +13,8 @@ var peerSyncSummaryHorizonDefinitions = []struct {
 	{Window: "5m", Duration: 5 * time.Minute},
 	{Window: "15m", Duration: 15 * time.Minute},
 	{Window: "1h", Duration: 1 * time.Hour},
+	{Window: "6h", Duration: 6 * time.Hour},
+	{Window: "24h", Duration: 24 * time.Hour},
 }
 
 type PeerSyncStateSummary struct {

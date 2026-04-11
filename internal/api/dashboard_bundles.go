@@ -712,7 +712,7 @@ func (s *Server) buildDashboards() []Dashboard {
 					"Peer incident pressure horizons",
 					"bargauge",
 					"Retained peer incident pressure split across recent horizons.",
-					"Compares the current retained peer incident pressure across short and medium recent horizons so operators can tell whether peer churn is a fresh spike or persistent background load.",
+					"Compares the current retained peer incident pressure across short and long recent horizons so operators can tell whether peer churn is a fresh spike or persistent background load.",
 					"none",
 					[]DashboardQuery{{Ref: "A", Expression: "zephyr:peer_sync:incident_pressure_by_horizon", Legend: "{{window}}"}},
 					[]string{"zephyr:peer_sync:incident_pressure_by_horizon"},

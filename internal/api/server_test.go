@@ -2813,8 +2813,8 @@ func TestStatusExposesPeerSyncSummaryAcrossPeers(t *testing.T) {
 	if len(statusResponse.PeerSyncSummary.Peers) != 2 || statusResponse.PeerSyncSummary.Peers[0].PeerURL != "http://peer-b.example" || statusResponse.PeerSyncSummary.Peers[0].LatestState != "import_blocked" || statusResponse.PeerSyncSummary.Peers[0].LatestErrorCode != "proposal_required" {
 		t.Fatalf("unexpected peer sync peer summaries %+v", statusResponse.PeerSyncSummary.Peers)
 	}
-	if len(statusResponse.PeerSyncSummary.Horizons) != 3 {
-		t.Fatalf("expected 3 peer sync horizons, got %+v", statusResponse.PeerSyncSummary.Horizons)
+	if len(statusResponse.PeerSyncSummary.Horizons) != 5 {
+		t.Fatalf("expected 5 peer sync horizons, got %+v", statusResponse.PeerSyncSummary.Horizons)
 	}
 	if horizon, ok := peerSyncHorizonByWindow(statusResponse.PeerSyncSummary.Horizons, "5m"); !ok || horizon.IncidentCount != 1 || horizon.AffectedPeerCount != 1 || horizon.TotalOccurrences != 1 {
 		t.Fatalf("unexpected 5m peer sync horizon %+v", statusResponse.PeerSyncSummary.Horizons)
@@ -2824,6 +2824,12 @@ func TestStatusExposesPeerSyncSummaryAcrossPeers(t *testing.T) {
 	}
 	if horizon, ok := peerSyncHorizonByWindow(statusResponse.PeerSyncSummary.Horizons, "1h"); !ok || horizon.IncidentCount != 2 || horizon.AffectedPeerCount != 2 || horizon.TotalOccurrences != 3 {
 		t.Fatalf("unexpected 1h peer sync horizon %+v", statusResponse.PeerSyncSummary.Horizons)
+	}
+	if horizon, ok := peerSyncHorizonByWindow(statusResponse.PeerSyncSummary.Horizons, "6h"); !ok || horizon.IncidentCount != 2 || horizon.AffectedPeerCount != 2 || horizon.TotalOccurrences != 3 {
+		t.Fatalf("unexpected 6h peer sync horizon %+v", statusResponse.PeerSyncSummary.Horizons)
+	}
+	if horizon, ok := peerSyncHorizonByWindow(statusResponse.PeerSyncSummary.Horizons, "24h"); !ok || horizon.IncidentCount != 2 || horizon.AffectedPeerCount != 2 || horizon.TotalOccurrences != 3 {
+		t.Fatalf("unexpected 24h peer sync horizon %+v", statusResponse.PeerSyncSummary.Horizons)
 	}
 
 	peersRequest := httptest.NewRequest(http.MethodGet, "/v1/peers", nil)
@@ -3168,7 +3174,7 @@ func TestHandleNodeHealthFailsWhenRecoveryAndPeersAreBlocked(t *testing.T) {
 	}
 	if check, ok := healthCheckByName(response.Checks, "peer_sync"); !ok || check.Status != healthCheckFail {
 		t.Fatalf("expected failing peer_sync check, got %+v", response.Checks)
-	} else if !strings.Contains(check.Detail, "recentOccurrences=5m:1|15m:1|1h:1") || !strings.Contains(check.Detail, "recentPeers=5m:1|15m:1|1h:1") {
+	} else if !strings.Contains(check.Detail, "recentOccurrences=5m:1|15m:1|1h:1|6h:1|24h:1") || !strings.Contains(check.Detail, "recentPeers=5m:1|15m:1|1h:1|6h:1|24h:1") {
 		t.Fatalf("expected failing peer_sync check to include horizon detail, got %+v", check)
 	}
 
@@ -4499,8 +4505,8 @@ func TestMetricsExposeConsensusAndPeerObservabilityAggregates(t *testing.T) {
 	if len(response.PeerSyncSummary.ErrorCodes) != 2 || response.PeerSyncSummary.ErrorCodes[0].ErrorCode != "unknown" || response.PeerSyncSummary.ErrorCodes[0].IncidentCount != 2 || response.PeerSyncSummary.ErrorCodes[0].AffectedPeerCount != 2 || response.PeerSyncSummary.ErrorCodes[0].TotalOccurrences != 3 || response.PeerSyncSummary.ErrorCodes[1].ErrorCode != "proposal_required" || response.PeerSyncSummary.ErrorCodes[1].TotalOccurrences != 1 {
 		t.Fatalf("unexpected peer sync error code summaries %+v", response.PeerSyncSummary.ErrorCodes)
 	}
-	if len(response.PeerSyncSummary.Horizons) != 3 {
-		t.Fatalf("expected 3 peer sync horizons, got %+v", response.PeerSyncSummary.Horizons)
+	if len(response.PeerSyncSummary.Horizons) != 5 {
+		t.Fatalf("expected 5 peer sync horizons, got %+v", response.PeerSyncSummary.Horizons)
 	}
 	if horizon, ok := peerSyncHorizonByWindow(response.PeerSyncSummary.Horizons, "5m"); !ok || horizon.IncidentCount != 1 || horizon.AffectedPeerCount != 1 || horizon.TotalOccurrences != 1 {
 		t.Fatalf("unexpected 5m peer sync horizon %+v", response.PeerSyncSummary.Horizons)
@@ -4510,6 +4516,12 @@ func TestMetricsExposeConsensusAndPeerObservabilityAggregates(t *testing.T) {
 	}
 	if horizon, ok := peerSyncHorizonByWindow(response.PeerSyncSummary.Horizons, "1h"); !ok || horizon.IncidentCount != 3 || horizon.AffectedPeerCount != 3 || horizon.TotalOccurrences != 4 {
 		t.Fatalf("unexpected 1h peer sync horizon %+v", response.PeerSyncSummary.Horizons)
+	}
+	if horizon, ok := peerSyncHorizonByWindow(response.PeerSyncSummary.Horizons, "6h"); !ok || horizon.IncidentCount != 3 || horizon.AffectedPeerCount != 3 || horizon.TotalOccurrences != 4 {
+		t.Fatalf("unexpected 6h peer sync horizon %+v", response.PeerSyncSummary.Horizons)
+	}
+	if horizon, ok := peerSyncHorizonByWindow(response.PeerSyncSummary.Horizons, "24h"); !ok || horizon.IncidentCount != 3 || horizon.AffectedPeerCount != 3 || horizon.TotalOccurrences != 4 {
+		t.Fatalf("unexpected 24h peer sync horizon %+v", response.PeerSyncSummary.Horizons)
 	}
 	if response.PeerRuntime.ConfiguredPeerCount != 3 || response.PeerRuntime.ReachablePeerCount != 2 || response.PeerRuntime.UnreachablePeerCount != 1 || response.PeerRuntime.AdmittedPeerCount != 2 || response.PeerRuntime.UnadmittedPeerCount != 1 {
 		t.Fatalf("unexpected peer runtime metrics %+v", response.PeerRuntime)
@@ -4623,6 +4635,8 @@ func TestPrometheusMetricsExportOperatorSignals(t *testing.T) {
 	requirePrometheusLine(t, body, "zephyr_peer_sync_horizon_occurrence_count{window=\"5m\"} 2")
 	requirePrometheusLine(t, body, "zephyr_peer_sync_horizon_occurrence_count{window=\"15m\"} 2")
 	requirePrometheusLine(t, body, "zephyr_peer_sync_horizon_occurrence_count{window=\"1h\"} 2")
+	requirePrometheusLine(t, body, "zephyr_peer_sync_horizon_occurrence_count{window=\"6h\"} 2")
+	requirePrometheusLine(t, body, "zephyr_peer_sync_horizon_occurrence_count{window=\"24h\"} 2")
 	requirePrometheusLine(t, body, "zephyr_peer_sync_reason_occurrence_count{reason=\"unknown\"} 2")
 	requirePrometheusLine(t, body, "zephyr_peer_sync_error_code_occurrence_count{code=\"proposal_required\"} 1")
 	requirePrometheusLine(t, body, "zephyr_peer_sync_error_code_occurrence_count{code=\"unknown\"} 1")
