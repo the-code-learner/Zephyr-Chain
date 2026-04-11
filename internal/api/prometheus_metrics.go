@@ -257,6 +257,35 @@ func (s *Server) buildPrometheusMetrics(now time.Time) string {
 	if peerSummary.LatestObservedAt != nil {
 		writer.gauge("zephyr_peer_sync_latest_observed_at_seconds", "Unix timestamp of the latest retained peer-sync incident.", unixSeconds(*peerSummary.LatestObservedAt))
 	}
+	for _, horizon := range peerSummary.Horizons {
+		labels := []prometheusLabel{{Name: "window", Value: horizon.Window}}
+		writer.gauge(
+			"zephyr_peer_sync_horizon_incident_count",
+			"Number of retained peer-sync incidents whose latest observation falls within each recent horizon.",
+			float64(horizon.IncidentCount),
+			labels...,
+		)
+		writer.gauge(
+			"zephyr_peer_sync_horizon_affected_peer_count",
+			"Peers represented by retained peer-sync incidents whose latest observation falls within each recent horizon.",
+			float64(horizon.AffectedPeerCount),
+			labels...,
+		)
+		writer.gauge(
+			"zephyr_peer_sync_horizon_occurrence_count",
+			"Total occurrences represented by retained peer-sync incidents whose latest observation falls within each recent horizon.",
+			float64(horizon.TotalOccurrences),
+			labels...,
+		)
+		if horizon.LatestObservedAt != nil {
+			writer.gauge(
+				"zephyr_peer_sync_horizon_latest_observed_at_seconds",
+				"Unix timestamp of the latest retained peer-sync incident represented within each recent horizon.",
+				unixSeconds(*horizon.LatestObservedAt),
+				labels...,
+			)
+		}
+	}
 	for _, state := range peerSummary.States {
 		writer.gauge(
 			"zephyr_peer_sync_state_incident_count",

@@ -2742,9 +2742,9 @@ func TestStatusExposesPeerSyncSummaryAcrossPeers(t *testing.T) {
 		EnablePeerSync:          false,
 	})
 
-	firstObservedAt := time.Date(2026, time.March, 24, 20, 0, 0, 0, time.UTC)
+	firstObservedAt := time.Now().UTC().Add(-13 * time.Minute)
 	secondObservedAt := firstObservedAt.Add(30 * time.Second)
-	thirdObservedAt := firstObservedAt.Add(90 * time.Second)
+	thirdObservedAt := time.Now().UTC().Add(-3 * time.Minute)
 	if err := server.ledger.RecordPeerSyncIncident(ledger.PeerSyncIncident{
 		PeerURL:         "http://peer-a.example",
 		State:           "unreachable",
@@ -2812,6 +2812,18 @@ func TestStatusExposesPeerSyncSummaryAcrossPeers(t *testing.T) {
 	}
 	if len(statusResponse.PeerSyncSummary.Peers) != 2 || statusResponse.PeerSyncSummary.Peers[0].PeerURL != "http://peer-b.example" || statusResponse.PeerSyncSummary.Peers[0].LatestState != "import_blocked" || statusResponse.PeerSyncSummary.Peers[0].LatestErrorCode != "proposal_required" {
 		t.Fatalf("unexpected peer sync peer summaries %+v", statusResponse.PeerSyncSummary.Peers)
+	}
+	if len(statusResponse.PeerSyncSummary.Horizons) != 3 {
+		t.Fatalf("expected 3 peer sync horizons, got %+v", statusResponse.PeerSyncSummary.Horizons)
+	}
+	if horizon, ok := peerSyncHorizonByWindow(statusResponse.PeerSyncSummary.Horizons, "5m"); !ok || horizon.IncidentCount != 1 || horizon.AffectedPeerCount != 1 || horizon.TotalOccurrences != 1 {
+		t.Fatalf("unexpected 5m peer sync horizon %+v", statusResponse.PeerSyncSummary.Horizons)
+	}
+	if horizon, ok := peerSyncHorizonByWindow(statusResponse.PeerSyncSummary.Horizons, "15m"); !ok || horizon.IncidentCount != 2 || horizon.AffectedPeerCount != 2 || horizon.TotalOccurrences != 3 {
+		t.Fatalf("unexpected 15m peer sync horizon %+v", statusResponse.PeerSyncSummary.Horizons)
+	}
+	if horizon, ok := peerSyncHorizonByWindow(statusResponse.PeerSyncSummary.Horizons, "1h"); !ok || horizon.IncidentCount != 2 || horizon.AffectedPeerCount != 2 || horizon.TotalOccurrences != 3 {
+		t.Fatalf("unexpected 1h peer sync horizon %+v", statusResponse.PeerSyncSummary.Horizons)
 	}
 
 	peersRequest := httptest.NewRequest(http.MethodGet, "/v1/peers", nil)
@@ -3156,6 +3168,8 @@ func TestHandleNodeHealthFailsWhenRecoveryAndPeersAreBlocked(t *testing.T) {
 	}
 	if check, ok := healthCheckByName(response.Checks, "peer_sync"); !ok || check.Status != healthCheckFail {
 		t.Fatalf("expected failing peer_sync check, got %+v", response.Checks)
+	} else if !strings.Contains(check.Detail, "recentOccurrences=5m:1|15m:1|1h:1") || !strings.Contains(check.Detail, "recentPeers=5m:1|15m:1|1h:1") {
+		t.Fatalf("expected failing peer_sync check to include horizon detail, got %+v", check)
 	}
 
 	metricsRequest := httptest.NewRequest(http.MethodGet, "/metrics", nil)
@@ -3797,7 +3811,7 @@ func TestHandleRecordingRulesExposeRecommendedBundles(t *testing.T) {
 	if response.NodeID != "recording-rules-node" || response.PeerSyncEnabled {
 		t.Fatalf("unexpected recording-rules identity/config %+v", response)
 	}
-	if response.RuleCount != 29 || response.EnabledRuleCount != 11 || response.DisabledRuleCount != 18 {
+	if response.RuleCount != 30 || response.EnabledRuleCount != 11 || response.DisabledRuleCount != 19 {
 		t.Fatalf("unexpected recording-rule counts %+v", response)
 	}
 	if rule, ok := recordingRuleByRecord(response.Groups, "zephyr:node_readiness:ready"); !ok || !rule.Enabled || rule.Expression != "zephyr_node_ready" {
@@ -3826,6 +3840,9 @@ func TestHandleRecordingRulesExposeRecommendedBundles(t *testing.T) {
 	}
 	if rule, ok := recordingRuleByRecord(response.Groups, "zephyr:peer_sync:incident_pressure_by_peer"); !ok || rule.Enabled || !strings.Contains(rule.DisabledReason, "disabled") {
 		t.Fatalf("expected disabled peer incident pressure recording rule, got %+v", response.Groups)
+	}
+	if rule, ok := recordingRuleByRecord(response.Groups, "zephyr:peer_sync:incident_pressure_by_horizon"); !ok || rule.Enabled || !strings.Contains(rule.DisabledReason, "disabled") {
+		t.Fatalf("expected disabled peer incident pressure by horizon recording rule, got %+v", response.Groups)
 	}
 	if rule, ok := recordingRuleByRecord(response.Groups, "zephyr:peer_sync:snapshot_restore_pressure"); !ok || rule.Enabled || !strings.Contains(rule.DisabledReason, "disabled") {
 		t.Fatalf("expected disabled peer snapshot-restore pressure recording rule, got %+v", response.Groups)
@@ -3875,6 +3892,12 @@ func TestHandlePrometheusRecordingRulesExportsEnabledRulesOnly(t *testing.T) {
 	}
 	if !strings.Contains(body, "        expr: 'zephyr_peer_sync_peer_occurrence_count'\n") {
 		t.Fatalf("expected peer incident pressure expression in prometheus recording rules, got:\n%s", body)
+	}
+	if !strings.Contains(body, "      - record: zephyr:peer_sync:incident_pressure_by_horizon\n") {
+		t.Fatalf("expected peer incident pressure by horizon recording rule in prometheus recording rules, got:\n%s", body)
+	}
+	if !strings.Contains(body, "        expr: 'zephyr_peer_sync_horizon_occurrence_count'\n") {
+		t.Fatalf("expected peer incident pressure by horizon expression in prometheus recording rules, got:\n%s", body)
 	}
 	if !strings.Contains(body, "      - record: zephyr:peer_sync:snapshot_restore_pressure\n") {
 		t.Fatalf("expected peer snapshot-restore pressure recording rule in prometheus recording rules, got:\n%s", body)
@@ -3998,7 +4021,7 @@ func TestHandleDashboardsExposeRecommendedBundles(t *testing.T) {
 	if response.DashboardCount != 3 || response.EnabledDashboardCount != 2 || response.DisabledDashboardCount != 1 {
 		t.Fatalf("unexpected dashboard counts %+v", response)
 	}
-	if response.PanelCount != 28 || response.EnabledPanelCount != 11 || response.DisabledPanelCount != 17 {
+	if response.PanelCount != 29 || response.EnabledPanelCount != 11 || response.DisabledPanelCount != 18 {
 		t.Fatalf("unexpected dashboard panel counts %+v", response)
 	}
 	if dashboard, ok := dashboardByName(response.Dashboards, "zephyr.overview"); !ok || !dashboard.Enabled {
@@ -4035,6 +4058,8 @@ func TestHandleDashboardsExposeRecommendedBundles(t *testing.T) {
 		t.Fatalf("expected disabled peer_incident_reasons panel, got %+v", dashboard.Panels)
 	} else if panel, ok := dashboardPanelByID(dashboard.Panels, "peer_incidents_by_peer"); !ok || panel.Enabled || !strings.Contains(panel.DisabledReason, "disabled") || len(panel.RecordingRules) != 1 || panel.RecordingRules[0] != "zephyr:peer_sync:incident_pressure_by_peer" {
 		t.Fatalf("expected disabled peer_incidents_by_peer panel to reference incident pressure recording rule, got %+v", dashboard.Panels)
+	} else if panel, ok := dashboardPanelByID(dashboard.Panels, "peer_incident_horizons"); !ok || panel.Enabled || !strings.Contains(panel.DisabledReason, "disabled") || len(panel.RecordingRules) != 1 || panel.RecordingRules[0] != "zephyr:peer_sync:incident_pressure_by_horizon" {
+		t.Fatalf("expected disabled peer_incident_horizons panel to reference horizon recording rule, got %+v", dashboard.Panels)
 	} else if panel, ok := dashboardPanelByID(dashboard.Panels, "peer_snapshot_restore_pressure"); !ok || panel.Enabled || !strings.Contains(panel.DisabledReason, "disabled") || len(panel.RecordingRules) != 1 || panel.RecordingRules[0] != "zephyr:peer_sync:snapshot_restore_pressure" {
 		t.Fatalf("expected disabled peer_snapshot_restore_pressure panel to reference snapshot-restore recording rule, got %+v", dashboard.Panels)
 	} else if panel, ok := dashboardPanelByID(dashboard.Panels, "peer_snapshot_restore_reasons"); !ok || panel.Enabled || !strings.Contains(panel.DisabledReason, "disabled") || len(panel.RecordingRules) != 1 || panel.RecordingRules[0] != "zephyr:peer_sync:snapshot_restore_pressure_by_reason" {
@@ -4071,7 +4096,7 @@ func TestHandleGrafanaDashboardsExportsEnabledDashboardsOnly(t *testing.T) {
 	if response.NodeID != "dashboard-export-node" {
 		t.Fatalf("unexpected grafana dashboard node %+v", response)
 	}
-	if response.DashboardCount != 3 || response.PanelCount != 28 {
+	if response.DashboardCount != 3 || response.PanelCount != 29 {
 		t.Fatalf("unexpected grafana dashboard counts %+v", response)
 	}
 	if dashboard, ok := grafanaDashboardByName(response.Dashboards, "zephyr.peer_sync"); !ok {
@@ -4110,6 +4135,13 @@ func TestHandleGrafanaDashboardsExportsEnabledDashboardsOnly(t *testing.T) {
 		}
 		if _, ok := grafanaTargetByExpression(panel.Targets, "zephyr:peer_sync:incident_pressure_by_peer"); !ok {
 			t.Fatalf("expected peer incident pressure query in grafana panel, got %+v", panel.Targets)
+		}
+		panel, ok = grafanaPanelByTitle(dashboard.Dashboard.Panels, "Peer incident pressure horizons")
+		if !ok || panel.Type != "bargauge" {
+			t.Fatalf("expected peer incident pressure horizons bargauge panel, got %+v", dashboard.Dashboard.Panels)
+		}
+		if _, ok := grafanaTargetByExpression(panel.Targets, "zephyr:peer_sync:incident_pressure_by_horizon"); !ok {
+			t.Fatalf("expected peer incident pressure horizons query in grafana panel, got %+v", panel.Targets)
 		}
 		panel, ok = grafanaPanelByTitle(dashboard.Dashboard.Panels, "Peer snapshot restore pressure")
 		if !ok || panel.Type != "stat" {
@@ -4336,10 +4368,11 @@ func TestMetricsExposeConsensusAndPeerObservabilityAggregates(t *testing.T) {
 		t.Fatalf("record second diagnostic: %v", err)
 	}
 
-	firstPeerSeenAt := proposalRecordedAt.Add(5 * time.Minute)
-	secondPeerSeenAt := proposalRecordedAt.Add(6 * time.Minute)
-	blockedAt := proposalRecordedAt.Add(7 * time.Minute)
-	unadmittedAt := proposalRecordedAt.Add(8 * time.Minute)
+	peerObservedNow := time.Now().UTC()
+	firstPeerSeenAt := peerObservedNow.Add(-41 * time.Minute)
+	secondPeerSeenAt := peerObservedNow.Add(-40 * time.Minute)
+	blockedAt := peerObservedNow.Add(-7 * time.Minute)
+	unadmittedAt := peerObservedNow.Add(-2 * time.Minute)
 	server.recordPeerView(PeerView{
 		URL:        "http://peer-a.example",
 		Height:     1,
@@ -4437,6 +4470,18 @@ func TestMetricsExposeConsensusAndPeerObservabilityAggregates(t *testing.T) {
 	}
 	if len(response.PeerSyncSummary.ErrorCodes) != 2 || response.PeerSyncSummary.ErrorCodes[0].ErrorCode != "unknown" || response.PeerSyncSummary.ErrorCodes[0].IncidentCount != 2 || response.PeerSyncSummary.ErrorCodes[0].AffectedPeerCount != 2 || response.PeerSyncSummary.ErrorCodes[0].TotalOccurrences != 3 || response.PeerSyncSummary.ErrorCodes[1].ErrorCode != "proposal_required" || response.PeerSyncSummary.ErrorCodes[1].TotalOccurrences != 1 {
 		t.Fatalf("unexpected peer sync error code summaries %+v", response.PeerSyncSummary.ErrorCodes)
+	}
+	if len(response.PeerSyncSummary.Horizons) != 3 {
+		t.Fatalf("expected 3 peer sync horizons, got %+v", response.PeerSyncSummary.Horizons)
+	}
+	if horizon, ok := peerSyncHorizonByWindow(response.PeerSyncSummary.Horizons, "5m"); !ok || horizon.IncidentCount != 1 || horizon.AffectedPeerCount != 1 || horizon.TotalOccurrences != 1 {
+		t.Fatalf("unexpected 5m peer sync horizon %+v", response.PeerSyncSummary.Horizons)
+	}
+	if horizon, ok := peerSyncHorizonByWindow(response.PeerSyncSummary.Horizons, "15m"); !ok || horizon.IncidentCount != 2 || horizon.AffectedPeerCount != 2 || horizon.TotalOccurrences != 2 {
+		t.Fatalf("unexpected 15m peer sync horizon %+v", response.PeerSyncSummary.Horizons)
+	}
+	if horizon, ok := peerSyncHorizonByWindow(response.PeerSyncSummary.Horizons, "1h"); !ok || horizon.IncidentCount != 3 || horizon.AffectedPeerCount != 3 || horizon.TotalOccurrences != 4 {
+		t.Fatalf("unexpected 1h peer sync horizon %+v", response.PeerSyncSummary.Horizons)
 	}
 	if response.PeerRuntime.ConfiguredPeerCount != 3 || response.PeerRuntime.ReachablePeerCount != 2 || response.PeerRuntime.UnreachablePeerCount != 1 || response.PeerRuntime.AdmittedPeerCount != 2 || response.PeerRuntime.UnadmittedPeerCount != 1 {
 		t.Fatalf("unexpected peer runtime metrics %+v", response.PeerRuntime)
@@ -4545,6 +4590,11 @@ func TestPrometheusMetricsExportOperatorSignals(t *testing.T) {
 	requirePrometheusLine(t, body, "zephyr_peer_runtime_by_sync_state_count{state=\"unreachable\"} 1")
 	requirePrometheusLine(t, body, "zephyr_peer_runtime_by_sync_state_count{state=\"import_blocked\"} 1")
 	requirePrometheusLine(t, body, "zephyr_peer_sync_occurrence_count 2")
+	requirePrometheusLine(t, body, "zephyr_peer_sync_horizon_incident_count{window=\"5m\"} 2")
+	requirePrometheusLine(t, body, "zephyr_peer_sync_horizon_affected_peer_count{window=\"5m\"} 2")
+	requirePrometheusLine(t, body, "zephyr_peer_sync_horizon_occurrence_count{window=\"5m\"} 2")
+	requirePrometheusLine(t, body, "zephyr_peer_sync_horizon_occurrence_count{window=\"15m\"} 2")
+	requirePrometheusLine(t, body, "zephyr_peer_sync_horizon_occurrence_count{window=\"1h\"} 2")
 	requirePrometheusLine(t, body, "zephyr_peer_sync_reason_occurrence_count{reason=\"unknown\"} 2")
 	requirePrometheusLine(t, body, "zephyr_peer_sync_error_code_occurrence_count{code=\"proposal_required\"} 1")
 	requirePrometheusLine(t, body, "zephyr_peer_sync_error_code_occurrence_count{code=\"unknown\"} 1")
@@ -5304,6 +5354,15 @@ func settlementDrainEstimateByWindow(estimates []SettlementDrainEstimateView, wi
 		}
 	}
 	return SettlementDrainEstimateView{}, false
+}
+
+func peerSyncHorizonByWindow(horizons []ledger.PeerSyncHorizonSummary, window string) (ledger.PeerSyncHorizonSummary, bool) {
+	for _, horizon := range horizons {
+		if horizon.Window == window {
+			return horizon, true
+		}
+	}
+	return ledger.PeerSyncHorizonSummary{}, false
 }
 
 func grafanaDashboardByName(dashboards []GrafanaDashboardExport, name string) (GrafanaDashboardExport, bool) {

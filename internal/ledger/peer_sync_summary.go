@@ -6,6 +6,15 @@ import (
 	"time"
 )
 
+var peerSyncSummaryHorizonDefinitions = []struct {
+	Window   string
+	Duration time.Duration
+}{
+	{Window: "5m", Duration: 5 * time.Minute},
+	{Window: "15m", Duration: 15 * time.Minute},
+	{Window: "1h", Duration: 1 * time.Hour},
+}
+
 type PeerSyncStateSummary struct {
 	State             string     `json:"state"`
 	IncidentCount     int        `json:"incidentCount"`
@@ -50,13 +59,26 @@ type PeerSyncSummaryView struct {
 	Reasons           []PeerSyncReasonSummary    `json:"reasons"`
 	ErrorCodes        []PeerSyncErrorCodeSummary `json:"errorCodes"`
 	Peers             []PeerSyncPeerSummary      `json:"peers"`
+	Horizons          []PeerSyncHorizonSummary   `json:"horizons"`
+}
+
+type PeerSyncHorizonSummary struct {
+	Window            string                     `json:"window"`
+	WindowSeconds     int64                      `json:"windowSeconds"`
+	IncidentCount     int                        `json:"incidentCount"`
+	AffectedPeerCount int                        `json:"affectedPeerCount"`
+	TotalOccurrences  int                        `json:"totalOccurrences"`
+	LatestObservedAt  *time.Time                 `json:"latestObservedAt,omitempty"`
+	States            []PeerSyncStateSummary     `json:"states"`
+	Reasons           []PeerSyncReasonSummary    `json:"reasons"`
+	ErrorCodes        []PeerSyncErrorCodeSummary `json:"errorCodes"`
 }
 
 func (s *Store) PeerSyncSummary() PeerSyncSummaryView {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	return peerSyncSummaryFromState(s.snapshotLocked())
+	return peerSyncSummaryFromStateAt(s.snapshotLocked(), time.Now().UTC())
 }
 
 func (s *Store) PeerSyncPeerSummary(peerURL string) PeerSyncPeerSummary {
@@ -67,14 +89,26 @@ func (s *Store) PeerSyncPeerSummary(peerURL string) PeerSyncPeerSummary {
 }
 
 func peerSyncSummaryFromState(state persistedState) PeerSyncSummaryView {
+	return peerSyncSummaryFromStateAt(state, time.Now().UTC())
+}
+
+func peerSyncSummaryFromStateAt(state persistedState, now time.Time) PeerSyncSummaryView {
 	state = normalizeState(state)
+	now = normalizePeerSyncSummaryTime(now)
+	view := peerSyncSummaryFromIncidents(state.PeerSyncIncidents)
+	view.Horizons = buildPeerSyncHorizonSummaries(state.PeerSyncIncidents, now)
+	return view
+}
+
+func peerSyncSummaryFromIncidents(incidents []PeerSyncIncident) PeerSyncSummaryView {
 	view := PeerSyncSummaryView{
 		States:     make([]PeerSyncStateSummary, 0),
 		Reasons:    make([]PeerSyncReasonSummary, 0),
 		ErrorCodes: make([]PeerSyncErrorCodeSummary, 0),
 		Peers:      make([]PeerSyncPeerSummary, 0),
+		Horizons:   make([]PeerSyncHorizonSummary, 0),
 	}
-	if len(state.PeerSyncIncidents) == 0 {
+	if len(incidents) == 0 {
 		return view
 	}
 
@@ -98,7 +132,7 @@ func peerSyncSummaryFromState(state persistedState) PeerSyncSummaryView {
 	errorCodeSummaries := make(map[string]*errorCodeAggregate)
 	peerSummaries := make(map[string]*PeerSyncPeerSummary)
 
-	for _, incident := range state.PeerSyncIncidents {
+	for _, incident := range incidents {
 		incident = normalizePeerSyncIncident(incident)
 		view.IncidentCount++
 		view.TotalOccurrences += incident.Occurrences
@@ -220,6 +254,56 @@ func peerSyncSummaryFromState(state persistedState) PeerSyncSummaryView {
 		}
 	})
 	return view
+}
+
+func buildPeerSyncHorizonSummaries(incidents []PeerSyncIncident, now time.Time) []PeerSyncHorizonSummary {
+	horizons := make([]PeerSyncHorizonSummary, 0, len(peerSyncSummaryHorizonDefinitions))
+	for _, definition := range peerSyncSummaryHorizonDefinitions {
+		cutoff := now.Add(-definition.Duration)
+		filtered := filterPeerSyncIncidentsByLatestObservedAt(incidents, cutoff)
+		summary := peerSyncSummaryFromIncidents(filtered)
+		horizons = append(horizons, PeerSyncHorizonSummary{
+			Window:            definition.Window,
+			WindowSeconds:     int64(definition.Duration.Seconds()),
+			IncidentCount:     summary.IncidentCount,
+			AffectedPeerCount: summary.AffectedPeerCount,
+			TotalOccurrences:  summary.TotalOccurrences,
+			LatestObservedAt:  cloneNonZeroTimePointerOrNil(summary.LatestObservedAt),
+			States:            append([]PeerSyncStateSummary(nil), summary.States...),
+			Reasons:           append([]PeerSyncReasonSummary(nil), summary.Reasons...),
+			ErrorCodes:        append([]PeerSyncErrorCodeSummary(nil), summary.ErrorCodes...),
+		})
+	}
+	return horizons
+}
+
+func filterPeerSyncIncidentsByLatestObservedAt(incidents []PeerSyncIncident, cutoff time.Time) []PeerSyncIncident {
+	if len(incidents) == 0 {
+		return nil
+	}
+	filtered := make([]PeerSyncIncident, 0, len(incidents))
+	for _, incident := range incidents {
+		incident = normalizePeerSyncIncident(incident)
+		if incident.LastObservedAt.Before(cutoff) {
+			continue
+		}
+		filtered = append(filtered, incident)
+	}
+	return filtered
+}
+
+func normalizePeerSyncSummaryTime(value time.Time) time.Time {
+	if value.IsZero() {
+		return time.Now().UTC()
+	}
+	return value.UTC()
+}
+
+func cloneNonZeroTimePointerOrNil(value *time.Time) *time.Time {
+	if value == nil {
+		return nil
+	}
+	return cloneNonZeroTimePointer(*value)
 }
 
 func peerSyncPeerSummaryFromState(state persistedState, peerURL string) PeerSyncPeerSummary {

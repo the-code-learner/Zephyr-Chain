@@ -191,6 +191,9 @@ func (s *Server) buildHealthResponse(now time.Time) HealthResponse {
 
 	unknownPeerCount := metricCountForLabel(peerRuntime.BySyncState, "unknown")
 	peerDetail := fmt.Sprintf("configured=%d reachable=%d admitted=%d unreachable=%d unadmitted=%d incidents=%d", peerRuntime.ConfiguredPeerCount, peerRuntime.ReachablePeerCount, peerRuntime.AdmittedPeerCount, peerRuntime.UnreachablePeerCount, peerRuntime.UnadmittedPeerCount, peerSummary.IncidentCount)
+	if horizonDetail := peerSyncHorizonHealthDetail(peerSummary.Horizons); horizonDetail != "" {
+		peerDetail += ", " + horizonDetail
+	}
 	switch {
 	case !s.config.EnablePeerSync:
 		appendHealthCheck(&response, HealthCheck{
@@ -266,6 +269,25 @@ func (s *Server) buildHealthResponse(now time.Time) HealthResponse {
 	}
 
 	return response
+}
+
+func peerSyncHorizonHealthDetail(horizons []ledger.PeerSyncHorizonSummary) string {
+	if len(horizons) == 0 {
+		return ""
+	}
+	occurrences := make([]string, 0, len(horizons))
+	affectedPeers := make([]string, 0, len(horizons))
+	for _, horizon := range horizons {
+		if strings.TrimSpace(horizon.Window) == "" {
+			continue
+		}
+		occurrences = append(occurrences, fmt.Sprintf("%s:%d", horizon.Window, horizon.TotalOccurrences))
+		affectedPeers = append(affectedPeers, fmt.Sprintf("%s:%d", horizon.Window, horizon.AffectedPeerCount))
+	}
+	if len(occurrences) == 0 {
+		return ""
+	}
+	return "recentOccurrences=" + strings.Join(occurrences, "|") + ", recentPeers=" + strings.Join(affectedPeers, "|")
 }
 
 func appendHealthCheck(response *HealthResponse, check HealthCheck) {

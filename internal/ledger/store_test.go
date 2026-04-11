@@ -1078,6 +1078,88 @@ func TestStorePeerSyncHistoryPersistsAcrossRestartAndMergesRepeatedIncidents(t *
 	}
 }
 
+func TestStorePeerSyncSummaryExposesHorizons(t *testing.T) {
+	store, err := NewStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("create store: %v", err)
+	}
+
+	now := time.Now().UTC()
+	twoMinutesAgo := now.Add(-2 * time.Minute)
+	eightMinutesAgo := now.Add(-8 * time.Minute)
+	fortyMinutesAgo := now.Add(-40 * time.Minute)
+	twoHoursAgo := now.Add(-2 * time.Hour)
+
+	incidents := []PeerSyncIncident{
+		{
+			PeerURL:         "http://peer-a.example",
+			State:           "unreachable",
+			ErrorMessage:    "dial tcp timeout",
+			Occurrences:     1,
+			FirstObservedAt: twoMinutesAgo,
+			LastObservedAt:  twoMinutesAgo,
+		},
+		{
+			PeerURL:         "http://peer-b.example",
+			State:           "import_blocked",
+			ErrorCode:       "proposal_required",
+			Occurrences:     2,
+			FirstObservedAt: eightMinutesAgo,
+			LastObservedAt:  eightMinutesAgo,
+		},
+		{
+			PeerURL:         "http://peer-c.example",
+			State:           "snapshot_restored",
+			Reason:          "import_repair",
+			Occurrences:     3,
+			FirstObservedAt: fortyMinutesAgo,
+			LastObservedAt:  fortyMinutesAgo,
+		},
+		{
+			PeerURL:         "http://peer-d.example",
+			State:           "unadmitted",
+			Reason:          "validator binding mismatch",
+			Occurrences:     4,
+			FirstObservedAt: twoHoursAgo,
+			LastObservedAt:  twoHoursAgo,
+		},
+	}
+	for _, incident := range incidents {
+		if err := store.RecordPeerSyncIncident(incident); err != nil {
+			t.Fatalf("record horizon peer incident %+v: %v", incident, err)
+		}
+	}
+
+	summary := store.PeerSyncSummary()
+	if len(summary.Horizons) != 3 {
+		t.Fatalf("expected 3 peer sync horizons, got %+v", summary.Horizons)
+	}
+
+	horizon5m, ok := peerSyncHorizonByWindow(summary.Horizons, "5m")
+	if !ok || horizon5m.IncidentCount != 1 || horizon5m.AffectedPeerCount != 1 || horizon5m.TotalOccurrences != 1 {
+		t.Fatalf("unexpected 5m peer sync horizon %+v", summary.Horizons)
+	}
+	if len(horizon5m.States) != 1 || horizon5m.States[0].State != "unreachable" || horizon5m.States[0].TotalOccurrences != 1 {
+		t.Fatalf("unexpected 5m horizon states %+v", horizon5m.States)
+	}
+
+	horizon15m, ok := peerSyncHorizonByWindow(summary.Horizons, "15m")
+	if !ok || horizon15m.IncidentCount != 2 || horizon15m.AffectedPeerCount != 2 || horizon15m.TotalOccurrences != 3 {
+		t.Fatalf("unexpected 15m peer sync horizon %+v", summary.Horizons)
+	}
+	if len(horizon15m.ErrorCodes) != 2 || horizon15m.ErrorCodes[0].ErrorCode != "proposal_required" || horizon15m.ErrorCodes[0].TotalOccurrences != 2 || horizon15m.ErrorCodes[1].ErrorCode != "unknown" || horizon15m.ErrorCodes[1].TotalOccurrences != 1 {
+		t.Fatalf("unexpected 15m horizon error codes %+v", horizon15m.ErrorCodes)
+	}
+
+	horizon1h, ok := peerSyncHorizonByWindow(summary.Horizons, "1h")
+	if !ok || horizon1h.IncidentCount != 3 || horizon1h.AffectedPeerCount != 3 || horizon1h.TotalOccurrences != 6 {
+		t.Fatalf("unexpected 1h peer sync horizon %+v", summary.Horizons)
+	}
+	if len(horizon1h.Reasons) != 2 || horizon1h.Reasons[0].Reason != "import_repair" || horizon1h.Reasons[0].TotalOccurrences != 3 || horizon1h.Reasons[1].Reason != "unknown" || horizon1h.Reasons[1].TotalOccurrences != 3 {
+		t.Fatalf("unexpected 1h horizon reasons %+v", horizon1h.Reasons)
+	}
+}
+
 func TestStoreConsensusMetricsPersistAcrossRestart(t *testing.T) {
 	dataDir := t.TempDir()
 	store, err := NewStore(dataDir)
@@ -1428,6 +1510,15 @@ func signedVoteWithSigner(t *testing.T, signer consensusSigner, height uint64, r
 	vote.Payload = vote.CanonicalPayload()
 	vote.Signature = signPayload(t, signer.privateKey, vote.Payload)
 	return vote
+}
+
+func peerSyncHorizonByWindow(horizons []PeerSyncHorizonSummary, window string) (PeerSyncHorizonSummary, bool) {
+	for _, horizon := range horizons {
+		if horizon.Window == window {
+			return horizon, true
+		}
+	}
+	return PeerSyncHorizonSummary{}, false
 }
 
 func testHash(seed string) string {
