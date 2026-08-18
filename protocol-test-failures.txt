@@ -1,27 +1,20 @@
 === go vet ===
 # github.com/zephyr-chain/zephyr-chain/internal/api
 # [github.com/zephyr-chain/zephyr-chain/internal/api]
-vet: internal/api/server_test.go:2183:49: undefined: proposer
+vet: internal/api/server_test.go:2187:3: duplicate field name ValidatorPrivateKey in struct literal
 === go test failures ===
 # github.com/zephyr-chain/zephyr-chain/internal/api [github.com/zephyr-chain/zephyr-chain/internal/api.test]
-internal/api/server_test.go:2183:49: undefined: proposer
-internal/api/server_test.go:2497:98: unknown field ObservedAt in struct literal of type ledger.PeerSyncIncident
-ok  	github.com/zephyr-chain/zephyr-chain/cmd/node	0.005s
+internal/api/server_test.go:2187:3: duplicate field name ValidatorPrivateKey in struct literal
+ok  	github.com/zephyr-chain/zephyr-chain/cmd/node	0.003s
 FAIL	github.com/zephyr-chain/zephyr-chain/internal/api [build failed]
-ok  	github.com/zephyr-chain/zephyr-chain/internal/consensus	0.006s
-ok  	github.com/zephyr-chain/zephyr-chain/internal/dpos	0.002s
---- FAIL: TestStoreRejectsNonceAfterUint64Exhaustion (0.00s)
-    store_arithmetic_test.go:62: restore exhausted account: snapshot does not have trusted validator quorum
---- FAIL: TestStoreSnapshotRestoreRehydratesState (0.00s)
-    store_test.go:360: restore snapshot: snapshot does not have trusted validator quorum
---- FAIL: TestStoreRecordProposalVotesAndCertificatePersistAcrossRestart (0.01s)
-    store_test.go:456: restore snapshot: snapshot does not have trusted validator quorum
+ok  	github.com/zephyr-chain/zephyr-chain/internal/consensus	0.007s
+ok  	github.com/zephyr-chain/zephyr-chain/internal/dpos	0.003s
 --- FAIL: TestStoreProduceBlockWithConsensusRequiresProposalAndCertificate (0.01s)
-    store_test.go:613: expected template mismatch error for mismatched producedAt, got block template does not match the stored proposal set
+    store_test.go:562: expected template mismatch for mismatched producedAt, got block template does not match the stored proposal set
 --- FAIL: TestStoreImportBlockWithConsensusRequiresProposalAndCertificate (0.01s)
-    store_test.go:741: expected template mismatch error for mismatched import, got invalid block
+    store_test.go:690: expected invalid block error for mismatched import, got invalid block
 FAIL
-FAIL	github.com/zephyr-chain/zephyr-chain/internal/ledger	0.347s
+FAIL	github.com/zephyr-chain/zephyr-chain/internal/ledger	0.527s
 ?   	github.com/zephyr-chain/zephyr-chain/internal/protocol	[no test files]
 ok  	github.com/zephyr-chain/zephyr-chain/internal/tx	0.004s
 FAIL
