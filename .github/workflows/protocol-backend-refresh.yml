@@ -1,0 +1,33 @@
+name: Protocol post-audit hardening
+
+on:
+  pull_request:
+
+permissions:
+  contents: write
+
+jobs:
+  verify:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: chatgpt/protocol-hardening
+          fetch-depth: 0
+      - name: Apply post-audit hardening
+        run: |
+          python scripts/post_audit_hardening.py
+          gofmt -w internal/ledger internal/api
+      - name: Verify backend
+        run: |
+          go vet ./...
+          go test ./...
+      - name: Commit verified changes
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add internal
+          git commit -m "bind persisted state and funding ids to chain commitments"
+          git push origin HEAD:chatgpt/protocol-hardening
