@@ -1,6 +1,10 @@
 package dpos
 
-import "testing"
+import (
+	"errors"
+	"math"
+	"testing"
+)
 
 func TestElectValidatorsRanksByVotingPower(t *testing.T) {
 	service, err := NewService(ElectionConfig{
@@ -106,3 +110,35 @@ func TestElectValidatorsUsesDeterministicTieBreakers(t *testing.T) {
 	}
 }
 
+func TestElectValidatorsRejectsDelegatedStakeOverflow(t *testing.T) {
+	service, err := NewService(ElectionConfig{MaxValidators: 1, MinSelfStake: 1, MaxMissedBlocks: 1})
+	if err != nil {
+		t.Fatalf("unexpected error creating service: %v", err)
+	}
+
+	_, err = service.ElectValidators(
+		[]Candidate{{Address: "alice", SelfStake: 1}},
+		[]Vote{
+			{Delegator: "d1", Candidate: "alice", Amount: math.MaxUint64},
+			{Delegator: "d2", Candidate: "alice", Amount: 1},
+		},
+	)
+	if !errors.Is(err, ErrStakeOverflow) {
+		t.Fatalf("expected delegated stake overflow, got %v", err)
+	}
+}
+
+func TestElectValidatorsRejectsVotingPowerOverflow(t *testing.T) {
+	service, err := NewService(ElectionConfig{MaxValidators: 1, MinSelfStake: 1, MaxMissedBlocks: 1})
+	if err != nil {
+		t.Fatalf("unexpected error creating service: %v", err)
+	}
+
+	_, err = service.ElectValidators(
+		[]Candidate{{Address: "alice", SelfStake: math.MaxUint64}},
+		[]Vote{{Delegator: "d1", Candidate: "alice", Amount: 1}},
+	)
+	if !errors.Is(err, ErrStakeOverflow) {
+		t.Fatalf("expected voting power overflow, got %v", err)
+	}
+}
