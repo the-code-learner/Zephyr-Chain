@@ -19,6 +19,7 @@ func main() {
 	}
 
 	config := api.DefaultConfig()
+	enableDevEndpoints := false
 	if nodeID := os.Getenv("ZEPHYR_NODE_ID"); nodeID != "" {
 		config.NodeID = nodeID
 	}
@@ -125,6 +126,13 @@ func main() {
 		}
 		config.RequireConsensusCertificates = parsed
 	}
+	if enabled := os.Getenv("ZEPHYR_ENABLE_DEV_ENDPOINTS"); enabled != "" {
+		parsed, err := strconv.ParseBool(enabled)
+		if err != nil {
+			log.Fatalf("invalid ZEPHYR_ENABLE_DEV_ENDPOINTS %q", enabled)
+		}
+		enableDevEndpoints = parsed
+	}
 
 	server, err := api.NewServerWithConfig(config)
 	if err != nil {
@@ -133,7 +141,7 @@ func main() {
 	defer server.Close()
 
 	log.Printf(
-		"zephyr node %s listening on %s (validator: %s, data dir: %s, block interval: %s, consensus automation: %t, consensus interval: %s, round timeout: %s, peer sync: %t, structured logs: %t, peer identity required: %t, peer bindings: %d, proposer schedule enforced: %t, consensus certificates required: %t, peers: %d)",
+		"zephyr node %s listening on %s (validator: %s, data dir: %s, block interval: %s, consensus automation: %t, consensus interval: %s, round timeout: %s, peer sync: %t, structured logs: %t, peer identity required: %t, peer bindings: %d, proposer schedule enforced: %t, consensus certificates required: %t, dev endpoints: %t, peers: %d)",
 		config.NodeID,
 		addr,
 		config.ValidatorAddress,
@@ -148,9 +156,12 @@ func main() {
 		len(config.PeerValidatorBindings),
 		config.EnforceProposerSchedule,
 		config.RequireConsensusCertificates,
+		enableDevEndpoints,
 		len(config.PeerURLs),
 	)
-	if err := http.ListenAndServe(addr, server.Handler()); err != nil {
+
+	handler := server.PublicHandler(api.PublicHandlerOptions{EnableDevEndpoints: enableDevEndpoints})
+	if err := http.ListenAndServe(addr, handler); err != nil {
 		log.Fatalf("server stopped: %v", err)
 	}
 }
