@@ -31,15 +31,9 @@ func (s *Server) PublicHandler(options PublicHandlerOptions) http.Handler {
 			r.Body = http.MaxBytesReader(w, r.Body, maxPublicRequestBodyBytes)
 		}
 
-		if r.URL.Path == "/v1/internal/snapshot" {
-			if requestSourceNode(r) == "" {
-				writeJSON(w, http.StatusForbidden, map[string]string{"error": "internal snapshot requires a peer source"})
-				return
-			}
-			if err := s.validatePeerRequest(r); err != nil {
-				writeJSON(w, statusForError(err), map[string]string{"error": err.Error()})
-				return
-			}
+		if r.URL.Path == "/v1/internal/snapshot" && requestSourceNode(r) == "" {
+			writeJSON(w, http.StatusForbidden, map[string]string{"error": "internal snapshot requires a peer source"})
+			return
 		}
 
 		s.mux.ServeHTTP(w, r)
