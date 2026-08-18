@@ -3,6 +3,7 @@ package api
 import (
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -47,6 +48,29 @@ func TestPublicHandlerKeepsHealthPublic(t *testing.T) {
 
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("expected health status 200, got %d", recorder.Code)
+	}
+}
+
+func TestPublicHandlerRejectsOversizedRequestBodies(t *testing.T) {
+	server, err := NewServerWithConfig(Config{
+		DataDir:               t.TempDir(),
+		BlockInterval:         0,
+		SyncInterval:          0,
+		EnableBlockProduction: false,
+		EnablePeerSync:        false,
+	})
+	if err != nil {
+		t.Fatalf("create server: %v", err)
+	}
+	defer server.Close()
+
+	body := strings.NewReader(strings.Repeat("x", int(maxPublicRequestBodyBytes)+1))
+	request := httptest.NewRequest(http.MethodPost, "/v1/transactions", body)
+	recorder := httptest.NewRecorder()
+	server.PublicHandler(PublicHandlerOptions{}).ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("expected oversized request status 413, got %d", recorder.Code)
 	}
 }
 
