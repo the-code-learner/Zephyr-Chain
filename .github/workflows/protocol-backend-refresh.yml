@@ -20,6 +20,7 @@ jobs:
         run: |
           python scripts/protocol_backend_refresh.py
           python scripts/protocol_backend_testfix.py
+          python scripts/protocol_semantic_refresh.py
           gofmt -w internal/protocol internal/tx internal/consensus internal/ledger internal/api cmd/node
       - name: Verify backend and capture failures
         id: verify
@@ -32,14 +33,10 @@ jobs:
           test_status=$?
           {
             echo "=== go vet ==="
-            if [ "$vet_status" -ne 0 ]; then
-              tail -n 200 /tmp/protocol-vet.log
-            else
-              echo "PASS"
-            fi
+            if [ "$vet_status" -ne 0 ]; then tail -n 200 /tmp/protocol-vet.log; else echo "PASS"; fi
             echo "=== go test failures ==="
             if [ "$test_status" -ne 0 ]; then
-              grep -E -B 2 -A 6 -- '--- FAIL:|FAIL[[:space:]]|panic:|undefined:|cannot use|not enough arguments|too many arguments|expected .* got|unexpected .* got|condition was not met|invalid|mismatch|missing|required' /tmp/protocol-test.log | tail -n 500 || tail -n 300 /tmp/protocol-test.log
+              grep -E -B 2 -A 6 -- '--- FAIL:|FAIL[[:space:]]|panic:|undefined:|cannot use|not enough arguments|too many arguments|expected .* got|unexpected .* got|condition was not met|invalid|mismatch|missing|required' /tmp/protocol-test.log | tail -n 700 || tail -n 400 /tmp/protocol-test.log
             else
               echo "PASS"
             fi
@@ -63,9 +60,6 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add internal cmd
-          if git diff --cached --quiet; then
-            echo "No backend integration changes to commit."
-            exit 0
-          fi
+          if git diff --cached --quiet; then echo "No backend integration changes to commit."; exit 0; fi
           git commit -m "integrate chain-bound protocol and snapshot quorum"
           git push origin HEAD:chatgpt/protocol-hardening
