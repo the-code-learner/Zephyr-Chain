@@ -22,20 +22,20 @@ import (
 )
 
 const (
-	sourceChainIDHeader      = "X-Zephyr-Chain-ID"
+	sourceChainIDHeader       = "X-Zephyr-Chain-ID"
 	sourceRequestDomainHeader = "X-Zephyr-Request-Domain"
-	sourceRequestNonceHeader = "X-Zephyr-Request-Nonce"
-	maxReplayEntries         = 10000
+	sourceRequestNonceHeader  = "X-Zephyr-Request-Nonce"
+	maxReplayEntries          = 10000
 )
 
 var (
-	errMissingRequestProof       = errors.New("peer request must include a signed request proof")
-	errInvalidRequestProof       = errors.New("invalid peer request proof")
-	errRequestChainMismatch      = errors.New("peer request chain ID does not match local chain")
-	errRequestDomainMismatch     = errors.New("invalid peer request signing domain")
-	errRequestTimestamp          = errors.New("peer request timestamp is outside the allowed window")
-	errRequestReplay             = errors.New("peer request nonce has already been used")
-	errRequestReplayStoreFull    = errors.New("peer request replay store is full")
+	errMissingRequestProof    = errors.New("peer request must include a signed request proof")
+	errInvalidRequestProof    = errors.New("invalid peer request proof")
+	errRequestChainMismatch   = errors.New("peer request chain ID does not match local chain")
+	errRequestDomainMismatch  = errors.New("invalid peer request signing domain")
+	errRequestTimestamp       = errors.New("peer request timestamp is outside the allowed window")
+	errRequestReplay          = errors.New("peer request nonce has already been used")
+	errRequestReplayStoreFull = errors.New("peer request replay store is full")
 )
 
 type requestProof struct {

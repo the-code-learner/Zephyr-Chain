@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/zephyr-chain/zephyr-chain/internal/consensus"
 	"github.com/zephyr-chain/zephyr-chain/internal/protocol"
 	"github.com/zephyr-chain/zephyr-chain/internal/tx"
 )

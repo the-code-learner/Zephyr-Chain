@@ -31,8 +31,8 @@ func (s *Server) PublicHandler(options PublicHandlerOptions) http.Handler {
 			r.Body = http.MaxBytesReader(w, r.Body, maxPublicRequestBodyBytes)
 		}
 
-		if r.URL.Path == "/v1/internal/snapshot" && requestSourceNode(r) == "" {
-			writeJSON(w, http.StatusForbidden, map[string]string{"error": "internal snapshot requires a peer source"})
+		if strings.HasPrefix(r.URL.Path, "/v1/internal/") && requestSourceNode(r) == "" {
+			writeJSON(w, http.StatusForbidden, map[string]string{"error": "internal endpoint requires a signed peer request"})
 			return
 		}
 

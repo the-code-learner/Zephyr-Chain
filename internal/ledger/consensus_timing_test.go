@@ -20,7 +20,7 @@ func TestRecordProposalUsesLocalObservationTimeForRoundStart(t *testing.T) {
 	}
 
 	transaction := signedEnvelope(t, 1, 1, "timing")
-	proposal := signedProposalWithSigner(t, second, 1, 1, "", time.Now().UTC(), []tx.Envelope{transaction})
+	proposal := signedFundedProposalForStore(t, store, second, 1, 1, "", time.Now().UTC(), []tx.Envelope{transaction})
 	proposal.ProposedAt = time.Now().UTC().Add(24 * time.Hour)
 
 	before := time.Now().UTC()

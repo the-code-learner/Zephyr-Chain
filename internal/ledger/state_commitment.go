@@ -30,12 +30,12 @@ type committedValidator struct {
 }
 
 type committedStatePayload struct {
-	Accounts            []committedAccount    `json:"accounts"`
-	ChainID             string                `json:"chainId"`
-	Domain              string                `json:"domain"`
-	ElectionConfig      dpos.ElectionConfig   `json:"electionConfig"`
-	ValidatorSetVersion uint64                `json:"validatorSetVersion"`
-	Validators          []committedValidator  `json:"validators"`
+	Accounts            []committedAccount   `json:"accounts"`
+	ChainID             string               `json:"chainId"`
+	Domain              string               `json:"domain"`
+	ElectionConfig      dpos.ElectionConfig  `json:"electionConfig"`
+	ValidatorSetVersion uint64               `json:"validatorSetVersion"`
+	Validators          []committedValidator `json:"validators"`
 }
 
 func StateRoot(chainID string, accounts map[string]AccountState, snapshot ValidatorSnapshot) (string, error) {

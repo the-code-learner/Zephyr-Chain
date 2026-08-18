@@ -209,6 +209,11 @@ func (s *Server) syncFromPeer(peerURL string, localHeight uint64, remoteHeight u
 }
 
 func (s *Server) restoreSnapshotFromPeer(peerURL string, reason string) (peerSnapshotRestoreResult, error) {
+	trusted := s.ledger.ValidatorSet()
+	if len(trusted.Validators) == 0 {
+		return peerSnapshotRestoreResult{}, ledger.ErrSnapshotQuorumRequired
+	}
+
 	snapshot, err := s.fetchPeerSnapshot(peerURL)
 	if err != nil {
 		return peerSnapshotRestoreResult{}, err
@@ -216,8 +221,29 @@ func (s *Server) restoreSnapshotFromPeer(peerURL string, reason string) (peerSna
 	if uint64(len(snapshot.Blocks)) < s.ledger.Status().Height {
 		return peerSnapshotRestoreResult{Reason: reason}, nil
 	}
+	if err := ledger.ValidateSnapshotCommittedState(snapshot, s.config.ChainID); err != nil {
+		return peerSnapshotRestoreResult{}, err
+	}
+
+	proofs := []ledger.SnapshotProof{snapshot.Proof}
+	for _, candidateURL := range s.config.PeerURLs {
+		if candidateURL == peerURL {
+			continue
+		}
+		other, fetchErr := s.fetchPeerSnapshot(candidateURL)
+		if fetchErr != nil || len(other.Blocks) == 0 {
+			continue
+		}
+		otherLatest := other.Blocks[len(other.Blocks)-1]
+		latest := snapshot.Blocks[len(snapshot.Blocks)-1]
+		if otherLatest.Height != latest.Height || otherLatest.Hash != latest.Hash || otherLatest.StateRoot != latest.StateRoot || other.ValidatorSnapshot.Version != snapshot.ValidatorSnapshot.Version {
+			continue
+		}
+		proofs = append(proofs, other.Proof)
+	}
+
 	now := time.Now().UTC()
-	if err := s.ledger.RestoreFromPeerSnapshot(snapshot, now); err != nil {
+	if err := s.ledger.RestoreQuorumSnapshot(snapshot, s.config.ChainID, proofs, trusted, now); err != nil {
 		return peerSnapshotRestoreResult{}, err
 	}
 	s.recordSnapshotRestore(peerURL, snapshot, now)

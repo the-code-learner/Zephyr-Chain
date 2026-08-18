@@ -73,8 +73,11 @@ func (s *Store) RecordProposalWithAction(proposal consensus.Proposal, action *Co
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	if err := proposal.ValidateForChain(s.chainID); err != nil {
+		return err
+	}
 	state := s.snapshotLocked()
-	nextState, err := recordProposalIntoState(state, proposal)
+	nextState, err := recordProposalIntoState(state, proposal, s.chainID)
 	if err != nil {
 		return err
 	}
@@ -97,6 +100,9 @@ func (s *Store) RecordVoteWithAction(vote consensus.Vote, action *ConsensusActio
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	if err := vote.ValidateForChain(s.chainID); err != nil {
+		return VoteTally{}, nil, err
+	}
 	state := s.snapshotLocked()
 	nextState, tally, certificate, err := recordVoteIntoState(state, vote)
 	if err != nil {
@@ -133,7 +139,7 @@ func consensusArtifactsFromState(state persistedState) ConsensusArtifactsView {
 	return view
 }
 
-func recordProposalIntoState(state persistedState, proposal consensus.Proposal) (persistedState, error) {
+func recordProposalIntoState(state persistedState, proposal consensus.Proposal, chainID string) (persistedState, error) {
 	state = normalizeState(state)
 	observedAt := time.Now().UTC()
 	if proposal.ProposedAt.IsZero() {
@@ -161,6 +167,10 @@ func recordProposalIntoState(state persistedState, proposal consensus.Proposal) 
 	}
 	if expected := proposerForHeightRound(state.ValidatorSnapshot.Validators, proposal.Height, proposal.Round); expected != "" && proposal.Proposer != expected {
 		return state, ErrUnexpectedProposer
+	}
+	expectedRoot, err := expectedStateRootFromState(state, chainID, proposal.Transactions)
+	if err != nil || proposal.StateRoot != expectedRoot {
+		return state, ErrConsensusTemplateMismatch
 	}
 	for index, existing := range state.Proposals {
 		if existing.Height != proposal.Height || existing.Round != proposal.Round {

@@ -15,6 +15,7 @@ import (
 
 	"github.com/zephyr-chain/zephyr-chain/internal/consensus"
 	"github.com/zephyr-chain/zephyr-chain/internal/dpos"
+	"github.com/zephyr-chain/zephyr-chain/internal/protocol"
 	"github.com/zephyr-chain/zephyr-chain/internal/tx"
 )
 
@@ -335,57 +336,9 @@ func TestStoreSetValidatorsPersistsAcrossRestartAndUpdatesConsensus(t *testing.T
 }
 
 func TestStoreSnapshotRestoreRehydratesState(t *testing.T) {
-	producer := newTestStore(t)
-	envelope := signedEnvelope(t, 25, 1, "snapshot")
-	if _, err := producer.CreditWithID("fund-restore", envelope.From, 100); err != nil {
-		t.Fatalf("credit producer sender: %v", err)
-	}
-	if _, err := producer.Accept(envelope); err != nil {
-		t.Fatalf("accept producer tx: %v", err)
-	}
-	if _, err := producer.SetValidators([]dpos.Validator{
-		{Rank: 1, Address: "zph_validator_a", VotingPower: 60, SelfStake: 40, DelegatedStake: 20},
-		{Rank: 2, Address: "zph_validator_b", VotingPower: 30, SelfStake: 20, DelegatedStake: 10},
-	}, dpos.ElectionConfig{MaxValidators: 2}); err != nil {
-		t.Fatalf("set validators: %v", err)
-	}
-	block, err := producer.ProduceBlock(10)
-	if err != nil {
-		t.Fatalf("produce block: %v", err)
-	}
-
-	replica := newTestStore(t)
-	if err := replica.Restore(producer.Snapshot()); err != nil {
-		t.Fatalf("restore snapshot: %v", err)
-	}
-
-	latest, ok := replica.LatestBlock()
-	if !ok {
-		t.Fatal("expected latest block after restore")
-	}
-	if latest.Hash != block.Hash {
-		t.Fatalf("expected restored block hash %s, got %s", block.Hash, latest.Hash)
-	}
-	if replica.View(envelope.From).Balance != 75 {
-		t.Fatalf("expected restored sender balance 75, got %d", replica.View(envelope.From).Balance)
-	}
-
-	validatorSnapshot := replica.ValidatorSet()
-	if validatorSnapshot.Version != 1 {
-		t.Fatalf("expected restored validator snapshot version 1, got %d", validatorSnapshot.Version)
-	}
-	if len(validatorSnapshot.Validators) != 2 {
-		t.Fatalf("expected restored validator count 2, got %d", len(validatorSnapshot.Validators))
-	}
-	if replica.Consensus().NextProposer != "zph_validator_b" {
-		t.Fatalf("expected restored proposer zph_validator_b, got %s", replica.Consensus().NextProposer)
-	}
-
-	if _, err := replica.CreditWithID("fund-restore", envelope.From, 25); err != nil {
-		t.Fatalf("replay funding id: %v", err)
-	}
-	if replica.View(envelope.From).Balance != 75 {
-		t.Fatalf("expected replayed funding id to stay idempotent, got %d", replica.View(envelope.From).Balance)
+	store := newTestStore(t)
+	if err := store.Restore(Snapshot{}); !errors.Is(err, ErrSnapshotQuorumRequired) {
+		t.Fatalf("expected unsigned snapshot restore to fail closed, got %v", err)
 	}
 }
 
@@ -405,7 +358,7 @@ func TestStoreRecordProposalVotesAndCertificatePersistAcrossRestart(t *testing.T
 		t.Fatalf("set validators: %v", err)
 	}
 
-	proposal := signedProposalWithSigner(t, proposer, 1, 0, "", time.Date(2026, time.March, 23, 9, 0, 0, 0, time.UTC), []tx.Envelope{signedEnvelope(t, 5, 1, "block-1-tx")})
+	proposal := signedFundedProposalForStore(t, store, proposer, 1, 0, "", time.Date(2026, time.March, 23, 9, 0, 0, 0, time.UTC), []tx.Envelope{signedEnvelope(t, 5, 1, "block-1-tx")})
 	if err := store.RecordProposal(proposal); err != nil {
 		t.Fatalf("record proposal: %v", err)
 	}
@@ -451,11 +404,8 @@ func TestStoreRecordProposalVotesAndCertificatePersistAcrossRestart(t *testing.T
 	}
 
 	replica := newTestStore(t)
-	if err := replica.Restore(store.Snapshot()); err != nil {
-		t.Fatalf("restore snapshot: %v", err)
-	}
-	if replica.ConsensusArtifacts().LatestCertificate == nil {
-		t.Fatal("expected certificate after snapshot restore")
+	if err := replica.Restore(store.Snapshot()); !errors.Is(err, ErrSnapshotQuorumRequired) {
+		t.Fatalf("expected unsigned consensus snapshot restore to fail closed, got %v", err)
 	}
 }
 
@@ -550,7 +500,7 @@ func TestStoreRecordProposalAcceptsHigherRoundAndRejectsStaleRound(t *testing.T)
 	}
 
 	producedAt := time.Date(2026, time.March, 24, 12, 30, 0, 0, time.UTC)
-	roundOneProposal := signedProposalWithSigner(t, second, 1, 1, "", producedAt, []tx.Envelope{signedEnvelope(t, 5, 1, "round-one-proposal")})
+	roundOneProposal := signedFundedProposalForStore(t, store, second, 1, 1, "", producedAt, []tx.Envelope{signedEnvelope(t, 5, 1, "round-one-proposal")})
 	if err := store.RecordProposal(roundOneProposal); err != nil {
 		t.Fatalf("record round-one proposal: %v", err)
 	}
@@ -592,7 +542,7 @@ func TestStoreProduceBlockWithConsensusRequiresProposalAndCertificate(t *testing
 		t.Fatalf("expected proposal required error, got %v", err)
 	}
 
-	proposal := signedProposalWithSigner(t, proposer, template.Height, 0, template.PreviousHash, template.ProducedAt, template.Transactions)
+	proposal := signedProposalWithSigner(t, proposer, template.Height, 0, template.PreviousHash, template.ProducedAt, template.Transactions, template.StateRoot)
 	if err := store.RecordProposal(proposal); err != nil {
 		t.Fatalf("record proposal: %v", err)
 	}
@@ -609,7 +559,7 @@ func TestStoreProduceBlockWithConsensusRequiresProposalAndCertificate(t *testing
 	}
 
 	if _, err := store.ProduceBlockWithOptions(10, producedAt.Add(time.Second), true); !errors.Is(err, ErrConsensusTemplateMismatch) {
-		t.Fatalf("expected template mismatch error for mismatched producedAt, got %v", err)
+		t.Fatalf("expected template mismatch for mismatched producedAt, got %v", err)
 	}
 
 	block, err := store.ProduceBlockWithOptions(10, producedAt, true)
@@ -640,7 +590,7 @@ func TestStoreProduceCertifiedBlockFromProposalBodyWithoutMempool(t *testing.T) 
 		t.Fatalf("credit sender: %v", err)
 	}
 	producedAt := time.Date(2026, time.March, 23, 10, 30, 0, 0, time.UTC)
-	proposal := signedProposalWithSigner(t, proposer, 1, 0, "", producedAt, []tx.Envelope{envelope})
+	proposal := signedProposalForStore(t, store, proposer, 1, 0, "", producedAt, []tx.Envelope{envelope})
 	if err := store.RecordProposal(proposal); err != nil {
 		t.Fatalf("record proposal: %v", err)
 	}
@@ -694,7 +644,7 @@ func TestStoreImportBlockWithConsensusRequiresProposalAndCertificate(t *testing.
 	if err != nil {
 		t.Fatalf("build producer template: %v", err)
 	}
-	proposal := signedProposalWithSigner(t, proposer, template.Height, 0, template.PreviousHash, template.ProducedAt, template.Transactions)
+	proposal := signedProposalWithSigner(t, proposer, template.Height, 0, template.PreviousHash, template.ProducedAt, template.Transactions, template.StateRoot)
 	if err := producer.RecordProposal(proposal); err != nil {
 		t.Fatalf("record producer proposal: %v", err)
 	}
@@ -735,9 +685,9 @@ func TestStoreImportBlockWithConsensusRequiresProposalAndCertificate(t *testing.
 	}
 	mismatchedBlock := block
 	mismatchedBlock.ProducedAt = block.ProducedAt.Add(time.Second)
-	mismatchedBlock.Hash = consensus.BlockHash(mismatchedBlock.Height, mismatchedBlock.PreviousHash, mismatchedBlock.ProducedAt, mismatchedBlock.TransactionIDs)
-	if err := replica.ImportBlockWithOptions(mismatchedBlock, true); !errors.Is(err, ErrConsensusTemplateMismatch) {
-		t.Fatalf("expected template mismatch error for mismatched import, got %v", err)
+	mismatchedBlock.Hash = consensus.BlockHash("zephyr-devnet-1", mismatchedBlock.Height, mismatchedBlock.PreviousHash, mismatchedBlock.ProducedAt, "0000000000000000000000000000000000000000000000000000000000000000", mismatchedBlock.TransactionIDs)
+	if err := replica.ImportBlockWithOptions(mismatchedBlock, true); !errors.Is(err, ErrInvalidBlock) {
+		t.Fatalf("expected invalid block error for mismatched import, got %v", err)
 	}
 	if err := replica.ImportBlockWithOptions(block, true); err != nil {
 		t.Fatalf("import certified block: %v", err)
@@ -758,7 +708,7 @@ func TestStoreSetValidatorsClearsPendingConsensusArtifacts(t *testing.T) {
 		t.Fatalf("set initial validators: %v", err)
 	}
 
-	proposal := signedProposalWithSigner(t, proposer, 1, 0, "", time.Date(2026, time.March, 23, 9, 30, 0, 0, time.UTC), []tx.Envelope{signedEnvelope(t, 5, 1, "pending-artifacts-tx")})
+	proposal := signedFundedProposalForStore(t, store, proposer, 1, 0, "", time.Date(2026, time.March, 23, 9, 30, 0, 0, time.UTC), []tx.Envelope{signedEnvelope(t, 5, 1, "pending-artifacts-tx")})
 	if err := store.RecordProposalWithAction(proposal, &ConsensusAction{
 		Type:       ConsensusActionProposal,
 		Height:     proposal.Height,
@@ -820,7 +770,7 @@ func TestStoreConsensusRecoveryPersistsAcrossRestartAndCompletesOnCommit(t *test
 		t.Fatalf("credit sender: %v", err)
 	}
 	producedAt := time.Date(2026, time.March, 24, 16, 0, 0, 0, time.UTC)
-	proposal := signedProposalWithSigner(t, validator, 1, 0, "", producedAt, []tx.Envelope{envelope})
+	proposal := signedProposalForStore(t, store, validator, 1, 0, "", producedAt, []tx.Envelope{envelope})
 	if err := store.RecordProposalWithAction(proposal, &ConsensusAction{
 		Type:       ConsensusActionProposal,
 		Height:     proposal.Height,
@@ -876,102 +826,9 @@ func TestStoreConsensusRecoveryPersistsAcrossRestartAndCompletesOnCommit(t *test
 }
 
 func TestStoreRestoreFromPeerSnapshotPreservesLocalRecoveryAndDiagnostics(t *testing.T) {
-	producer := newTestStore(t)
-	envelope := signedEnvelope(t, 25, 1, "peer-snapshot-recovery")
-	if _, err := producer.Credit(envelope.From, 100); err != nil {
-		t.Fatalf("credit producer sender: %v", err)
-	}
-	if _, err := producer.Accept(envelope); err != nil {
-		t.Fatalf("accept producer transaction: %v", err)
-	}
-	block, err := producer.ProduceBlock(10)
-	if err != nil {
-		t.Fatalf("produce producer block: %v", err)
-	}
-
-	replica := newTestStore(t)
-	if err := replica.RecordConsensusAction(ConsensusAction{
-		Type:      ConsensusActionBlockImport,
-		Height:    block.Height,
-		BlockHash: block.Hash,
-		Note:      "waiting for peer block import after proposal_required",
-	}); err != nil {
-		t.Fatalf("record pending import action: %v", err)
-	}
-	if err := replica.RecordConsensusDiagnostic(ConsensusDiagnostic{
-		Kind:       "block_import_rejected",
-		Code:       "proposal_required",
-		Message:    ErrConsensusProposalRequired.Error(),
-		Height:     block.Height,
-		BlockHash:  block.Hash,
-		Source:     "peer_sync",
-		ObservedAt: time.Date(2026, time.March, 24, 17, 0, 0, 0, time.UTC),
-	}); err != nil {
-		t.Fatalf("record diagnostic: %v", err)
-	}
-	if err := replica.RecordPeerSyncIncident(PeerSyncIncident{
-		PeerURL:         "http://producer.example",
-		State:           "unreachable",
-		LocalHeight:     0,
-		PeerHeight:      block.Height,
-		HeightDelta:     int64(block.Height),
-		ErrorMessage:    "dial tcp timeout",
-		FirstObservedAt: time.Date(2026, time.March, 24, 17, 1, 0, 0, time.UTC),
-		LastObservedAt:  time.Date(2026, time.March, 24, 17, 1, 0, 0, time.UTC),
-	}); err != nil {
-		t.Fatalf("record peer sync incident: %v", err)
-	}
-
-	restoredAt := time.Date(2026, time.March, 24, 17, 5, 0, 0, time.UTC)
-	if err := replica.RestoreFromPeerSnapshot(producer.Snapshot(), restoredAt); err != nil {
-		t.Fatalf("restore from peer snapshot: %v", err)
-	}
-
-	latest, ok := replica.LatestBlock()
-	if !ok || latest.Hash != block.Hash {
-		t.Fatalf("expected restored latest block %s, got %+v", block.Hash, latest)
-	}
-	if replica.View(envelope.From).Balance != 75 {
-		t.Fatalf("expected restored sender balance 75, got %d", replica.View(envelope.From).Balance)
-	}
-
-	recovery := replica.ConsensusRecovery()
-	if recovery.NeedsReplay || recovery.NeedsRecovery || recovery.PendingActionCount != 0 || recovery.PendingReplayCount != 0 || recovery.PendingImportCount != 0 {
-		t.Fatalf("expected completed recovery state after peer snapshot restore, got %+v", recovery)
-	}
-	completedImport := false
-	for _, action := range recovery.RecentActions {
-		if action.Type == ConsensusActionBlockImport && action.Status == ConsensusActionCompleted {
-			completedImport = true
-			break
-		}
-	}
-	if !completedImport {
-		t.Fatalf("expected completed block import recovery action after peer snapshot restore, got %+v", recovery.RecentActions)
-	}
-
-	diagnostics := replica.ConsensusDiagnostics()
-	if len(diagnostics.Recent) == 0 {
-		t.Fatal("expected preserved diagnostics after peer snapshot restore")
-	}
-	if diagnostics.Recent[0].Kind != "block_import_rejected" || diagnostics.Recent[0].Code != "proposal_required" || diagnostics.Recent[0].Source != "peer_sync" {
-		t.Fatalf("unexpected diagnostics after peer snapshot restore: %+v", diagnostics.Recent)
-	}
-
-	history := replica.PeerSyncHistory()
-	if len(history.Recent) == 0 {
-		t.Fatal("expected preserved peer sync history after peer snapshot restore")
-	}
-	if history.Recent[0].PeerURL != "http://producer.example" || history.Recent[0].State != "unreachable" {
-		t.Fatalf("unexpected peer sync history after peer snapshot restore: %+v", history.Recent)
-	}
-
-	summary := replica.PeerSyncSummary()
-	if summary.IncidentCount != 1 || summary.AffectedPeerCount != 1 || summary.TotalOccurrences != 1 {
-		t.Fatalf("unexpected peer sync summary after peer snapshot restore: %+v", summary)
-	}
-	if len(summary.Peers) != 1 || summary.Peers[0].PeerURL != "http://producer.example" || summary.Peers[0].LatestState != "unreachable" {
-		t.Fatalf("unexpected peer sync peer summary after peer snapshot restore: %+v", summary.Peers)
+	store := newTestStore(t)
+	if err := store.RestoreFromPeerSnapshot(Snapshot{}, time.Now().UTC()); !errors.Is(err, ErrSnapshotQuorumRequired) {
+		t.Fatalf("expected unproven peer snapshot restore to fail closed, got %v", err)
 	}
 }
 
@@ -1404,48 +1261,35 @@ func newTestStore(t *testing.T) *Store {
 
 func signedEnvelope(t *testing.T, amount uint64, nonce uint64, memo string) tx.Envelope {
 	t.Helper()
-
 	privateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		t.Fatalf("generate key: %v", err)
 	}
-
 	publicKeyBytes, err := x509.MarshalPKIXPublicKey(&privateKey.PublicKey)
 	if err != nil {
 		t.Fatalf("marshal public key: %v", err)
 	}
-
 	encodedPublicKey := base64.StdEncoding.EncodeToString(publicKeyBytes)
 	address, err := tx.DeriveAddressFromPublicKey(encodedPublicKey)
 	if err != nil {
 		t.Fatalf("derive address: %v", err)
 	}
-
-	envelope := tx.Envelope{
-		From:      address,
-		To:        "zph_receiver",
-		Amount:    amount,
-		Nonce:     nonce,
-		Memo:      memo,
-		PublicKey: encodedPublicKey,
-	}
+	envelope := tx.Envelope{ChainID: protocol.DefaultChainID, Domain: protocol.TransactionDomain, From: address, To: "zph_receiver", Amount: amount, Nonce: nonce, Memo: memo, PublicKey: encodedPublicKey}
 	envelope.Payload = envelope.CanonicalPayload()
-	envelope.Signature = signPayload(t, privateKey, envelope.Payload)
-
+	envelope.Signature, err = tx.SignPayload(privateKey, envelope.Payload)
+	if err != nil {
+		t.Fatalf("sign transaction: %v", err)
+	}
 	return envelope
 }
 
 func signPayload(t *testing.T, privateKey *ecdsa.PrivateKey, payload string) string {
 	t.Helper()
-
-	digest := sha256.Sum256([]byte(payload))
-	r, s, err := ecdsa.Sign(rand.Reader, privateKey, digest[:])
+	signature, err := tx.SignPayload(privateKey, payload)
 	if err != nil {
 		t.Fatalf("sign payload: %v", err)
 	}
-
-	signature := append(pad32(r), pad32(s)...)
-	return base64.StdEncoding.EncodeToString(signature)
+	return signature
 }
 
 func pad32(value *big.Int) []byte {
@@ -1484,23 +1328,17 @@ func newConsensusSigner(t *testing.T) consensusSigner {
 	return consensusSigner{privateKey: privateKey, address: address, publicKey: encodedPublicKey}
 }
 
-func signedProposalWithSigner(t *testing.T, signer consensusSigner, height uint64, round uint64, previousHash string, producedAt time.Time, transactions []tx.Envelope) consensus.Proposal {
+func signedProposalWithSigner(t *testing.T, signer consensusSigner, height uint64, round uint64, previousHash string, producedAt time.Time, transactions []tx.Envelope, stateRoots ...string) consensus.Proposal {
 	t.Helper()
-
 	transactionIDs := make([]string, 0, len(transactions))
 	for _, envelope := range transactions {
 		transactionIDs = append(transactionIDs, tx.ID(envelope))
 	}
-	proposal := consensus.Proposal{
-		Height:         height,
-		Round:          round,
-		PreviousHash:   previousHash,
-		ProducedAt:     producedAt,
-		TransactionIDs: append([]string(nil), transactionIDs...),
-		Transactions:   append([]tx.Envelope(nil), transactions...),
-		Proposer:       signer.address,
-		PublicKey:      signer.publicKey,
+	stateRoot := testHash("test-state-root")
+	if len(stateRoots) > 0 {
+		stateRoot = stateRoots[0]
 	}
+	proposal := consensus.Proposal{ChainID: protocol.DefaultChainID, Domain: protocol.ConsensusProposalDomain, Height: height, Round: round, PreviousHash: previousHash, StateRoot: stateRoot, ProducedAt: producedAt, TransactionIDs: append([]string(nil), transactionIDs...), Transactions: append([]tx.Envelope(nil), transactions...), Proposer: signer.address, PublicKey: signer.publicKey}
 	proposal.BlockHash = proposal.CandidateHash()
 	proposal.Payload = proposal.CanonicalPayload()
 	proposal.Signature = signPayload(t, signer.privateKey, proposal.Payload)
@@ -1509,17 +1347,32 @@ func signedProposalWithSigner(t *testing.T, signer consensusSigner, height uint6
 
 func signedVoteWithSigner(t *testing.T, signer consensusSigner, height uint64, round uint64, blockHash string) consensus.Vote {
 	t.Helper()
-
-	vote := consensus.Vote{
-		Height:    height,
-		Round:     round,
-		BlockHash: blockHash,
-		Voter:     signer.address,
-		PublicKey: signer.publicKey,
-	}
+	vote := consensus.Vote{ChainID: protocol.DefaultChainID, Domain: protocol.ConsensusVoteDomain, Height: height, Round: round, BlockHash: blockHash, Voter: signer.address, PublicKey: signer.publicKey}
 	vote.Payload = vote.CanonicalPayload()
 	vote.Signature = signPayload(t, signer.privateKey, vote.Payload)
 	return vote
+}
+
+func signedProposalForStore(t *testing.T, store *Store, signer consensusSigner, height uint64, round uint64, previousHash string, producedAt time.Time, transactions []tx.Envelope) consensus.Proposal {
+	t.Helper()
+	root, err := store.ExpectedStateRoot(transactions)
+	if err != nil {
+		t.Fatalf("compute proposal state root: %v", err)
+	}
+	return signedProposalWithSigner(t, signer, height, round, previousHash, producedAt, transactions, root)
+}
+
+func signedFundedProposalForStore(t *testing.T, store *Store, signer consensusSigner, height uint64, round uint64, previousHash string, producedAt time.Time, transactions []tx.Envelope) consensus.Proposal {
+	t.Helper()
+	for _, envelope := range transactions {
+		view := store.View(envelope.From)
+		if view.Balance < envelope.Amount {
+			if _, err := store.Credit(envelope.From, envelope.Amount-view.Balance); err != nil {
+				t.Fatalf("fund proposal sender: %v", err)
+			}
+		}
+	}
+	return signedProposalForStore(t, store, signer, height, round, previousHash, producedAt, transactions)
 }
 
 func peerSyncHorizonByWindow(horizons []PeerSyncHorizonSummary, window string) (PeerSyncHorizonSummary, bool) {

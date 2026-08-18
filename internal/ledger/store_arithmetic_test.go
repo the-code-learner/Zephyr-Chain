@@ -56,11 +56,10 @@ func TestStoreProduceBlockRejectsReceiverBalanceOverflow(t *testing.T) {
 
 func TestStoreRejectsNonceAfterUint64Exhaustion(t *testing.T) {
 	store := newTestStore(t)
-	if err := store.Restore(Snapshot{Accounts: map[string]AccountState{
-		"sender": {Address: "sender", Balance: 1, Nonce: math.MaxUint64},
-	}}); err != nil {
-		t.Fatalf("restore exhausted account: %v", err)
-	}
+	store.mu.Lock()
+	store.accounts["sender"] = AccountState{Address: "sender", Balance: 1, Nonce: math.MaxUint64}
+	store.pending = rebuildPendingState(store.accounts, store.mempool)
+	store.mu.Unlock()
 
 	_, err := store.Accept(tx.Envelope{From: "sender", To: "receiver", Amount: 1, Nonce: 0})
 	if !errors.Is(err, ErrNonceExhausted) {

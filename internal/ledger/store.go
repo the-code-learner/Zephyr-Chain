@@ -11,6 +11,7 @@ import (
 
 	"github.com/zephyr-chain/zephyr-chain/internal/consensus"
 	"github.com/zephyr-chain/zephyr-chain/internal/dpos"
+	"github.com/zephyr-chain/zephyr-chain/internal/protocol"
 	"github.com/zephyr-chain/zephyr-chain/internal/tx"
 )
 
@@ -51,9 +52,11 @@ type MempoolEntry struct {
 }
 
 type Block struct {
+	ChainID          string        `json:"chainId"`
 	Height           uint64        `json:"height"`
 	Hash             string        `json:"hash"`
 	PreviousHash     string        `json:"previousHash"`
+	StateRoot        string        `json:"stateRoot"`
 	ProducedAt       time.Time     `json:"producedAt"`
 	TransactionCount int           `json:"transactionCount"`
 	TransactionIDs   []string      `json:"transactionIds"`
@@ -101,6 +104,7 @@ type Snapshot struct {
 	ConsensusActions        []ConsensusAction       `json:"consensusActions"`
 	ConsensusDiagnostics    []ConsensusDiagnostic   `json:"consensusDiagnostics"`
 	PeerSyncIncidents       []PeerSyncIncident      `json:"peerSyncIncidents"`
+	Proof                   SnapshotProof           `json:"proof"`
 }
 
 type pendingState struct {
@@ -128,6 +132,7 @@ type persistedState struct {
 
 type Store struct {
 	mu                    sync.RWMutex
+	chainID               string
 	dataDir               string
 	statePath             string
 	accounts              map[string]AccountState
@@ -147,6 +152,14 @@ type Store struct {
 }
 
 func NewStore(dataDir string) (*Store, error) {
+	return NewStoreWithChainID(dataDir, protocol.DefaultChainID)
+}
+
+func NewStoreWithChainID(dataDir string, chainID string) (*Store, error) {
+	chainID = protocol.ConfiguredChainID(chainID)
+	if err := protocol.ValidateChainID(chainID); err != nil {
+		return nil, err
+	}
 	if dataDir == "" {
 		dataDir = filepath.Join("var", "node")
 	}
@@ -156,6 +169,7 @@ func NewStore(dataDir string) (*Store, error) {
 	}
 
 	store := &Store{
+		chainID:               chainID,
 		dataDir:               dataDir,
 		statePath:             filepath.Join(dataDir, "state.json"),
 		accounts:              make(map[string]AccountState),
@@ -330,16 +344,7 @@ func (s *Store) Snapshot() Snapshot {
 }
 
 func (s *Store) Restore(snapshot Snapshot) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	state := persistedFromSnapshot(snapshot)
-	if err := s.writeState(state); err != nil {
-		return err
-	}
-
-	s.applyStateLocked(state)
-	return nil
+	return ErrSnapshotQuorumRequired
 }
 
 func (s *Store) Accept(envelope tx.Envelope) (string, error) {
@@ -410,7 +415,7 @@ func (s *Store) BuildNextBlock(maxTransactions int, producedAt time.Time) (Block
 	defer s.mu.RUnlock()
 
 	state := s.snapshotLocked()
-	_, block, err := produceBlockFromState(state, maxTransactions, producedAt)
+	_, block, err := produceBlockFromState(state, maxTransactions, producedAt, s.chainID)
 	if err != nil {
 		return Block{}, err
 	}
@@ -433,9 +438,9 @@ func (s *Store) ProduceBlockWithOptions(maxTransactions int, producedAt time.Tim
 		err       error
 	)
 	if requireConsensus {
-		nextState, block, err = produceCertifiedBlockFromState(state, producedAt)
+		nextState, block, err = produceCertifiedBlockFromState(state, producedAt, s.chainID)
 	} else {
-		nextState, block, err = produceBlockFromState(state, maxTransactions, producedAt)
+		nextState, block, err = produceBlockFromState(state, maxTransactions, producedAt, s.chainID)
 	}
 	if err != nil {
 		return Block{}, err
@@ -459,7 +464,7 @@ func (s *Store) ImportBlockWithOptions(block Block, requireConsensus bool) error
 	defer s.mu.Unlock()
 
 	state := s.snapshotLocked()
-	nextState, err := importBlockIntoState(state, block)
+	nextState, err := importBlockIntoState(state, block, s.chainID)
 	if err != nil {
 		return err
 	}
@@ -589,7 +594,7 @@ func (s *Store) accountViewLocked(address string) AccountView {
 	}
 }
 
-func produceBlockFromState(state persistedState, maxTransactions int, producedAt time.Time) (persistedState, Block, error) {
+func produceBlockFromState(state persistedState, maxTransactions int, producedAt time.Time, chainID string) (persistedState, Block, error) {
 	state = normalizeState(state)
 	if len(state.Mempool) == 0 {
 		return state, Block{}, ErrNoTransactionsToBlock
@@ -639,10 +644,19 @@ func produceBlockFromState(state persistedState, maxTransactions int, producedAt
 		transactions = append(transactions, envelope)
 	}
 
+	rootState := state
+	rootState.Accounts = accounts
+	stateRoot, err := stateRootFromState(chainID, rootState)
+	if err != nil {
+		return state, Block{}, err
+	}
+
 	if producedAt.IsZero() {
 		producedAt = time.Now().UTC()
 	}
 	block := Block{
+		ChainID:          chainID,
+		StateRoot:        stateRoot,
 		Height:           height,
 		PreviousHash:     previousHash,
 		ProducedAt:       producedAt,
@@ -660,8 +674,11 @@ func produceBlockFromState(state persistedState, maxTransactions int, producedAt
 	return state, block, nil
 }
 
-func importBlockIntoState(state persistedState, block Block) (persistedState, error) {
+func importBlockIntoState(state persistedState, block Block, chainID string) (persistedState, error) {
 	state = normalizeState(state)
+	if block.ChainID != chainID || block.StateRoot == "" {
+		return state, ErrInvalidBlock
+	}
 	if block.Height == 0 {
 		return state, ErrInvalidBlock
 	}
@@ -695,7 +712,7 @@ func importBlockIntoState(state persistedState, block Block) (persistedState, er
 	committedSet := toStringSet(state.CommittedTransactionIDs)
 
 	for index, envelope := range block.Transactions {
-		if err := envelope.ValidateStatic(); err != nil {
+		if err := envelope.ValidateForChain(chainID); err != nil {
 			return state, ErrInvalidBlock
 		}
 
@@ -731,7 +748,16 @@ func importBlockIntoState(state persistedState, block Block) (persistedState, er
 		transactions = append(transactions, envelope)
 	}
 
+	rootState := state
+	rootState.Accounts = accounts
+	stateRoot, err := stateRootFromState(chainID, rootState)
+	if err != nil || stateRoot != block.StateRoot {
+		return state, ErrBlockInvariant
+	}
+
 	sanitized := Block{
+		ChainID:          chainID,
+		StateRoot:        stateRoot,
 		Height:           block.Height,
 		PreviousHash:     block.PreviousHash,
 		ProducedAt:       block.ProducedAt,
@@ -1026,5 +1052,5 @@ func containsString(values []string, target string) bool {
 }
 
 func blockHash(block Block) string {
-	return consensus.BlockHash(block.Height, block.PreviousHash, block.ProducedAt, block.TransactionIDs)
+	return consensus.BlockHash(block.ChainID, block.Height, block.PreviousHash, block.ProducedAt, block.StateRoot, block.TransactionIDs)
 }

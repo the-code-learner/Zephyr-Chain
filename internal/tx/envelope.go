@@ -17,15 +17,15 @@ import (
 )
 
 var (
-	ErrMissingFields          = errors.New("missing required transaction fields")
-	ErrInvalidAmount          = errors.New("amount must be greater than zero")
-	ErrInvalidPayload         = errors.New("payload does not match canonical transaction")
-	ErrInvalidPublicKey       = errors.New("invalid public key")
-	ErrInvalidAddress         = errors.New("from address does not match public key")
-	ErrInvalidSignature       = errors.New("invalid signature")
-	ErrNonCanonicalSignature  = errors.New("signature must use canonical low-S P-256 form")
-	ErrInvalidChainID         = errors.New("transaction chain ID does not match local chain")
-	ErrInvalidDomain          = errors.New("invalid transaction signing domain")
+	ErrMissingFields         = errors.New("missing required transaction fields")
+	ErrInvalidAmount         = errors.New("amount must be greater than zero")
+	ErrInvalidPayload        = errors.New("payload does not match canonical transaction")
+	ErrInvalidPublicKey      = errors.New("invalid public key")
+	ErrInvalidAddress        = errors.New("from address does not match public key")
+	ErrInvalidSignature      = errors.New("invalid signature")
+	ErrNonCanonicalSignature = errors.New("signature must use canonical low-S P-256 form")
+	ErrInvalidChainID        = errors.New("transaction chain ID does not match local chain")
+	ErrInvalidDomain         = errors.New("invalid transaction signing domain")
 )
 
 type Envelope struct {
@@ -143,7 +143,7 @@ func SignPayload(privateKey *ecdsa.PrivateKey, payload string) (string, error) {
 		return "", err
 	}
 	s = normalizeLowS(s)
-	signature := append(pad32(r), pad32(s)...)
+	signature := append(padP256Int32(r), padP256Int32(s)...)
 	return base64.StdEncoding.EncodeToString(signature), nil
 }
 
@@ -153,7 +153,7 @@ func NormalizeP256Signature(encodedSignature string) (string, error) {
 		return "", err
 	}
 	s = normalizeLowS(s)
-	signature := append(pad32(r), pad32(s)...)
+	signature := append(padP256Int32(r), padP256Int32(s)...)
 	return base64.StdEncoding.EncodeToString(signature), nil
 }
 
@@ -233,7 +233,7 @@ func halfOrder() *big.Int {
 	return new(big.Int).Rsh(new(big.Int).Set(elliptic.P256().Params().N), 1)
 }
 
-func pad32(value *big.Int) []byte {
+func padP256Int32(value *big.Int) []byte {
 	bytes := value.Bytes()
 	if len(bytes) >= 32 {
 		return bytes[len(bytes)-32:]

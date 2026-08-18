@@ -322,3 +322,7 @@ func verifyPeerTransportIdentity(status StatusResponse, now time.Time) (bool, st
 	}
 	return true, ""
 }
+
+func signTransportIdentityPayload(privateKey *ecdsa.PrivateKey, payload string) (string, error) {
+	return tx.SignPayload(privateKey, payload)
+}

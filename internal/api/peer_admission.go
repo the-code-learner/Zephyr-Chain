@@ -167,6 +167,9 @@ func (s *Server) admittedPeerURLs() []string {
 
 func (s *Server) validatePeerRequest(r *http.Request) error {
 	if requestSourceNode(r) == "" {
+		if strings.HasPrefix(r.URL.Path, "/v1/internal/") {
+			return errPeerIdentityRequired
+		}
 		return nil
 	}
 

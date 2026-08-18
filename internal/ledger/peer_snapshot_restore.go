@@ -2,20 +2,8 @@ package ledger
 
 import "time"
 
+// RestoreFromPeerSnapshot is intentionally disabled. Peer snapshots require
+// quorum proofs from the locally trusted validator set.
 func (s *Store) RestoreFromPeerSnapshot(snapshot Snapshot, now time.Time) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	incoming := persistedFromSnapshot(snapshot)
-	localState := s.snapshotLocked()
-	incoming.ConsensusActions = normalizeConsensusActions(localState.ConsensusActions)
-	incoming.ConsensusDiagnostics = normalizeConsensusDiagnostics(localState.ConsensusDiagnostics)
-	incoming.PeerSyncIncidents = normalizePeerSyncIncidents(localState.PeerSyncIncidents)
-	incoming = completeConsensusActionsForHeightInState(incoming, uint64(len(incoming.Blocks)), now, "state restored from peer snapshot")
-	if err := s.writeState(incoming); err != nil {
-		return err
-	}
-
-	s.applyStateLocked(incoming)
-	return nil
+	return ErrSnapshotQuorumRequired
 }

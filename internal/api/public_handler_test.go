@@ -100,7 +100,7 @@ func TestPublicHandlerRequiresPeerSourceForInternalSnapshot(t *testing.T) {
 	recorder = httptest.NewRecorder()
 	server.PublicHandler(PublicHandlerOptions{}).ServeHTTP(recorder, request)
 
-	if recorder.Code != http.StatusOK {
-		t.Fatalf("expected internal snapshot status 200 for peer source when strict identity is disabled, got %d", recorder.Code)
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("expected source-only internal snapshot request to be forbidden without a signed proof, got %d", recorder.Code)
 	}
 }

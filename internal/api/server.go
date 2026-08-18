@@ -15,6 +15,7 @@ import (
 	"github.com/zephyr-chain/zephyr-chain/internal/consensus"
 	"github.com/zephyr-chain/zephyr-chain/internal/dpos"
 	"github.com/zephyr-chain/zephyr-chain/internal/ledger"
+	"github.com/zephyr-chain/zephyr-chain/internal/protocol"
 	"github.com/zephyr-chain/zephyr-chain/internal/tx"
 )
 
@@ -35,6 +36,7 @@ var (
 )
 
 type Config struct {
+	ChainID                      string
 	DataDir                      string
 	NodeID                       string
 	ValidatorAddress             string
@@ -58,6 +60,7 @@ type Config struct {
 
 func DefaultConfig() Config {
 	return Config{
+		ChainID:                      protocol.DefaultChainID,
 		DataDir:                      filepath.Join("var", "node"),
 		NodeID:                       "node-local",
 		ValidatorAddress:             "",
@@ -117,6 +120,7 @@ type AccountResponse struct {
 }
 
 type StatusResponse struct {
+	ChainID                       string                           `json:"chainId"`
 	NodeID                        string                           `json:"nodeId"`
 	ValidatorAddress              string                           `json:"validatorAddress,omitempty"`
 	PeerCount                     int                              `json:"peerCount"`
@@ -249,7 +253,7 @@ func NewServerWithConfig(config Config) (*Server, error) {
 		return nil, errConsensusAutomationRequiresIdentity
 	}
 
-	store, err := ledger.NewStore(config.DataDir)
+	store, err := ledger.NewStoreWithChainID(config.DataDir, config.ChainID)
 	if err != nil {
 		return nil, err
 	}
@@ -331,6 +335,7 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	now := time.Now().UTC()
 	consensusView := s.ledger.Consensus()
 	response := StatusResponse{
+		ChainID:                       s.config.ChainID,
 		NodeID:                        s.nodeID,
 		ValidatorAddress:              s.config.ValidatorAddress,
 		PeerCount:                     len(s.config.PeerURLs),
@@ -489,7 +494,7 @@ func (s *Server) handleBroadcastTransaction(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	if err := request.ValidateStatic(); err != nil {
+	if err := request.ValidateForChain(s.config.ChainID); err != nil {
 		writeJSON(w, statusForError(err), map[string]string{"error": err.Error()})
 		return
 	}
@@ -695,8 +700,17 @@ func (s *Server) handleSnapshot(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return
 	}
+	if err := s.validatePeerRequest(r); err != nil {
+		writeJSON(w, statusForError(err), map[string]string{"error": err.Error()})
+		return
+	}
 
-	writeJSON(w, http.StatusOK, SnapshotResponse{Snapshot: s.ledger.Snapshot()})
+	snapshot, err := s.signedSnapshot()
+	if err != nil {
+		writeJSON(w, statusForError(err), map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, SnapshotResponse{Snapshot: snapshot})
 }
 
 func (s *Server) produceLocalBlock(producedAt time.Time) (ledger.Block, error) {
@@ -796,6 +810,7 @@ func normalizeConfig(config Config) Config {
 	if config.NodeID == "" {
 		config.NodeID = "node-local"
 	}
+	config.ChainID = protocol.ConfiguredChainID(config.ChainID)
 	config.ValidatorAddress = strings.TrimSpace(config.ValidatorAddress)
 	config.ValidatorPrivateKey = strings.TrimSpace(config.ValidatorPrivateKey)
 	config.PeerURLs = normalizePeerURLs(config.PeerURLs)
@@ -834,11 +849,17 @@ func statusForError(err error) int {
 		errors.Is(err, tx.ErrInvalidPublicKey),
 		errors.Is(err, tx.ErrInvalidAddress),
 		errors.Is(err, tx.ErrInvalidSignature),
+		errors.Is(err, tx.ErrNonCanonicalSignature),
+		errors.Is(err, tx.ErrInvalidChainID),
+		errors.Is(err, tx.ErrInvalidDomain),
 		errors.Is(err, consensus.ErrMissingFields),
 		errors.Is(err, consensus.ErrInvalidPayload),
 		errors.Is(err, consensus.ErrInvalidPublicKey),
 		errors.Is(err, consensus.ErrInvalidAddress),
 		errors.Is(err, consensus.ErrInvalidSignature),
+		errors.Is(err, consensus.ErrInvalidChainID),
+		errors.Is(err, consensus.ErrInvalidDomain),
+		errors.Is(err, consensus.ErrInvalidStateRoot),
 		errors.Is(err, consensus.ErrInvalidHash),
 		errors.Is(err, consensus.ErrInvalidHeight),
 		errors.Is(err, consensus.ErrInvalidProducedAt),
@@ -854,10 +875,24 @@ func statusForError(err error) int {
 		errors.Is(err, errTransportIdentityAddressMismatch),
 		errors.Is(err, errInvalidTransportIdentitySignature),
 		errors.Is(err, errTransportIdentityNodeMismatch),
-		errors.Is(err, errTransportIdentityValidatorMismatch):
+		errors.Is(err, errTransportIdentityValidatorMismatch),
+		errors.Is(err, errTransportIdentityChainMismatch),
+		errors.Is(err, errInvalidRequestProof),
+		errors.Is(err, errRequestChainMismatch),
+		errors.Is(err, errRequestDomainMismatch),
+		errors.Is(err, errRequestTimestamp),
+		errors.Is(err, ledger.ErrInvalidSnapshot),
+		errors.Is(err, ledger.ErrSnapshotChainMismatch),
+		errors.Is(err, ledger.ErrSnapshotProofInvalid),
+		errors.Is(err, ledger.ErrInvalidStateRoot):
 		return http.StatusBadRequest
 	case errors.Is(err, errPeerIdentityRequired),
-		errors.Is(err, errPeerValidatorNotAllowed):
+		errors.Is(err, errMissingRequestProof),
+		errors.Is(err, errPeerValidatorNotAllowed),
+		errors.Is(err, errRequestReplay),
+		errors.Is(err, errRequestReplayStoreFull),
+		errors.Is(err, ledger.ErrSnapshotQuorumRequired),
+		errors.Is(err, errSnapshotSignerRequired):
 		return http.StatusForbidden
 	case errors.Is(err, ledger.ErrDuplicateTransaction),
 		errors.Is(err, ledger.ErrInvalidNonce),
