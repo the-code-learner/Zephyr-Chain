@@ -5,14 +5,14 @@ import "time"
 const consensusDiagnosticRecentLimit = 20
 
 type ConsensusDiagnostic struct {
-	Kind      string    `json:"kind"`
-	Code      string    `json:"code"`
-	Message   string    `json:"message"`
-	Height    uint64    `json:"height,omitempty"`
-	Round     uint64    `json:"round,omitempty"`
-	BlockHash string    `json:"blockHash,omitempty"`
-	Validator string    `json:"validator,omitempty"`
-	Source    string    `json:"source,omitempty"`
+	Kind       string    `json:"kind"`
+	Code       string    `json:"code"`
+	Message    string    `json:"message"`
+	Height     uint64    `json:"height,omitempty"`
+	Round      uint64    `json:"round,omitempty"`
+	BlockHash  string    `json:"blockHash,omitempty"`
+	Validator  string    `json:"validator,omitempty"`
+	Source     string    `json:"source,omitempty"`
 	ObservedAt time.Time `json:"observedAt"`
 }
 

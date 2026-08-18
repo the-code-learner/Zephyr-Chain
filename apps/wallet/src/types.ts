@@ -32,9 +32,16 @@ export type TransactionDraft = {
 }
 
 export type SignedTransactionEnvelope = TransactionDraft & {
+  chainId: string
+  domain: 'zephyr/transaction/v1'
   payload: string
   publicKey: string
   signature: string
+}
+
+export type NodeStatusResponse = {
+  chainId: string
+  nodeId: string
 }
 
 export type BroadcastResponse = {
@@ -51,6 +58,7 @@ export type AccountView = {
   nonce: number
   nextNonce: number
   pendingTransactions: number
+  nonceExhausted?: boolean
 }
 
 export type AccountResponse = {

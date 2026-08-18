@@ -72,7 +72,7 @@ func (t *httpPeerTransport) FetchSnapshot(peerURL string) (ledger.Snapshot, erro
 	if err != nil {
 		return ledger.Snapshot{}, err
 	}
-	if err := t.applyPeerHeaders(request); err != nil {
+	if err := t.applyPeerHeaders(request, nil); err != nil {
 		return ledger.Snapshot{}, err
 	}
 
@@ -123,7 +123,7 @@ func (t *httpPeerTransport) postJSON(target string, payload any) error {
 		return err
 	}
 	request.Header.Set("Content-Type", "application/json")
-	if err := t.applyPeerHeaders(request); err != nil {
+	if err := t.applyPeerHeaders(request, body); err != nil {
 		return err
 	}
 
@@ -138,20 +138,22 @@ func (t *httpPeerTransport) postJSON(target string, payload any) error {
 	return nil
 }
 
-func (t *httpPeerTransport) applyPeerHeaders(request *http.Request) error {
-	request.Header.Set(sourceNodeHeader, t.sourceNode)
+func (t *httpPeerTransport) applyPeerHeaders(request *http.Request, body []byte) error {
 	if t.identitySigner == nil {
-		return nil
+		return errMissingRequestProof
 	}
-
-	identity, err := t.identitySigner.Build(time.Now().UTC())
+	proof, err := t.identitySigner.buildRequestProof(request.Method, canonicalRequestPath(request), body, time.Now().UTC())
 	if err != nil {
 		return err
 	}
-	request.Header.Set(sourceValidatorHeader, identity.ValidatorAddress)
-	request.Header.Set(sourceIdentityPayloadHeader, identity.Payload)
-	request.Header.Set(sourcePublicKeyHeader, identity.PublicKey)
-	request.Header.Set(sourceSignatureHeader, identity.Signature)
-	request.Header.Set(sourceSignedAtHeader, identity.SignedAt.UTC().Format(time.RFC3339Nano))
+	request.Header.Set(sourceNodeHeader, proof.NodeID)
+	request.Header.Set(sourceValidatorHeader, proof.ValidatorAddress)
+	request.Header.Set(sourceIdentityPayloadHeader, proof.Payload)
+	request.Header.Set(sourcePublicKeyHeader, proof.PublicKey)
+	request.Header.Set(sourceSignatureHeader, proof.Signature)
+	request.Header.Set(sourceSignedAtHeader, proof.SignedAt.UTC().Format(time.RFC3339Nano))
+	request.Header.Set(sourceChainIDHeader, proof.ChainID)
+	request.Header.Set(sourceRequestDomainHeader, proof.Domain)
+	request.Header.Set(sourceRequestNonceHeader, proof.Nonce)
 	return nil
 }

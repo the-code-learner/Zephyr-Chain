@@ -3,19 +3,17 @@ package api
 import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
-	"crypto/rand"
-	"crypto/sha256"
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
 	"encoding/pem"
 	"errors"
-	"math/big"
 	"net/http"
 	"strings"
 	"time"
 
 	"github.com/zephyr-chain/zephyr-chain/internal/consensus"
+	"github.com/zephyr-chain/zephyr-chain/internal/protocol"
 	"github.com/zephyr-chain/zephyr-chain/internal/tx"
 )
 
@@ -28,6 +26,7 @@ var (
 	errInvalidTransportIdentitySignature  = errors.New("invalid transport identity signature")
 	errTransportIdentityNodeMismatch      = errors.New("transport identity node does not match status response")
 	errTransportIdentityValidatorMismatch = errors.New("transport identity validator does not match status response")
+	errTransportIdentityChainMismatch     = errors.New("transport identity chain does not match status response")
 	errInvalidValidatorPrivateKey         = errors.New("invalid validator private key")
 	errValidatorIdentityMismatch          = errors.New("validator private key does not match configured validator address")
 )
@@ -35,6 +34,8 @@ var (
 const transportIdentityMaxSkew = 2 * time.Minute
 
 type TransportIdentity struct {
+	ChainID          string    `json:"chainId"`
+	Domain           string    `json:"domain"`
 	NodeID           string    `json:"nodeId"`
 	ValidatorAddress string    `json:"validatorAddress"`
 	Payload          string    `json:"payload"`
@@ -44,12 +45,15 @@ type TransportIdentity struct {
 }
 
 type canonicalTransportIdentity struct {
+	ChainID          string `json:"chainId"`
+	Domain           string `json:"domain"`
 	NodeID           string `json:"nodeId"`
 	SignedAt         string `json:"signedAt"`
 	ValidatorAddress string `json:"validatorAddress"`
 }
 
 type transportIdentitySigner struct {
+	chainID          string
 	nodeID           string
 	validatorAddress string
 	publicKey        string
@@ -58,6 +62,8 @@ type transportIdentitySigner struct {
 
 func (i TransportIdentity) CanonicalPayload() string {
 	payload, _ := json.Marshal(canonicalTransportIdentity{
+		ChainID:          strings.TrimSpace(i.ChainID),
+		Domain:           strings.TrimSpace(i.Domain),
 		NodeID:           i.NodeID,
 		SignedAt:         i.SignedAt.UTC().Format(time.RFC3339Nano),
 		ValidatorAddress: i.ValidatorAddress,
@@ -66,8 +72,14 @@ func (i TransportIdentity) CanonicalPayload() string {
 }
 
 func (i TransportIdentity) ValidateAt(now time.Time) error {
-	if i.NodeID == "" || i.ValidatorAddress == "" || i.Payload == "" || i.PublicKey == "" || i.Signature == "" {
+	if i.ChainID == "" || i.Domain == "" || i.NodeID == "" || i.ValidatorAddress == "" || i.Payload == "" || i.PublicKey == "" || i.Signature == "" {
 		return errMissingTransportIdentityFields
+	}
+	if err := protocol.ValidateChainID(strings.TrimSpace(i.ChainID)); err != nil {
+		return errTransportIdentityChainMismatch
+	}
+	if strings.TrimSpace(i.Domain) != protocol.TransportIdentityDomain {
+		return errInvalidTransportIdentityPayload
 	}
 	if i.SignedAt.IsZero() {
 		return errTransportIdentityTimestamp
@@ -94,7 +106,7 @@ func (i TransportIdentity) ValidateAt(now time.Time) error {
 		switch {
 		case errors.Is(err, tx.ErrInvalidPublicKey):
 			return errInvalidTransportIdentityPublicKey
-		case errors.Is(err, tx.ErrInvalidSignature):
+		case errors.Is(err, tx.ErrInvalidSignature), errors.Is(err, tx.ErrNonCanonicalSignature):
 			return errInvalidTransportIdentitySignature
 		default:
 			return err
@@ -123,6 +135,7 @@ func newTransportIdentitySigner(config Config) (*transportIdentitySigner, Config
 	config.ValidatorAddress = address
 
 	return &transportIdentitySigner{
+		chainID:          config.ChainID,
 		nodeID:           config.NodeID,
 		validatorAddress: address,
 		publicKey:        publicKey,
@@ -138,13 +151,15 @@ func (s *transportIdentitySigner) Build(now time.Time) (TransportIdentity, error
 		now = time.Now().UTC()
 	}
 	identity := TransportIdentity{
+		ChainID:          s.chainID,
+		Domain:           protocol.TransportIdentityDomain,
 		NodeID:           s.nodeID,
 		ValidatorAddress: s.validatorAddress,
 		PublicKey:        s.publicKey,
 		SignedAt:         now.UTC(),
 	}
 	identity.Payload = identity.CanonicalPayload()
-	signature, err := signTransportIdentityPayload(s.privateKey, identity.Payload)
+	signature, err := tx.SignPayload(s.privateKey, identity.Payload)
 	if err != nil {
 		return TransportIdentity{}, err
 	}
@@ -159,13 +174,15 @@ func (s *transportIdentitySigner) SignProposal(proposal consensus.Proposal, now 
 	if now.IsZero() {
 		now = time.Now().UTC()
 	}
+	proposal.ChainID = s.chainID
+	proposal.Domain = protocol.ConsensusProposalDomain
 	proposal.Proposer = s.validatorAddress
 	proposal.PublicKey = s.publicKey
 	if proposal.ProposedAt.IsZero() {
 		proposal.ProposedAt = now.UTC()
 	}
 	proposal.Payload = proposal.CanonicalPayload()
-	signature, err := signTransportIdentityPayload(s.privateKey, proposal.Payload)
+	signature, err := tx.SignPayload(s.privateKey, proposal.Payload)
 	if err != nil {
 		return consensus.Proposal{}, err
 	}
@@ -180,13 +197,15 @@ func (s *transportIdentitySigner) SignVote(vote consensus.Vote, now time.Time) (
 	if now.IsZero() {
 		now = time.Now().UTC()
 	}
+	vote.ChainID = s.chainID
+	vote.Domain = protocol.ConsensusVoteDomain
 	vote.Voter = s.validatorAddress
 	vote.PublicKey = s.publicKey
 	if vote.VotedAt.IsZero() {
 		vote.VotedAt = now.UTC()
 	}
 	vote.Payload = vote.CanonicalPayload()
-	signature, err := signTransportIdentityPayload(s.privateKey, vote.Payload)
+	signature, err := tx.SignPayload(s.privateKey, vote.Payload)
 	if err != nil {
 		return consensus.Vote{}, err
 	}
@@ -241,26 +260,6 @@ func parseECDSAPrivateKey(keyBytes []byte) (*ecdsa.PrivateKey, error) {
 	return privateKey, nil
 }
 
-func signTransportIdentityPayload(privateKey *ecdsa.PrivateKey, payload string) (string, error) {
-	digest := sha256.Sum256([]byte(payload))
-	r, s, err := ecdsa.Sign(rand.Reader, privateKey, digest[:])
-	if err != nil {
-		return "", err
-	}
-	signature := append(padTransportIdentity32(r), padTransportIdentity32(s)...)
-	return base64.StdEncoding.EncodeToString(signature), nil
-}
-
-func padTransportIdentity32(value *big.Int) []byte {
-	bytes := value.Bytes()
-	if len(bytes) >= 32 {
-		return bytes[len(bytes)-32:]
-	}
-	padded := make([]byte, 32)
-	copy(padded[32-len(bytes):], bytes)
-	return padded
-}
-
 func transportIdentityFromRequest(r *http.Request) (*TransportIdentity, error) {
 	nodeID := strings.TrimSpace(r.Header.Get(sourceNodeHeader))
 	validatorAddress := strings.TrimSpace(r.Header.Get(sourceValidatorHeader))
@@ -268,12 +267,13 @@ func transportIdentityFromRequest(r *http.Request) (*TransportIdentity, error) {
 	publicKey := strings.TrimSpace(r.Header.Get(sourcePublicKeyHeader))
 	signature := strings.TrimSpace(r.Header.Get(sourceSignatureHeader))
 	signedAtRaw := strings.TrimSpace(r.Header.Get(sourceSignedAtHeader))
+	chainID := strings.TrimSpace(r.Header.Get(sourceChainIDHeader))
 
-	if nodeID == "" && validatorAddress == "" && payload == "" && publicKey == "" && signature == "" && signedAtRaw == "" {
+	if nodeID == "" && validatorAddress == "" && payload == "" && publicKey == "" && signature == "" && signedAtRaw == "" && chainID == "" {
 		return nil, nil
 	}
-	if validatorAddress == "" && payload == "" && publicKey == "" && signature == "" && signedAtRaw == "" {
-		return nil, nil
+	if chainID == "" || validatorAddress == "" || payload == "" || publicKey == "" || signature == "" || signedAtRaw == "" {
+		return nil, errMissingTransportIdentityFields
 	}
 
 	signedAt, err := time.Parse(time.RFC3339Nano, signedAtRaw)
@@ -281,6 +281,8 @@ func transportIdentityFromRequest(r *http.Request) (*TransportIdentity, error) {
 		return nil, errTransportIdentityTimestamp
 	}
 	identity := &TransportIdentity{
+		ChainID:          chainID,
+		Domain:           protocol.TransportIdentityDomain,
 		NodeID:           nodeID,
 		ValidatorAddress: validatorAddress,
 		Payload:          payload,
@@ -306,6 +308,9 @@ func verifyPeerTransportIdentity(status StatusResponse, now time.Time) (bool, st
 		}
 		return false, ""
 	}
+	if status.Identity.ChainID != status.ChainID {
+		return false, errTransportIdentityChainMismatch.Error()
+	}
 	if status.Identity.NodeID != status.NodeID {
 		return false, errTransportIdentityNodeMismatch.Error()
 	}
@@ -316,4 +321,8 @@ func verifyPeerTransportIdentity(status StatusResponse, now time.Time) (bool, st
 		return false, err.Error()
 	}
 	return true, ""
+}
+
+func signTransportIdentityPayload(privateKey *ecdsa.PrivateKey, payload string) (string, error) {
+	return tx.SignPayload(privateKey, payload)
 }

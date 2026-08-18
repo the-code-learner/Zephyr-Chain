@@ -4,12 +4,14 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
-	"crypto/sha256"
 	"crypto/x509"
 	"encoding/base64"
+	"errors"
 	"math/big"
 	"strings"
 	"testing"
+
+	"github.com/zephyr-chain/zephyr-chain/internal/protocol"
 )
 
 func TestEnvelopeValidateStaticAcceptsWalletCompatibleSignature(t *testing.T) {
@@ -18,9 +20,11 @@ func TestEnvelopeValidateStaticAcceptsWalletCompatibleSignature(t *testing.T) {
 	if err := envelope.ValidateStatic(); err != nil {
 		t.Fatalf("expected valid envelope, got error: %v", err)
 	}
-
 	if !strings.HasPrefix(envelope.From, "zph_") {
 		t.Fatalf("expected zephyr-style address, got %s", envelope.From)
+	}
+	if !IsCanonicalP256Signature(envelope.Signature) {
+		t.Fatal("expected signer to emit a low-S signature")
 	}
 }
 
@@ -42,6 +46,40 @@ func TestEnvelopeValidateStaticRejectsAddressMismatch(t *testing.T) {
 	}
 }
 
+func TestEnvelopeRequiresExplicitChainAndDomain(t *testing.T) {
+	envelope := signedEnvelope(t, 25, 1, "note")
+	envelope.ChainID = ""
+	if err := envelope.ValidateStatic(); !errors.Is(err, ErrMissingFields) {
+		t.Fatalf("expected missing chain to fail closed, got %v", err)
+	}
+
+	envelope = signedEnvelope(t, 25, 1, "note")
+	envelope.Domain = ""
+	if err := envelope.ValidateStatic(); !errors.Is(err, ErrMissingFields) {
+		t.Fatalf("expected missing domain to fail closed, got %v", err)
+	}
+}
+
+func TestEnvelopeRejectsCrossChainReplay(t *testing.T) {
+	envelope := signedEnvelope(t, 25, 1, "note")
+	if err := envelope.ValidateForChain("zephyr-testnet-1"); !errors.Is(err, ErrInvalidChainID) {
+		t.Fatalf("expected cross-chain replay rejection, got %v", err)
+	}
+}
+
+func TestEnvelopeRejectsHighSSignatureButKeepsStableTransactionID(t *testing.T) {
+	envelope := signedEnvelope(t, 25, 1, "note")
+	malleated := envelope
+	malleated.Signature = highSEquivalent(t, envelope.Signature)
+
+	if ID(envelope) != ID(malleated) {
+		t.Fatal("transaction ID must not depend on signature representation")
+	}
+	if err := malleated.ValidateStatic(); !errors.Is(err, ErrNonCanonicalSignature) {
+		t.Fatalf("expected high-S signature rejection, got %v", err)
+	}
+}
+
 func signedEnvelope(t *testing.T, amount uint64, nonce uint64, memo string) Envelope {
 	t.Helper()
 
@@ -49,12 +87,10 @@ func signedEnvelope(t *testing.T, amount uint64, nonce uint64, memo string) Enve
 	if err != nil {
 		t.Fatalf("generate key: %v", err)
 	}
-
 	publicKeyBytes, err := x509.MarshalPKIXPublicKey(&privateKey.PublicKey)
 	if err != nil {
 		t.Fatalf("marshal public key: %v", err)
 	}
-
 	encodedPublicKey := base64.StdEncoding.EncodeToString(publicKeyBytes)
 	address, err := DeriveAddressFromPublicKey(encodedPublicKey)
 	if err != nil {
@@ -62,6 +98,8 @@ func signedEnvelope(t *testing.T, amount uint64, nonce uint64, memo string) Enve
 	}
 
 	envelope := Envelope{
+		ChainID:   protocol.DefaultChainID,
+		Domain:    protocol.TransactionDomain,
 		From:      address,
 		To:        "zph_receiver",
 		Amount:    amount,
@@ -70,31 +108,23 @@ func signedEnvelope(t *testing.T, amount uint64, nonce uint64, memo string) Enve
 		PublicKey: encodedPublicKey,
 	}
 	envelope.Payload = envelope.CanonicalPayload()
-	envelope.Signature = signPayload(t, privateKey, envelope.Payload)
-
-	return envelope
-}
-
-func signPayload(t *testing.T, privateKey *ecdsa.PrivateKey, payload string) string {
-	t.Helper()
-
-	digest := sha256.Sum256([]byte(payload))
-	r, s, err := ecdsa.Sign(rand.Reader, privateKey, digest[:])
+	envelope.Signature, err = SignPayload(privateKey, envelope.Payload)
 	if err != nil {
 		t.Fatalf("sign payload: %v", err)
 	}
-
-	signature := append(pad32(r), pad32(s)...)
-	return base64.StdEncoding.EncodeToString(signature)
+	return envelope
 }
 
-func pad32(value *big.Int) []byte {
-	bytes := value.Bytes()
-	if len(bytes) >= 32 {
-		return bytes[len(bytes)-32:]
+func highSEquivalent(t *testing.T, encodedSignature string) string {
+	t.Helper()
+	r, s, err := decodeSignature(encodedSignature)
+	if err != nil {
+		t.Fatalf("decode signature: %v", err)
 	}
-
-	padded := make([]byte, 32)
-	copy(padded[32-len(bytes):], bytes)
-	return padded
+	highS := new(big.Int).Sub(elliptic.P256().Params().N, s)
+	if highS.Cmp(halfOrder()) <= 0 {
+		t.Fatal("expected high-S equivalent")
+	}
+	raw := append(padP256Int32(r), padP256Int32(highS)...)
+	return base64.StdEncoding.EncodeToString(raw)
 }

@@ -8,10 +8,11 @@ import (
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/hex"
-	"math/big"
+	"errors"
 	"testing"
 	"time"
 
+	"github.com/zephyr-chain/zephyr-chain/internal/protocol"
 	"github.com/zephyr-chain/zephyr-chain/internal/tx"
 )
 
@@ -20,7 +21,6 @@ func TestProposalValidateStaticAcceptsValidSignedProposal(t *testing.T) {
 		signedEnvelope(t, 5, 1, "tx-1"),
 		signedEnvelope(t, 7, 1, "tx-2"),
 	})
-
 	if err := proposal.ValidateStatic(); err != nil {
 		t.Fatalf("expected valid proposal, got %v", err)
 	}
@@ -29,7 +29,6 @@ func TestProposalValidateStaticAcceptsValidSignedProposal(t *testing.T) {
 func TestProposalValidateStaticRejectsAddressMismatch(t *testing.T) {
 	proposal := signedProposal(t, 3, 1, testHash("block-2"), time.Date(2026, time.March, 23, 12, 0, 0, 0, time.UTC), []tx.Envelope{signedEnvelope(t, 5, 1, "tx-1")})
 	proposal.Proposer = "zph_not_the_real_proposer"
-
 	if err := proposal.ValidateStatic(); err != ErrInvalidAddress {
 		t.Fatalf("expected invalid address error, got %v", err)
 	}
@@ -38,7 +37,6 @@ func TestProposalValidateStaticRejectsAddressMismatch(t *testing.T) {
 func TestProposalValidateStaticRejectsMissingTransactions(t *testing.T) {
 	proposal := signedProposal(t, 3, 1, testHash("block-2"), time.Date(2026, time.March, 23, 12, 0, 0, 0, time.UTC), []tx.Envelope{signedEnvelope(t, 5, 1, "tx-1")})
 	proposal.Transactions = nil
-
 	if err := proposal.ValidateStatic(); err != ErrMissingTransactions {
 		t.Fatalf("expected missing transactions error, got %v", err)
 	}
@@ -47,7 +45,6 @@ func TestProposalValidateStaticRejectsMissingTransactions(t *testing.T) {
 func TestProposalValidateStaticRejectsTransactionMismatch(t *testing.T) {
 	proposal := signedProposal(t, 3, 1, testHash("block-2"), time.Date(2026, time.March, 23, 12, 0, 0, 0, time.UTC), []tx.Envelope{signedEnvelope(t, 5, 1, "tx-1")})
 	proposal.Transactions = []tx.Envelope{signedEnvelope(t, 5, 1, "other")}
-
 	if err := proposal.ValidateStatic(); err != ErrTransactionMismatch {
 		t.Fatalf("expected transaction mismatch error, got %v", err)
 	}
@@ -56,15 +53,20 @@ func TestProposalValidateStaticRejectsTransactionMismatch(t *testing.T) {
 func TestProposalValidateStaticRejectsHashMismatch(t *testing.T) {
 	proposal := signedProposal(t, 3, 1, testHash("block-2"), time.Date(2026, time.March, 23, 12, 0, 0, 0, time.UTC), []tx.Envelope{signedEnvelope(t, 5, 1, "tx-1")})
 	proposal.BlockHash = testHash("different-block")
-
 	if err := proposal.ValidateStatic(); err != ErrHashMismatch {
 		t.Fatalf("expected hash mismatch error, got %v", err)
 	}
 }
 
+func TestProposalRejectsCrossChainReplay(t *testing.T) {
+	proposal := signedProposal(t, 3, 1, testHash("block-2"), time.Now().UTC(), []tx.Envelope{signedEnvelope(t, 5, 1, "tx-1")})
+	if err := proposal.ValidateForChain("zephyr-testnet-1"); !errors.Is(err, ErrInvalidChainID) {
+		t.Fatalf("expected cross-chain proposal rejection, got %v", err)
+	}
+}
+
 func TestVoteValidateStaticAcceptsValidSignedVote(t *testing.T) {
 	vote := signedVote(t, 3, 1, testHash("block-3"))
-
 	if err := vote.ValidateStatic(); err != nil {
 		t.Fatalf("expected valid vote, got %v", err)
 	}
@@ -73,24 +75,34 @@ func TestVoteValidateStaticAcceptsValidSignedVote(t *testing.T) {
 func TestVoteValidateStaticRejectsPayloadMismatch(t *testing.T) {
 	vote := signedVote(t, 3, 1, testHash("block-3"))
 	vote.Payload = "{}"
-
 	if err := vote.ValidateStatic(); err != ErrInvalidPayload {
 		t.Fatalf("expected invalid payload error, got %v", err)
 	}
 }
 
+func TestVoteRejectsWrongSigningDomain(t *testing.T) {
+	vote := signedVote(t, 3, 1, testHash("block-3"))
+	vote.Domain = protocol.ConsensusProposalDomain
+	vote.Payload = vote.CanonicalPayload()
+	if err := vote.ValidateStatic(); !errors.Is(err, ErrInvalidDomain) {
+		t.Fatalf("expected cross-domain vote rejection, got %v", err)
+	}
+}
+
 func signedProposal(t *testing.T, height uint64, round uint64, previousHash string, producedAt time.Time, transactions []tx.Envelope) Proposal {
 	t.Helper()
-
 	privateKey, encodedPublicKey, address := newSigner(t)
 	transactionIDs := make([]string, 0, len(transactions))
 	for _, envelope := range transactions {
 		transactionIDs = append(transactionIDs, tx.ID(envelope))
 	}
 	proposal := Proposal{
+		ChainID:        protocol.DefaultChainID,
+		Domain:         protocol.ConsensusProposalDomain,
 		Height:         height,
 		Round:          round,
 		PreviousHash:   previousHash,
+		StateRoot:      testHash("state-root"),
 		ProducedAt:     producedAt,
 		TransactionIDs: append([]string(nil), transactionIDs...),
 		Transactions:   append([]tx.Envelope(nil), transactions...),
@@ -99,15 +111,20 @@ func signedProposal(t *testing.T, height uint64, round uint64, previousHash stri
 	}
 	proposal.BlockHash = proposal.CandidateHash()
 	proposal.Payload = proposal.CanonicalPayload()
-	proposal.Signature = signPayload(t, privateKey, proposal.Payload)
+	var err error
+	proposal.Signature, err = tx.SignPayload(privateKey, proposal.Payload)
+	if err != nil {
+		t.Fatalf("sign proposal: %v", err)
+	}
 	return proposal
 }
 
 func signedVote(t *testing.T, height uint64, round uint64, blockHash string) Vote {
 	t.Helper()
-
 	privateKey, encodedPublicKey, address := newSigner(t)
 	vote := Vote{
+		ChainID:   protocol.DefaultChainID,
+		Domain:    protocol.ConsensusVoteDomain,
 		Height:    height,
 		Round:     round,
 		BlockHash: blockHash,
@@ -115,13 +132,16 @@ func signedVote(t *testing.T, height uint64, round uint64, blockHash string) Vot
 		PublicKey: encodedPublicKey,
 	}
 	vote.Payload = vote.CanonicalPayload()
-	vote.Signature = signPayload(t, privateKey, vote.Payload)
+	var err error
+	vote.Signature, err = tx.SignPayload(privateKey, vote.Payload)
+	if err != nil {
+		t.Fatalf("sign vote: %v", err)
+	}
 	return vote
 }
 
 func signedEnvelope(t *testing.T, amount uint64, nonce uint64, memo string) tx.Envelope {
 	t.Helper()
-
 	privateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		t.Fatalf("generate transaction key: %v", err)
@@ -137,6 +157,8 @@ func signedEnvelope(t *testing.T, amount uint64, nonce uint64, memo string) tx.E
 	}
 
 	envelope := tx.Envelope{
+		ChainID:   protocol.DefaultChainID,
+		Domain:    protocol.TransactionDomain,
 		From:      address,
 		To:        "zph_receiver",
 		Amount:    amount,
@@ -145,13 +167,15 @@ func signedEnvelope(t *testing.T, amount uint64, nonce uint64, memo string) tx.E
 		PublicKey: encodedPublicKey,
 	}
 	envelope.Payload = envelope.CanonicalPayload()
-	envelope.Signature = signPayload(t, privateKey, envelope.Payload)
+	envelope.Signature, err = tx.SignPayload(privateKey, envelope.Payload)
+	if err != nil {
+		t.Fatalf("sign transaction: %v", err)
+	}
 	return envelope
 }
 
 func newSigner(t *testing.T) (*ecdsa.PrivateKey, string, string) {
 	t.Helper()
-
 	privateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		t.Fatalf("generate key: %v", err)
@@ -166,30 +190,6 @@ func newSigner(t *testing.T) (*ecdsa.PrivateKey, string, string) {
 		t.Fatalf("derive address: %v", err)
 	}
 	return privateKey, encodedPublicKey, address
-}
-
-func signPayload(t *testing.T, privateKey *ecdsa.PrivateKey, payload string) string {
-	t.Helper()
-
-	digest := sha256.Sum256([]byte(payload))
-	r, s, err := ecdsa.Sign(rand.Reader, privateKey, digest[:])
-	if err != nil {
-		t.Fatalf("sign payload: %v", err)
-	}
-
-	signature := append(pad32(r), pad32(s)...)
-	return base64.StdEncoding.EncodeToString(signature)
-}
-
-func pad32(value *big.Int) []byte {
-	bytes := value.Bytes()
-	if len(bytes) >= 32 {
-		return bytes[len(bytes)-32:]
-	}
-
-	padded := make([]byte, 32)
-	copy(padded[32-len(bytes):], bytes)
-	return padded
 }
 
 func testHash(seed string) string {

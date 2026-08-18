@@ -16,20 +16,20 @@ type SettlementDrainEstimateView struct {
 }
 
 type SettlementThroughputMetricsView struct {
-	Applicable              bool                          `json:"applicable"`
-	HealthStatus            string                        `json:"healthStatus"`
-	Summary                 string                        `json:"summary"`
-	Detail                  string                        `json:"detail,omitempty"`
-	AlertCode               string                        `json:"alertCode,omitempty"`
-	AlertSeverity           string                        `json:"alertSeverity,omitempty"`
-	ObservedAt              *time.Time                    `json:"observedAt,omitempty"`
-	MempoolTransactionCount int                           `json:"mempoolTransactionCount"`
-	LatestBlockAt           *time.Time                    `json:"latestBlockAt,omitempty"`
-	LatestCommitAgeSeconds  float64                       `json:"latestCommitAgeSeconds"`
-	QueueDrainLagSeconds    float64                       `json:"queueDrainLagSeconds"`
-	ExpectedIntervalSeconds float64                       `json:"expectedIntervalSeconds,omitempty"`
-	WarnAfterSeconds        float64                       `json:"warnAfterSeconds,omitempty"`
-	FailAfterSeconds        float64                       `json:"failAfterSeconds,omitempty"`
+	Applicable                  bool                          `json:"applicable"`
+	HealthStatus                string                        `json:"healthStatus"`
+	Summary                     string                        `json:"summary"`
+	Detail                      string                        `json:"detail,omitempty"`
+	AlertCode                   string                        `json:"alertCode,omitempty"`
+	AlertSeverity               string                        `json:"alertSeverity,omitempty"`
+	ObservedAt                  *time.Time                    `json:"observedAt,omitempty"`
+	MempoolTransactionCount     int                           `json:"mempoolTransactionCount"`
+	LatestBlockAt               *time.Time                    `json:"latestBlockAt,omitempty"`
+	LatestCommitAgeSeconds      float64                       `json:"latestCommitAgeSeconds"`
+	QueueDrainLagSeconds        float64                       `json:"queueDrainLagSeconds"`
+	ExpectedIntervalSeconds     float64                       `json:"expectedIntervalSeconds,omitempty"`
+	WarnAfterSeconds            float64                       `json:"warnAfterSeconds,omitempty"`
+	FailAfterSeconds            float64                       `json:"failAfterSeconds,omitempty"`
 	WarnUtilizationRatio        float64                       `json:"warnUtilizationRatio"`
 	FailUtilizationRatio        float64                       `json:"failUtilizationRatio"`
 	DrainEstimateWindowCount    int                           `json:"drainEstimateWindowCount"`

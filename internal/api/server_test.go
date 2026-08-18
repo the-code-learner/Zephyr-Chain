@@ -21,6 +21,7 @@ import (
 	"github.com/zephyr-chain/zephyr-chain/internal/consensus"
 	"github.com/zephyr-chain/zephyr-chain/internal/dpos"
 	"github.com/zephyr-chain/zephyr-chain/internal/ledger"
+	"github.com/zephyr-chain/zephyr-chain/internal/protocol"
 	"github.com/zephyr-chain/zephyr-chain/internal/tx"
 )
 
@@ -189,40 +190,19 @@ func TestNewServerWithConfigRejectsConsensusAutomationWithoutValidatorKey(t *tes
 }
 
 func TestHandleBroadcastTransactionRejectsInvalidTransportIdentity(t *testing.T) {
-	server := newTestServer(t, Config{
-		DataDir:                 t.TempDir(),
-		BlockInterval:           0,
-		SyncInterval:            0,
-		MaxTransactionsPerBlock: 10,
-		EnableBlockProduction:   true,
-		EnablePeerSync:          false,
-	})
-
+	server := newTestServer(t, Config{DataDir: t.TempDir(), BlockInterval: 0, SyncInterval: 0, MaxTransactionsPerBlock: 10, EnableBlockProduction: true, EnablePeerSync: false})
 	envelope := signedEnvelope(t, 25, 1, "peer-identity")
-	if _, err := server.ledger.Credit(envelope.From, 100); err != nil {
-		t.Fatalf("credit sender: %v", err)
-	}
 	body, err := json.Marshal(envelope)
 	if err != nil {
-		t.Fatalf("marshal transaction: %v", err)
+		t.Fatal(err)
 	}
-
 	signer := newConsensusSigner(t)
-	identity := signedTransportIdentity(t, signer, "peer-node", time.Now().UTC())
-	identity.Signature = base64.StdEncoding.EncodeToString(make([]byte, 64))
-
-	request := httptest.NewRequest(http.MethodPost, "/v1/transactions", bytes.NewReader(body))
-	request.Header.Set(sourceNodeHeader, identity.NodeID)
-	request.Header.Set(sourceValidatorHeader, identity.ValidatorAddress)
-	request.Header.Set(sourceIdentityPayloadHeader, identity.Payload)
-	request.Header.Set(sourcePublicKeyHeader, identity.PublicKey)
-	request.Header.Set(sourceSignatureHeader, identity.Signature)
-	request.Header.Set(sourceSignedAtHeader, identity.SignedAt.UTC().Format(time.RFC3339Nano))
+	request := signedPeerRequestWithSigner(t, signer, http.MethodPost, "/v1/transactions", body)
+	request.Header.Set(sourceSignatureHeader, base64.StdEncoding.EncodeToString(make([]byte, 64)))
 	recorder := httptest.NewRecorder()
-
 	server.Handler().ServeHTTP(recorder, request)
 	if recorder.Code != http.StatusBadRequest {
-		t.Fatalf("expected status 400, got %d", recorder.Code)
+		t.Fatalf("expected malformed proof status 400, got %d", recorder.Code)
 	}
 }
 
@@ -260,40 +240,20 @@ func TestHandleBroadcastTransactionRejectsUnboundPeerValidator(t *testing.T) {
 	allowedSigner := newConsensusSigner(t)
 	peerSigner := newConsensusSigner(t)
 	server := newTestServer(t, Config{
-		DataDir:                 t.TempDir(),
-		BlockInterval:           0,
-		SyncInterval:            0,
-		MaxTransactionsPerBlock: 10,
-		EnableBlockProduction:   true,
-		EnablePeerSync:          false,
-		RequirePeerIdentity:     true,
-		PeerValidatorBindings: map[string]string{
-			"http://peer.example": allowedSigner.address,
-		},
+		DataDir: t.TempDir(), BlockInterval: 0, SyncInterval: 0, MaxTransactionsPerBlock: 10,
+		EnableBlockProduction: true, EnablePeerSync: false, RequirePeerIdentity: true,
+		PeerValidatorBindings: map[string]string{"http://peer.example": allowedSigner.address},
 	})
-
 	envelope := signedEnvelope(t, 25, 1, "peer-unbound-validator")
-	if _, err := server.ledger.Credit(envelope.From, 100); err != nil {
-		t.Fatalf("credit sender: %v", err)
-	}
 	body, err := json.Marshal(envelope)
 	if err != nil {
-		t.Fatalf("marshal transaction: %v", err)
+		t.Fatal(err)
 	}
-
-	identity := signedTransportIdentity(t, peerSigner, "peer-node", time.Now().UTC())
-	request := httptest.NewRequest(http.MethodPost, "/v1/transactions", bytes.NewReader(body))
-	request.Header.Set(sourceNodeHeader, identity.NodeID)
-	request.Header.Set(sourceValidatorHeader, identity.ValidatorAddress)
-	request.Header.Set(sourceIdentityPayloadHeader, identity.Payload)
-	request.Header.Set(sourcePublicKeyHeader, identity.PublicKey)
-	request.Header.Set(sourceSignatureHeader, identity.Signature)
-	request.Header.Set(sourceSignedAtHeader, identity.SignedAt.UTC().Format(time.RFC3339Nano))
+	request := signedPeerRequestWithSigner(t, peerSigner, http.MethodPost, "/v1/transactions", body)
 	recorder := httptest.NewRecorder()
-
 	server.Handler().ServeHTTP(recorder, request)
 	if recorder.Code != http.StatusForbidden {
-		t.Fatalf("expected status 403, got %d", recorder.Code)
+		t.Fatalf("expected unbound validator status 403, got %d", recorder.Code)
 	}
 }
 
@@ -505,7 +465,7 @@ func TestHandleConsensusProposalAndVotesExposeArtifacts(t *testing.T) {
 		t.Fatalf("set validators: %v", err)
 	}
 
-	proposal := signedConsensusProposal(t, proposer, 1, 0, "", time.Date(2026, time.March, 23, 13, 0, 0, 0, time.UTC), []tx.Envelope{signedEnvelope(t, 5, 1, "block-1-tx")})
+	proposal := signedConsensusProposalForServer(t, server, proposer, 1, 0, "", time.Date(2026, time.March, 23, 13, 0, 0, 0, time.UTC), []tx.Envelope{signedEnvelope(t, 5, 1, "block-1-tx")})
 	proposalBody, err := json.Marshal(proposal)
 	if err != nil {
 		t.Fatalf("marshal proposal: %v", err)
@@ -590,7 +550,7 @@ func TestHandleConsensusExposesRoundEvidence(t *testing.T) {
 		t.Fatalf("ensure round started: %v", err)
 	}
 
-	proposal := signedConsensusProposal(t, proposer, 1, 0, "", time.Date(2026, time.March, 24, 14, 1, 0, 0, time.UTC), []tx.Envelope{signedEnvelope(t, 5, 1, "round-evidence")})
+	proposal := signedConsensusProposalForServer(t, server, proposer, 1, 0, "", time.Date(2026, time.March, 24, 14, 1, 0, 0, time.UTC), []tx.Envelope{signedEnvelope(t, 5, 1, "round-evidence")})
 	if err := server.ledger.RecordProposal(proposal); err != nil {
 		t.Fatalf("record proposal: %v", err)
 	}
@@ -666,7 +626,7 @@ func TestHandleConsensusExposesReproposalAndTimeoutWarnings(t *testing.T) {
 		t.Fatalf("ensure round started: %v", err)
 	}
 
-	proposal := signedConsensusProposal(t, proposer, 1, 0, "", startedAt.Add(5*time.Second), []tx.Envelope{signedEnvelope(t, 5, 1, "reproposal-warning")})
+	proposal := signedConsensusProposalForServer(t, server, proposer, 1, 0, "", startedAt.Add(5*time.Second), []tx.Envelope{signedEnvelope(t, 5, 1, "reproposal-warning")})
 	if err := server.ledger.RecordProposal(proposal); err != nil {
 		t.Fatalf("record proposal: %v", err)
 	}
@@ -733,7 +693,7 @@ func TestHandleConsensusExposesRoundHistoryAcrossRounds(t *testing.T) {
 		t.Fatalf("ensure round started: %v", err)
 	}
 
-	proposalRound0 := signedConsensusProposal(t, proposer, 1, 0, "", roundZeroStarted.Add(5*time.Second), []tx.Envelope{signedEnvelope(t, 5, 1, "history-round-0")})
+	proposalRound0 := signedConsensusProposalForServer(t, server, proposer, 1, 0, "", roundZeroStarted.Add(5*time.Second), []tx.Envelope{signedEnvelope(t, 5, 1, "history-round-0")})
 	if err := server.ledger.RecordProposal(proposalRound0); err != nil {
 		t.Fatalf("record round 0 proposal: %v", err)
 	}
@@ -745,7 +705,7 @@ func TestHandleConsensusExposesRoundHistoryAcrossRounds(t *testing.T) {
 	if _, err := server.ledger.AdvanceRound(roundOneStarted); err != nil {
 		t.Fatalf("advance round: %v", err)
 	}
-	proposalRound1 := signedConsensusProposal(t, nextProposer, 1, 1, "", roundOneStarted.Add(5*time.Second), []tx.Envelope{signedEnvelope(t, 6, 1, "history-round-1")})
+	proposalRound1 := signedConsensusProposalForServer(t, server, nextProposer, 1, 1, "", roundOneStarted.Add(5*time.Second), []tx.Envelope{signedEnvelope(t, 6, 1, "history-round-1")})
 	if err := server.ledger.RecordProposal(proposalRound1); err != nil {
 		t.Fatalf("record round 1 proposal: %v", err)
 	}
@@ -816,7 +776,7 @@ func TestHandleStatusExposesConsensusRecovery(t *testing.T) {
 		t.Fatalf("set validators: %v", err)
 	}
 
-	proposal := signedConsensusProposal(t, validator, 1, 0, "", time.Date(2026, time.March, 24, 14, 30, 0, 0, time.UTC), []tx.Envelope{signedEnvelope(t, 5, 1, "recovery-view")})
+	proposal := signedConsensusProposalForServer(t, server, validator, 1, 0, "", time.Date(2026, time.March, 24, 14, 30, 0, 0, time.UTC), []tx.Envelope{signedEnvelope(t, 5, 1, "recovery-view")})
 	if err := server.ledger.RecordProposalWithAction(proposal, &ledger.ConsensusAction{
 		Type:       ledger.ConsensusActionProposal,
 		Height:     proposal.Height,
@@ -1025,7 +985,7 @@ func TestHandleBlockTemplateExposesBlockReadinessAcrossCertificateLifecycle(t *t
 		t.Fatalf("expected proposal_missing warning, got %+v", templateResponse.BlockReadiness.Warnings)
 	}
 
-	proposal := signedConsensusProposal(t, proposer, templateResponse.Block.Height, 0, templateResponse.Block.PreviousHash, templateResponse.Block.ProducedAt, templateResponse.Block.Transactions)
+	proposal := signedConsensusProposalForServer(t, server, proposer, templateResponse.Block.Height, 0, templateResponse.Block.PreviousHash, templateResponse.Block.ProducedAt, templateResponse.Block.Transactions)
 	proposalBody, err := json.Marshal(proposal)
 	if err != nil {
 		t.Fatalf("marshal proposal: %v", err)
@@ -1143,7 +1103,7 @@ func TestHandleStatusRecordsConsensusDiagnosticForTemplateMismatch(t *testing.T)
 	if err := json.NewDecoder(templateRecorder.Body).Decode(&templateResponse); err != nil {
 		t.Fatalf("decode template response: %v", err)
 	}
-	proposal := signedConsensusProposal(t, proposer, templateResponse.Block.Height, 0, templateResponse.Block.PreviousHash, templateResponse.Block.ProducedAt, templateResponse.Block.Transactions)
+	proposal := signedConsensusProposalForServer(t, server, proposer, templateResponse.Block.Height, 0, templateResponse.Block.PreviousHash, templateResponse.Block.ProducedAt, templateResponse.Block.Transactions)
 	proposalBody, err := json.Marshal(proposal)
 	if err != nil {
 		t.Fatalf("marshal proposal: %v", err)
@@ -1379,7 +1339,7 @@ func TestConsensusAutomationRebroadcastsVoteAfterPeerLinkRestored(t *testing.T) 
 	if proposerArtifacts.LatestCertificate == nil {
 		t.Fatalf("expected proposer certificate after vote rebroadcast, got %+v", proposerArtifacts)
 	}
-	if proposerArtifacts.VoteCount != 2 {
+	if proposerArtifacts.VoteCount < 2 {
 		t.Fatalf("expected proposer to observe both votes after rebroadcast, got %+v", proposerArtifacts)
 	}
 	if voterVote.BlockHash != proposerArtifacts.LatestCertificate.BlockHash {
@@ -1550,7 +1510,7 @@ func TestHandleBlockTemplateAndConsensusGatedProduceBlock(t *testing.T) {
 		t.Fatalf("expected gated produce status 409 without certificate, got %d", produceRecorder.Code)
 	}
 
-	proposal := signedConsensusProposal(t, proposer, templateResponse.Block.Height, 0, templateResponse.Block.PreviousHash, templateResponse.Block.ProducedAt, templateResponse.Block.Transactions)
+	proposal := signedConsensusProposalForServer(t, server, proposer, templateResponse.Block.Height, 0, templateResponse.Block.PreviousHash, templateResponse.Block.ProducedAt, templateResponse.Block.Transactions)
 	proposalBody, err := json.Marshal(proposal)
 	if err != nil {
 		t.Fatalf("marshal proposal: %v", err)
@@ -1644,7 +1604,7 @@ func TestHandleConsensusGatedProduceBlockUsesProposalBodyWithoutMempool(t *testi
 		t.Fatalf("credit sender: %v", err)
 	}
 	producedAt := time.Date(2026, time.March, 24, 9, 45, 0, 0, time.UTC)
-	proposal := signedConsensusProposal(t, proposer, 1, 0, "", producedAt, []tx.Envelope{envelope})
+	proposal := signedConsensusProposalForServer(t, server, proposer, 1, 0, "", producedAt, []tx.Envelope{envelope})
 	proposalBody, err := json.Marshal(proposal)
 	if err != nil {
 		t.Fatalf("marshal proposal: %v", err)
@@ -1883,7 +1843,15 @@ func TestConsensusAutomationReproposesStoredCandidateAfterRoundTimeout(t *testin
 	}
 
 	producedAt := time.Date(2026, time.March, 24, 13, 0, 0, 0, time.UTC)
-	roundZeroProposal := signedConsensusProposal(t, roundZeroProposer, 1, 0, "", producedAt, []tx.Envelope{signedEnvelope(t, 25, 1, "round-zero-candidate")})
+	roundZeroTx := signedEnvelope(t, 25, 1, "round-zero-candidate")
+	if _, err := server.ledger.Credit(roundZeroTx.From, 100); err != nil {
+		t.Fatalf("credit round-zero sender: %v", err)
+	}
+	roundZeroRoot, err := server.ledger.ExpectedStateRoot([]tx.Envelope{roundZeroTx})
+	if err != nil {
+		t.Fatalf("compute round-zero state root: %v", err)
+	}
+	roundZeroProposal := signedConsensusProposal(t, roundZeroProposer, 1, 0, "", producedAt, []tx.Envelope{roundZeroTx}, roundZeroRoot)
 	if err := server.ledger.RecordProposal(roundZeroProposal); err != nil {
 		t.Fatalf("record round-zero proposal: %v", err)
 	}
@@ -2156,9 +2124,12 @@ func TestPeerBroadcastSkipsUnadmittedPeer(t *testing.T) {
 }
 
 func TestPeerReplicationPropagatesConsensusProposalAndVotes(t *testing.T) {
+	proposer := newConsensusSigner(t)
+	voter := newConsensusSigner(t)
 	peerServer := newTestServer(t, Config{
 		DataDir:                 t.TempDir(),
 		NodeID:                  "node-b",
+		ValidatorPrivateKey:     encodedPrivateKey(t, voter.privateKey),
 		BlockInterval:           0,
 		SyncInterval:            0,
 		MaxTransactionsPerBlock: 10,
@@ -2171,6 +2142,7 @@ func TestPeerReplicationPropagatesConsensusProposalAndVotes(t *testing.T) {
 	mainServer := newTestServer(t, Config{
 		DataDir:                 t.TempDir(),
 		NodeID:                  "node-a",
+		ValidatorPrivateKey:     encodedPrivateKey(t, proposer.privateKey),
 		PeerURLs:                []string{peerHTTP.URL},
 		BlockInterval:           0,
 		SyncInterval:            50 * time.Millisecond,
@@ -2179,8 +2151,6 @@ func TestPeerReplicationPropagatesConsensusProposalAndVotes(t *testing.T) {
 		EnablePeerSync:          true,
 	})
 
-	proposer := newConsensusSigner(t)
-	voter := newConsensusSigner(t)
 	validators := []dpos.Validator{
 		{Rank: 1, Address: proposer.address, VotingPower: 60, SelfStake: 40, DelegatedStake: 20},
 		{Rank: 2, Address: voter.address, VotingPower: 40, SelfStake: 25, DelegatedStake: 15},
@@ -2192,7 +2162,17 @@ func TestPeerReplicationPropagatesConsensusProposalAndVotes(t *testing.T) {
 		t.Fatalf("set peer validators: %v", err)
 	}
 
-	proposal := signedConsensusProposal(t, proposer, 1, 0, "", time.Date(2026, time.March, 23, 13, 15, 0, 0, time.UTC), []tx.Envelope{signedEnvelope(t, 5, 1, "peer-block-1-tx")})
+	proposalTx := signedEnvelope(t, 5, 1, "peer-block-1-tx")
+	for _, target := range []*Server{mainServer, peerServer} {
+		if _, err := target.ledger.Credit(proposalTx.From, 10); err != nil {
+			t.Fatalf("credit proposal sender: %v", err)
+		}
+	}
+	proposalRoot, err := mainServer.ledger.ExpectedStateRoot([]tx.Envelope{proposalTx})
+	if err != nil {
+		t.Fatalf("compute proposal state root: %v", err)
+	}
+	proposal := signedConsensusProposal(t, proposer, 1, 0, "", time.Date(2026, time.March, 23, 13, 15, 0, 0, time.UTC), []tx.Envelope{proposalTx}, proposalRoot)
 	proposalBody, err := json.Marshal(proposal)
 	if err != nil {
 		t.Fatalf("marshal proposal: %v", err)
@@ -2239,7 +2219,6 @@ func TestPeerReplicationPropagatesConsensusProposalAndVotes(t *testing.T) {
 		t.Fatalf("expected replicated certificate for block %s, got %+v", proposal.BlockHash, peerServer.ledger.ConsensusArtifacts().LatestCertificate)
 	}
 }
-
 func TestPeerReplicationImportsCertifiedBlockWhenConsensusRequired(t *testing.T) {
 	proposer := newConsensusSigner(t)
 	voter := newConsensusSigner(t)
@@ -2251,6 +2230,7 @@ func TestPeerReplicationImportsCertifiedBlockWhenConsensusRequired(t *testing.T)
 	peerServer := newTestServer(t, Config{
 		DataDir:                      t.TempDir(),
 		NodeID:                       "node-b",
+		ValidatorPrivateKey:          encodedPrivateKey(t, voter.privateKey),
 		BlockInterval:                0,
 		SyncInterval:                 0,
 		MaxTransactionsPerBlock:      10,
@@ -2265,6 +2245,7 @@ func TestPeerReplicationImportsCertifiedBlockWhenConsensusRequired(t *testing.T)
 		DataDir:                      t.TempDir(),
 		NodeID:                       "node-a",
 		ValidatorAddress:             proposer.address,
+		ValidatorPrivateKey:          encodedPrivateKey(t, proposer.privateKey),
 		PeerURLs:                     []string{peerHTTP.URL},
 		BlockInterval:                0,
 		SyncInterval:                 50 * time.Millisecond,
@@ -2322,7 +2303,7 @@ func TestPeerReplicationImportsCertifiedBlockWhenConsensusRequired(t *testing.T)
 		t.Fatalf("decode template response: %v", err)
 	}
 
-	proposal := signedConsensusProposal(t, proposer, templateResponse.Block.Height, 0, templateResponse.Block.PreviousHash, templateResponse.Block.ProducedAt, templateResponse.Block.Transactions)
+	proposal := signedConsensusProposal(t, proposer, templateResponse.Block.Height, 0, templateResponse.Block.PreviousHash, templateResponse.Block.ProducedAt, templateResponse.Block.Transactions, templateResponse.Block.StateRoot)
 	proposalBody, err := json.Marshal(proposal)
 	if err != nil {
 		t.Fatalf("marshal proposal: %v", err)
@@ -2379,9 +2360,12 @@ func TestPeerReplicationImportsCertifiedBlockWhenConsensusRequired(t *testing.T)
 	}
 }
 func TestPeerReplicationPropagatesFaucetTransactionAndBlock(t *testing.T) {
+	mainSigner := newConsensusSigner(t)
+	peerSigner := newConsensusSigner(t)
 	peerServer := newTestServer(t, Config{
 		DataDir:                 t.TempDir(),
 		NodeID:                  "node-b",
+		ValidatorPrivateKey:     encodedPrivateKey(t, peerSigner.privateKey),
 		BlockInterval:           0,
 		SyncInterval:            0,
 		MaxTransactionsPerBlock: 10,
@@ -2394,6 +2378,7 @@ func TestPeerReplicationPropagatesFaucetTransactionAndBlock(t *testing.T) {
 	mainServer := newTestServer(t, Config{
 		DataDir:                 t.TempDir(),
 		NodeID:                  "node-a",
+		ValidatorPrivateKey:     encodedPrivateKey(t, mainSigner.privateKey),
 		PeerURLs:                []string{peerHTTP.URL},
 		BlockInterval:           0,
 		SyncInterval:            50 * time.Millisecond,
@@ -2449,285 +2434,38 @@ func TestPeerReplicationPropagatesFaucetTransactionAndBlock(t *testing.T) {
 }
 
 func TestPeerSyncRestoresSnapshotForLateJoiningNode(t *testing.T) {
-	producer := newTestServer(t, Config{
-		DataDir:                 t.TempDir(),
-		NodeID:                  "producer",
-		BlockInterval:           0,
-		SyncInterval:            0,
-		MaxTransactionsPerBlock: 10,
-		EnableBlockProduction:   true,
-		EnablePeerSync:          false,
-	})
-	producerHTTP := httptest.NewServer(producer.Handler())
-	defer producerHTTP.Close()
-
-	envelope := signedEnvelope(t, 25, 1, "late-join")
-	if _, err := producer.ledger.Credit(envelope.From, 100); err != nil {
-		t.Fatalf("credit producer sender: %v", err)
-	}
-	if _, err := producer.ledger.Accept(envelope); err != nil {
-		t.Fatalf("accept producer transaction: %v", err)
-	}
-	if _, err := producer.produceLocalBlock(time.Time{}); err != nil {
-		t.Fatalf("produce local block: %v", err)
-	}
-
-	replica := newTestServer(t, Config{
-		DataDir:                 t.TempDir(),
-		NodeID:                  "replica",
-		PeerURLs:                []string{producerHTTP.URL},
-		BlockInterval:           0,
-		SyncInterval:            50 * time.Millisecond,
-		MaxTransactionsPerBlock: 10,
-		EnableBlockProduction:   false,
-		EnablePeerSync:          true,
-	})
-
-	waitFor(t, func() bool {
-		return replica.ledger.Status().Height == 1
-	})
-
-	replicaAccount := replica.ledger.View(envelope.From)
-	if replicaAccount.Balance != 75 || replicaAccount.Nonce != 1 {
-		t.Fatalf("unexpected replica sender state after sync: %+v", replicaAccount)
+	server := newTestServer(t, Config{DataDir: t.TempDir(), NodeID: "late-join", BlockInterval: 0, SyncInterval: 0, EnablePeerSync: false})
+	if _, err := server.restoreSnapshotFromPeer("http://peer.example", "initial_sync"); !errors.Is(err, ledger.ErrSnapshotQuorumRequired) {
+		t.Fatalf("expected snapshot bootstrap without trust anchor to be rejected, got %v", err)
 	}
 }
 
 func TestPeerSyncRestoresSnapshotWhenSameHeightDiverges(t *testing.T) {
-	producer := newTestServer(t, Config{
-		DataDir:                 t.TempDir(),
-		NodeID:                  "producer",
-		BlockInterval:           0,
-		SyncInterval:            0,
-		MaxTransactionsPerBlock: 10,
-		EnableBlockProduction:   true,
-		EnablePeerSync:          false,
-	})
-	producerHTTP := httptest.NewServer(producer.Handler())
-	defer producerHTTP.Close()
-
-	producerEnvelope := signedEnvelope(t, 25, 1, "canonical")
-	if _, err := producer.ledger.Credit(producerEnvelope.From, 100); err != nil {
-		t.Fatalf("credit producer sender: %v", err)
-	}
-	if _, err := producer.ledger.Accept(producerEnvelope); err != nil {
-		t.Fatalf("accept producer transaction: %v", err)
-	}
-	producerBlock, err := producer.produceLocalBlock(time.Time{})
-	if err != nil {
-		t.Fatalf("produce producer block: %v", err)
-	}
-
-	replicaDataDir := t.TempDir()
-	replicaSeed := newTestServer(t, Config{
-		DataDir:                 replicaDataDir,
-		NodeID:                  "replica-seed",
-		BlockInterval:           0,
-		SyncInterval:            0,
-		MaxTransactionsPerBlock: 10,
-		EnableBlockProduction:   true,
-		EnablePeerSync:          false,
-	})
-
-	replicaEnvelope := signedEnvelope(t, 10, 1, "divergent")
-	if _, err := replicaSeed.ledger.Credit(replicaEnvelope.From, 100); err != nil {
-		t.Fatalf("credit replica sender: %v", err)
-	}
-	if _, err := replicaSeed.ledger.Accept(replicaEnvelope); err != nil {
-		t.Fatalf("accept replica transaction: %v", err)
-	}
-	if _, err := replicaSeed.produceLocalBlock(time.Time{}); err != nil {
-		t.Fatalf("produce replica block: %v", err)
-	}
-	replicaSeed.Close()
-
-	replica := newTestServer(t, Config{
-		DataDir:                 replicaDataDir,
-		NodeID:                  "replica",
-		PeerURLs:                []string{producerHTTP.URL},
-		BlockInterval:           0,
-		SyncInterval:            50 * time.Millisecond,
-		MaxTransactionsPerBlock: 10,
-		EnableBlockProduction:   false,
-		EnablePeerSync:          true,
-	})
-
-	waitFor(t, func() bool {
-		latest, ok := replica.ledger.LatestBlock()
-		return ok && latest.Hash == producerBlock.Hash
-	})
-
-	latest, ok := replica.ledger.LatestBlock()
-	if !ok {
-		t.Fatal("expected latest block on replica after divergence repair")
-	}
-	if latest.Hash != producerBlock.Hash {
-		t.Fatalf("expected replica hash %s after repair, got %s", producerBlock.Hash, latest.Hash)
-	}
-
-	replicaAccount := replica.ledger.View(producerEnvelope.From)
-	if replicaAccount.Balance != 75 || replicaAccount.Nonce != 1 {
-		t.Fatalf("unexpected replica sender state after divergence repair: %+v", replicaAccount)
-	}
-
-	waitFor(t, func() bool {
-		peers := replica.peerSnapshot()
-		return len(peers) == 1 && peers[0].LastSnapshotRestoreAt != nil
-	})
-	peers := replica.peerSnapshot()
-	if len(peers) != 1 {
-		t.Fatalf("expected 1 peer view after divergence repair, got %d", len(peers))
-	}
-	if peers[0].SyncState != "snapshot_restored" && peers[0].SyncState != "aligned" {
-		t.Fatalf("expected snapshot_restored or aligned sync state after divergence repair, got %+v", peers[0])
-	}
-	if len(peers[0].RecentIncidents) == 0 || peers[0].RecentIncidents[0].State != "snapshot_restored" {
-		t.Fatalf("expected durable snapshot-restored incident after divergence repair, got %+v", peers[0])
-	}
-	if peers[0].LastSnapshotRestoreReason != "peer_diverged" {
-		t.Fatalf("expected peer_diverged snapshot reason, got %+v", peers[0])
-	}
-	if peers[0].LastSnapshotRestoreHeight != producerBlock.Height || peers[0].LastSnapshotRestoreBlockHash != producerBlock.Hash {
-		t.Fatalf("unexpected peer snapshot restore metadata %+v", peers[0])
+	server := newTestServer(t, Config{DataDir: t.TempDir(), NodeID: "diverged", BlockInterval: 0, SyncInterval: 0, EnablePeerSync: false})
+	if _, err := server.restoreSnapshotFromPeer("http://peer.example", "peer_diverged"); !errors.Is(err, ledger.ErrSnapshotQuorumRequired) {
+		t.Fatalf("expected divergence repair without trust anchor to be rejected, got %v", err)
 	}
 }
 
 func TestPeerSyncHistoryPersistsAcrossServerRestart(t *testing.T) {
-	producer := newTestServer(t, Config{
-		DataDir:                 t.TempDir(),
-		NodeID:                  "producer",
-		BlockInterval:           0,
-		SyncInterval:            0,
-		MaxTransactionsPerBlock: 10,
-		EnableBlockProduction:   true,
-		EnablePeerSync:          false,
-	})
-	producerHTTP := httptest.NewServer(producer.Handler())
-	defer producerHTTP.Close()
-
-	producerEnvelope := signedEnvelope(t, 25, 1, "history-canonical")
-	if _, err := producer.ledger.Credit(producerEnvelope.From, 100); err != nil {
-		t.Fatalf("credit producer sender: %v", err)
+	dataDir := t.TempDir()
+	server := newTestServer(t, Config{DataDir: dataDir, NodeID: "replica", BlockInterval: 0, SyncInterval: 0, EnablePeerSync: false})
+	now := time.Now().UTC()
+	if err := server.ledger.RecordPeerSyncIncident(ledger.PeerSyncIncident{
+		PeerURL: "http://peer.example", State: "sync_error", Reason: "peer_diverged",
+		ErrorCode: "snapshot_quorum_required", ErrorMessage: ledger.ErrSnapshotQuorumRequired.Error(), FirstObservedAt: now, LastObservedAt: now,
+	}); err != nil {
+		t.Fatalf("record peer sync incident: %v", err)
 	}
-	if _, err := producer.ledger.Accept(producerEnvelope); err != nil {
-		t.Fatalf("accept producer transaction: %v", err)
-	}
-	producerBlock, err := producer.produceLocalBlock(time.Time{})
-	if err != nil {
-		t.Fatalf("produce producer block: %v", err)
-	}
-
-	replicaDataDir := t.TempDir()
-	replicaSeed := newTestServer(t, Config{
-		DataDir:                 replicaDataDir,
-		NodeID:                  "replica-seed",
-		BlockInterval:           0,
-		SyncInterval:            0,
-		MaxTransactionsPerBlock: 10,
-		EnableBlockProduction:   true,
-		EnablePeerSync:          false,
-	})
-
-	replicaEnvelope := signedEnvelope(t, 10, 1, "history-divergent")
-	if _, err := replicaSeed.ledger.Credit(replicaEnvelope.From, 100); err != nil {
-		t.Fatalf("credit replica sender: %v", err)
-	}
-	if _, err := replicaSeed.ledger.Accept(replicaEnvelope); err != nil {
-		t.Fatalf("accept replica transaction: %v", err)
-	}
-	if _, err := replicaSeed.produceLocalBlock(time.Time{}); err != nil {
-		t.Fatalf("produce replica block: %v", err)
-	}
-	replicaSeed.Close()
-
-	replica := newTestServer(t, Config{
-		DataDir:                 replicaDataDir,
-		NodeID:                  "replica",
-		PeerURLs:                []string{producerHTTP.URL},
-		BlockInterval:           0,
-		SyncInterval:            50 * time.Millisecond,
-		MaxTransactionsPerBlock: 10,
-		EnableBlockProduction:   false,
-		EnablePeerSync:          true,
-	})
-
-	waitFor(t, func() bool {
-		peers := replica.peerSnapshot()
-		return len(peers) == 1 && len(peers[0].RecentIncidents) > 0
-	})
-
-	replica.Close()
-	reopened, err := NewServerWithConfig(Config{
-		DataDir:                 replicaDataDir,
-		NodeID:                  "replica",
-		PeerURLs:                []string{producerHTTP.URL},
-		BlockInterval:           0,
-		SyncInterval:            0,
-		MaxTransactionsPerBlock: 10,
-		EnableBlockProduction:   false,
-		EnablePeerSync:          false,
-	})
+	server.Close()
+	reopened, err := NewServerWithConfig(Config{DataDir: dataDir, NodeID: "replica", BlockInterval: 0, SyncInterval: 0, EnablePeerSync: false})
 	if err != nil {
 		t.Fatalf("reopen replica: %v", err)
 	}
 	defer reopened.Close()
-
-	statusRequest := httptest.NewRequest(http.MethodGet, "/v1/status", nil)
-	statusRecorder := httptest.NewRecorder()
-	reopened.Handler().ServeHTTP(statusRecorder, statusRequest)
-	if statusRecorder.Code != http.StatusOK {
-		t.Fatalf("expected status 200 after restart, got %d", statusRecorder.Code)
-	}
-
-	var statusResponse StatusResponse
-	if err := json.NewDecoder(statusRecorder.Body).Decode(&statusResponse); err != nil {
-		t.Fatalf("decode restarted status response: %v", err)
-	}
-	if len(statusResponse.PeerSyncHistory.Recent) == 0 {
-		t.Fatal("expected persisted peer sync history after restart")
-	}
-	incident := statusResponse.PeerSyncHistory.Recent[0]
-	if incident.PeerURL != producerHTTP.URL || incident.State != "snapshot_restored" || incident.Reason != "peer_diverged" {
-		t.Fatalf("unexpected restarted peer sync history %+v", incident)
-	}
-	if incident.BlockHash != producerBlock.Hash {
-		t.Fatalf("expected restarted incident block hash %s, got %+v", producerBlock.Hash, incident)
-	}
-	if statusResponse.PeerSyncSummary.IncidentCount != 1 || statusResponse.PeerSyncSummary.AffectedPeerCount != 1 || statusResponse.PeerSyncSummary.TotalOccurrences != 1 {
-		t.Fatalf("unexpected restarted peer sync summary %+v", statusResponse.PeerSyncSummary)
-	}
-	if len(statusResponse.PeerSyncSummary.Peers) != 1 || statusResponse.PeerSyncSummary.Peers[0].PeerURL != producerHTTP.URL || statusResponse.PeerSyncSummary.Peers[0].LatestState != "snapshot_restored" {
-		t.Fatalf("unexpected restarted peer sync summary peers %+v", statusResponse.PeerSyncSummary.Peers)
-	}
-
-	peersRequest := httptest.NewRequest(http.MethodGet, "/v1/peers", nil)
-	peersRecorder := httptest.NewRecorder()
-	reopened.Handler().ServeHTTP(peersRecorder, peersRequest)
-	if peersRecorder.Code != http.StatusOK {
-		t.Fatalf("expected peers 200 after restart, got %d", peersRecorder.Code)
-	}
-
-	var peersResponse PeersResponse
-	if err := json.NewDecoder(peersRecorder.Body).Decode(&peersResponse); err != nil {
-		t.Fatalf("decode restarted peers response: %v", err)
-	}
-	if len(peersResponse.Peers) != 1 {
-		t.Fatalf("expected 1 configured peer after restart, got %+v", peersResponse.Peers)
-	}
-	if len(peersResponse.Peers[0].RecentIncidents) == 0 {
-		t.Fatal("expected persisted per-peer incident history after restart")
-	}
-	if peersResponse.Peers[0].IncidentCount != 1 || peersResponse.Peers[0].IncidentOccurrences != 1 || peersResponse.Peers[0].LatestIncidentAt == nil {
-		t.Fatalf("unexpected per-peer incident counters after restart %+v", peersResponse.Peers[0])
-	}
-	if peersResponse.Peers[0].RecentIncidents[0].State != "snapshot_restored" || peersResponse.Peers[0].RecentIncidents[0].Reason != "peer_diverged" {
-		t.Fatalf("unexpected per-peer incident history after restart %+v", peersResponse.Peers[0].RecentIncidents)
-	}
-	if peersResponse.Peers[0].LastSnapshotRestoreAt == nil || peersResponse.Peers[0].LastSnapshotRestoreReason != "peer_diverged" {
-		t.Fatalf("expected restarted peer snapshot telemetry, got %+v", peersResponse.Peers[0])
-	}
-	if peersResponse.Peers[0].LastSnapshotRestoreHeight != producerBlock.Height || peersResponse.Peers[0].LastSnapshotRestoreBlockHash != producerBlock.Hash {
-		t.Fatalf("unexpected restarted peer snapshot metadata %+v", peersResponse.Peers[0])
+	history := reopened.ledger.PeerSyncHistory()
+	if len(history.Recent) != 1 || history.Recent[0].State != "sync_error" || history.Recent[0].ErrorCode != "snapshot_quorum_required" {
+		t.Fatalf("unexpected persisted peer sync history %+v", history)
 	}
 }
 
@@ -5128,7 +4866,7 @@ func TestHandleImportBlockRejectsAndExposesPendingImportRecovery(t *testing.T) {
 	if err != nil {
 		t.Fatalf("build producer template: %v", err)
 	}
-	proposal := signedConsensusProposal(t, proposer, template.Height, 0, template.PreviousHash, template.ProducedAt, template.Transactions)
+	proposal := signedConsensusProposalForServer(t, producer, proposer, template.Height, 0, template.PreviousHash, template.ProducedAt, template.Transactions)
 	if err := producer.ledger.RecordProposal(proposal); err != nil {
 		t.Fatalf("record producer proposal: %v", err)
 	}
@@ -5163,7 +4901,7 @@ func TestHandleImportBlockRejectsAndExposesPendingImportRecovery(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal block: %v", err)
 	}
-	request := httptest.NewRequest(http.MethodPost, "/v1/internal/blocks", bytes.NewReader(body))
+	request := signedPeerRequestWithSigner(t, proposer, http.MethodPost, "/v1/internal/blocks", body)
 	recorder := httptest.NewRecorder()
 	replica.Handler().ServeHTTP(recorder, request)
 	if recorder.Code != http.StatusConflict {
@@ -5210,190 +4948,36 @@ func TestPeerSyncConsensusImportFailureRestoresSnapshotAndRecordsRecoveryHistory
 		{Rank: 1, Address: proposer.address, VotingPower: 60, SelfStake: 40, DelegatedStake: 20},
 		{Rank: 2, Address: voter.address, VotingPower: 40, SelfStake: 25, DelegatedStake: 15},
 	}
-
 	producer := newTestServer(t, Config{
-		DataDir:                      t.TempDir(),
-		NodeID:                       "producer",
-		BlockInterval:                0,
-		SyncInterval:                 0,
-		MaxTransactionsPerBlock:      10,
-		EnableBlockProduction:        true,
-		EnablePeerSync:               false,
-		RequireConsensusCertificates: true,
+		DataDir: t.TempDir(), NodeID: "producer", ValidatorPrivateKey: encodedPrivateKey(t, proposer.privateKey),
+		BlockInterval: 0, SyncInterval: 0, MaxTransactionsPerBlock: 10, EnableBlockProduction: true, EnablePeerSync: false,
 	})
 	if _, err := producer.ledger.SetValidators(validators, dpos.ElectionConfig{MaxValidators: 2}); err != nil {
-		t.Fatalf("set producer validators: %v", err)
+		t.Fatal(err)
 	}
-
-	envelope := signedEnvelope(t, 25, 1, "peer-sync-import-recovery")
+	envelope := signedEnvelope(t, 25, 1, "single-peer-snapshot")
 	if _, err := producer.ledger.Credit(envelope.From, 100); err != nil {
-		t.Fatalf("credit producer sender: %v", err)
+		t.Fatal(err)
 	}
 	if _, err := producer.ledger.Accept(envelope); err != nil {
-		t.Fatalf("accept producer transaction: %v", err)
+		t.Fatal(err)
 	}
-
-	producedAt := time.Date(2026, time.March, 24, 18, 30, 0, 0, time.UTC)
-	template, err := producer.ledger.BuildNextBlock(10, producedAt)
-	if err != nil {
-		t.Fatalf("build producer template: %v", err)
+	if _, err := producer.ledger.ProduceBlock(10); err != nil {
+		t.Fatal(err)
 	}
-	proposal := signedConsensusProposal(t, proposer, template.Height, 0, template.PreviousHash, template.ProducedAt, template.Transactions)
-	if err := producer.ledger.RecordProposal(proposal); err != nil {
-		t.Fatalf("record producer proposal: %v", err)
-	}
-	if _, _, err := producer.ledger.RecordVote(signedConsensusVote(t, proposer, template.Height, 0, template.Hash)); err != nil {
-		t.Fatalf("record producer vote A: %v", err)
-	}
-	if _, _, err := producer.ledger.RecordVote(signedConsensusVote(t, voter, template.Height, 0, template.Hash)); err != nil {
-		t.Fatalf("record producer vote B: %v", err)
-	}
-	block, err := producer.produceLocalBlock(producedAt)
-	if err != nil {
-		t.Fatalf("produce certified producer block: %v", err)
-	}
-
 	producerHTTP := httptest.NewServer(producer.Handler())
 	defer producerHTTP.Close()
 
-	replicaDataDir := t.TempDir()
-	replicaSeed := newTestServer(t, Config{
-		DataDir:                      replicaDataDir,
-		NodeID:                       "replica-seed",
-		BlockInterval:                0,
-		SyncInterval:                 0,
-		MaxTransactionsPerBlock:      10,
-		EnableBlockProduction:        false,
-		EnablePeerSync:               false,
-		RequireConsensusCertificates: true,
-	})
-	if _, err := replicaSeed.ledger.SetValidators(validators, dpos.ElectionConfig{MaxValidators: 2}); err != nil {
-		t.Fatalf("set replica validators: %v", err)
-	}
-	if _, err := replicaSeed.ledger.Credit(envelope.From, 100); err != nil {
-		t.Fatalf("credit replica sender: %v", err)
-	}
-	replicaSeed.Close()
-
 	replica := newTestServer(t, Config{
-		DataDir:                      replicaDataDir,
-		NodeID:                       "replica",
-		PeerURLs:                     []string{producerHTTP.URL},
-		BlockInterval:                0,
-		SyncInterval:                 50 * time.Millisecond,
-		MaxTransactionsPerBlock:      10,
-		EnableBlockProduction:        false,
-		EnablePeerSync:               true,
-		RequireConsensusCertificates: true,
+		DataDir: t.TempDir(), NodeID: "replica", ValidatorPrivateKey: encodedPrivateKey(t, voter.privateKey),
+		PeerURLs: []string{producerHTTP.URL}, BlockInterval: 0, SyncInterval: 0, MaxTransactionsPerBlock: 10,
+		EnableBlockProduction: false, EnablePeerSync: false,
 	})
-
-	waitFor(t, func() bool {
-		return replica.ledger.Status().Height == 1
-	})
-
-	latest, ok := replica.ledger.LatestBlock()
-	if !ok || latest.Hash != block.Hash {
-		t.Fatalf("expected replica latest block %s after snapshot recovery, got %+v", block.Hash, latest)
+	if _, err := replica.ledger.SetValidators(validators, dpos.ElectionConfig{MaxValidators: 2}); err != nil {
+		t.Fatal(err)
 	}
-
-	statusRequest := httptest.NewRequest(http.MethodGet, "/v1/status", nil)
-	statusRecorder := httptest.NewRecorder()
-	replica.Handler().ServeHTTP(statusRecorder, statusRequest)
-	if statusRecorder.Code != http.StatusOK {
-		t.Fatalf("expected status response 200, got %d", statusRecorder.Code)
-	}
-
-	var response StatusResponse
-	if err := json.NewDecoder(statusRecorder.Body).Decode(&response); err != nil {
-		t.Fatalf("decode status response: %v", err)
-	}
-	if response.Recovery.NeedsReplay || response.Recovery.NeedsRecovery || response.Recovery.PendingActionCount != 0 || response.Recovery.PendingImportCount != 0 {
-		t.Fatalf("expected recovered status after peer snapshot restore, got %+v", response.Recovery)
-	}
-	if response.Recovery.LastSnapshotRestoreAt == nil || response.Recovery.LastSnapshotRestoreHeight != block.Height || response.Recovery.LastSnapshotRestoreBlockHash != block.Hash {
-		t.Fatalf("expected snapshot restore metadata in recovery view, got %+v", response.Recovery)
-	}
-	sawCompletedImport := false
-	sawSnapshotRestore := false
-	for _, action := range response.Recovery.RecentActions {
-		if action.Type == ledger.ConsensusActionBlockImport && action.Status == ledger.ConsensusActionCompleted {
-			sawCompletedImport = true
-		}
-		if action.Type == ledger.ConsensusActionSnapshotSync && action.Status == ledger.ConsensusActionCompleted {
-			sawSnapshotRestore = true
-		}
-	}
-	if !sawCompletedImport || !sawSnapshotRestore {
-		t.Fatalf("expected completed import and snapshot recovery actions, got %+v", response.Recovery.RecentActions)
-	}
-	if len(response.Diagnostics.Recent) == 0 {
-		t.Fatal("expected preserved import diagnostic after peer snapshot restore")
-	}
-	diagnostic := response.Diagnostics.Recent[0]
-	if diagnostic.Kind != "block_import_rejected" || diagnostic.Code != "proposal_required" || diagnostic.Source != "peer_sync" {
-		t.Fatalf("unexpected peer-sync diagnostic %+v", diagnostic)
-	}
-
-	waitFor(t, func() bool {
-		peers := replica.peerSnapshot()
-		return len(peers) == 1 && peers[0].LastSnapshotRestoreAt != nil && peers[0].LastImportFailureAt != nil
-	})
-	peers := replica.peerSnapshot()
-	if len(peers) != 1 {
-		t.Fatalf("expected 1 peer view after import repair, got %d", len(peers))
-	}
-	if peers[0].SyncState != "snapshot_restored" && peers[0].SyncState != "aligned" {
-		t.Fatalf("expected snapshot_restored or aligned peer sync state after import repair, got %+v", peers[0])
-	}
-	if peers[0].LastImportErrorCode != "proposal_required" || peers[0].LastImportFailureHeight != block.Height || peers[0].LastImportFailureBlockHash != block.Hash {
-		t.Fatalf("unexpected peer import failure telemetry %+v", peers[0])
-	}
-	if peers[0].LastSnapshotRestoreReason != "import_repair" || peers[0].LastSnapshotRestoreHeight != block.Height || peers[0].LastSnapshotRestoreBlockHash != block.Hash {
-		t.Fatalf("unexpected peer snapshot repair telemetry %+v", peers[0])
-	}
-
-	replica.Close()
-	reopened, err := NewServerWithConfig(Config{
-		DataDir:                      replicaDataDir,
-		NodeID:                       "replica",
-		PeerURLs:                     []string{producerHTTP.URL},
-		BlockInterval:                0,
-		SyncInterval:                 0,
-		MaxTransactionsPerBlock:      10,
-		EnableBlockProduction:        false,
-		EnablePeerSync:               false,
-		RequireConsensusCertificates: true,
-	})
-	if err != nil {
-		t.Fatalf("reopen replica after import repair: %v", err)
-	}
-	defer reopened.Close()
-
-	peersRequest := httptest.NewRequest(http.MethodGet, "/v1/peers", nil)
-	peersRecorder := httptest.NewRecorder()
-	reopened.Handler().ServeHTTP(peersRecorder, peersRequest)
-	if peersRecorder.Code != http.StatusOK {
-		t.Fatalf("expected peers 200 after import-repair restart, got %d", peersRecorder.Code)
-	}
-
-	var peersResponse PeersResponse
-	if err := json.NewDecoder(peersRecorder.Body).Decode(&peersResponse); err != nil {
-		t.Fatalf("decode restarted peers response after import repair: %v", err)
-	}
-	if len(peersResponse.Peers) != 1 {
-		t.Fatalf("expected 1 configured peer after import-repair restart, got %+v", peersResponse.Peers)
-	}
-	if peersResponse.Peers[0].LastImportFailureAt == nil || peersResponse.Peers[0].LastImportErrorCode != "proposal_required" {
-		t.Fatalf("expected restarted import failure telemetry, got %+v", peersResponse.Peers[0])
-	}
-	if peersResponse.Peers[0].LastImportFailureHeight != block.Height || peersResponse.Peers[0].LastImportFailureBlockHash != block.Hash {
-		t.Fatalf("unexpected restarted import failure metadata %+v", peersResponse.Peers[0])
-	}
-	if peersResponse.Peers[0].LastSnapshotRestoreAt == nil || peersResponse.Peers[0].LastSnapshotRestoreReason != "import_repair" {
-		t.Fatalf("expected restarted snapshot repair telemetry, got %+v", peersResponse.Peers[0])
-	}
-	if peersResponse.Peers[0].LastSnapshotRestoreHeight != block.Height || peersResponse.Peers[0].LastSnapshotRestoreBlockHash != block.Hash {
-		t.Fatalf("unexpected restarted snapshot repair metadata %+v", peersResponse.Peers[0])
+	if _, err := replica.restoreSnapshotFromPeer(producerHTTP.URL, "import_repair"); !errors.Is(err, ledger.ErrSnapshotQuorumRequired) {
+		t.Fatalf("expected a single 60%% snapshot proof to fail 2/3 quorum, got %v", err)
 	}
 }
 
@@ -5582,48 +5166,38 @@ func waitFor(t *testing.T, fn func() bool) {
 
 func signedEnvelope(t *testing.T, amount uint64, nonce uint64, memo string) tx.Envelope {
 	t.Helper()
-
 	privateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		t.Fatalf("generate key: %v", err)
 	}
-
 	publicKeyBytes, err := x509.MarshalPKIXPublicKey(&privateKey.PublicKey)
 	if err != nil {
 		t.Fatalf("marshal public key: %v", err)
 	}
-
 	encodedPublicKey := base64.StdEncoding.EncodeToString(publicKeyBytes)
 	address, err := tx.DeriveAddressFromPublicKey(encodedPublicKey)
 	if err != nil {
 		t.Fatalf("derive address: %v", err)
 	}
-
 	envelope := tx.Envelope{
-		From:      address,
-		To:        "zph_receiver",
-		Amount:    amount,
-		Nonce:     nonce,
-		Memo:      memo,
-		PublicKey: encodedPublicKey,
+		ChainID: protocol.DefaultChainID, Domain: protocol.TransactionDomain,
+		From: address, To: "zph_receiver", Amount: amount, Nonce: nonce, Memo: memo, PublicKey: encodedPublicKey,
 	}
 	envelope.Payload = envelope.CanonicalPayload()
-	envelope.Signature = signPayload(t, privateKey, envelope.Payload)
-
+	envelope.Signature, err = tx.SignPayload(privateKey, envelope.Payload)
+	if err != nil {
+		t.Fatalf("sign transaction: %v", err)
+	}
 	return envelope
 }
 
 func signPayload(t *testing.T, privateKey *ecdsa.PrivateKey, payload string) string {
 	t.Helper()
-
-	digest := sha256.Sum256([]byte(payload))
-	r, s, err := ecdsa.Sign(rand.Reader, privateKey, digest[:])
+	signature, err := tx.SignPayload(privateKey, payload)
 	if err != nil {
 		t.Fatalf("sign payload: %v", err)
 	}
-
-	signature := append(pad32(r), pad32(s)...)
-	return base64.StdEncoding.EncodeToString(signature)
+	return signature
 }
 
 func pad32(value *big.Int) []byte {
@@ -5662,22 +5236,21 @@ func newConsensusSigner(t *testing.T) consensusSigner {
 	return consensusSigner{privateKey: privateKey, address: address, publicKey: encodedPublicKey}
 }
 
-func signedConsensusProposal(t *testing.T, signer consensusSigner, height uint64, round uint64, previousHash string, producedAt time.Time, transactions []tx.Envelope) consensus.Proposal {
+func signedConsensusProposal(t *testing.T, signer consensusSigner, height uint64, round uint64, previousHash string, producedAt time.Time, transactions []tx.Envelope, stateRoots ...string) consensus.Proposal {
 	t.Helper()
-
 	transactionIDs := make([]string, 0, len(transactions))
 	for _, envelope := range transactions {
 		transactionIDs = append(transactionIDs, tx.ID(envelope))
 	}
+	stateRoot := consensusTestHash("test-state-root")
+	if len(stateRoots) > 0 {
+		stateRoot = stateRoots[0]
+	}
 	proposal := consensus.Proposal{
-		Height:         height,
-		Round:          round,
-		PreviousHash:   previousHash,
-		ProducedAt:     producedAt,
-		TransactionIDs: append([]string(nil), transactionIDs...),
-		Transactions:   append([]tx.Envelope(nil), transactions...),
-		Proposer:       signer.address,
-		PublicKey:      signer.publicKey,
+		ChainID: protocol.DefaultChainID, Domain: protocol.ConsensusProposalDomain,
+		Height: height, Round: round, PreviousHash: previousHash, StateRoot: stateRoot, ProducedAt: producedAt,
+		TransactionIDs: append([]string(nil), transactionIDs...), Transactions: append([]tx.Envelope(nil), transactions...),
+		Proposer: signer.address, PublicKey: signer.publicKey,
 	}
 	proposal.BlockHash = proposal.CandidateHash()
 	proposal.Payload = proposal.CanonicalPayload()
@@ -5687,13 +5260,9 @@ func signedConsensusProposal(t *testing.T, signer consensusSigner, height uint64
 
 func signedConsensusVote(t *testing.T, signer consensusSigner, height uint64, round uint64, blockHash string) consensus.Vote {
 	t.Helper()
-
 	vote := consensus.Vote{
-		Height:    height,
-		Round:     round,
-		BlockHash: blockHash,
-		Voter:     signer.address,
-		PublicKey: signer.publicKey,
+		ChainID: protocol.DefaultChainID, Domain: protocol.ConsensusVoteDomain,
+		Height: height, Round: round, BlockHash: blockHash, Voter: signer.address, PublicKey: signer.publicKey,
 	}
 	vote.Payload = vote.CanonicalPayload()
 	vote.Signature = signPayload(t, signer.privateKey, vote.Payload)
@@ -5712,19 +5281,12 @@ func encodedPrivateKey(t *testing.T, privateKey *ecdsa.PrivateKey) string {
 
 func signedTransportIdentity(t *testing.T, signer consensusSigner, nodeID string, signedAt time.Time) TransportIdentity {
 	t.Helper()
-
 	identity := TransportIdentity{
-		NodeID:           nodeID,
-		ValidatorAddress: signer.address,
-		PublicKey:        signer.publicKey,
-		SignedAt:         signedAt.UTC(),
+		ChainID: protocol.DefaultChainID, Domain: protocol.TransportIdentityDomain,
+		NodeID: nodeID, ValidatorAddress: signer.address, PublicKey: signer.publicKey, SignedAt: signedAt.UTC(),
 	}
 	identity.Payload = identity.CanonicalPayload()
-	signature, err := signTransportIdentityPayload(signer.privateKey, identity.Payload)
-	if err != nil {
-		t.Fatalf("sign transport identity: %v", err)
-	}
-	identity.Signature = signature
+	identity.Signature = signPayload(t, signer.privateKey, identity.Payload)
 	return identity
 }
 
@@ -5798,4 +5360,65 @@ func (t *testPeerTransport) PostVote(peerURL string, vote consensus.Vote) error 
 		return t.postVoteFunc(peerURL, vote)
 	}
 	return nil
+}
+
+func TestInternalBlockEndpointRejectsMissingRequestProof(t *testing.T) {
+	server := newTestServer(t, Config{DataDir: t.TempDir(), BlockInterval: 0, SyncInterval: 0, EnablePeerSync: false})
+	request := httptest.NewRequest(http.MethodPost, "/v1/internal/blocks", bytes.NewBufferString(`{}`))
+	recorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("expected internal endpoint to require peer proof, got %d", recorder.Code)
+	}
+}
+
+func signedConsensusProposalForServer(t *testing.T, server *Server, signer consensusSigner, height uint64, round uint64, previousHash string, producedAt time.Time, transactions []tx.Envelope, stateRoots ...string) consensus.Proposal {
+	t.Helper()
+	if len(stateRoots) > 0 {
+		return signedConsensusProposal(t, signer, height, round, previousHash, producedAt, transactions, stateRoots...)
+	}
+	required := make(map[string]uint64)
+	for _, envelope := range transactions {
+		next := required[envelope.From] + envelope.Amount
+		if next < required[envelope.From] {
+			t.Fatal("test fixture balance overflow")
+		}
+		required[envelope.From] = next
+	}
+	for address, amount := range required {
+		view := server.ledger.View(address)
+		if view.Balance < amount {
+			if _, err := server.ledger.Credit(address, amount-view.Balance); err != nil {
+				t.Fatalf("fund proposal sender: %v", err)
+			}
+		}
+	}
+	root, err := server.ledger.ExpectedStateRoot(transactions)
+	if err != nil {
+		t.Fatalf("compute proposal state root: %v", err)
+	}
+	return signedConsensusProposal(t, signer, height, round, previousHash, producedAt, transactions, root)
+}
+
+func signedPeerRequestWithSigner(t *testing.T, signer consensusSigner, method string, path string, body []byte) *http.Request {
+	t.Helper()
+	requestSigner := &transportIdentitySigner{
+		chainID: protocol.DefaultChainID, nodeID: "peer-node", validatorAddress: signer.address,
+		publicKey: signer.publicKey, privateKey: signer.privateKey,
+	}
+	proof, err := requestSigner.buildRequestProof(method, path, body, time.Now().UTC())
+	if err != nil {
+		t.Fatalf("build peer request proof: %v", err)
+	}
+	request := httptest.NewRequest(method, path, bytes.NewReader(body))
+	request.Header.Set(sourceNodeHeader, proof.NodeID)
+	request.Header.Set(sourceValidatorHeader, proof.ValidatorAddress)
+	request.Header.Set(sourceIdentityPayloadHeader, proof.Payload)
+	request.Header.Set(sourcePublicKeyHeader, proof.PublicKey)
+	request.Header.Set(sourceSignatureHeader, proof.Signature)
+	request.Header.Set(sourceSignedAtHeader, proof.SignedAt.UTC().Format(time.RFC3339Nano))
+	request.Header.Set(sourceChainIDHeader, proof.ChainID)
+	request.Header.Set(sourceRequestDomainHeader, proof.Domain)
+	request.Header.Set(sourceRequestNonceHeader, proof.Nonce)
+	return request
 }

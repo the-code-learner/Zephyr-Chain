@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { broadcastTransaction, fetchAccount, fundAccount, pingNode } from './lib/network'
+import { broadcastTransaction, fetchAccount, fetchNodeStatus, fundAccount, pingNode } from './lib/network'
 import {
   clearAccount,
   createAccount,
@@ -30,6 +30,7 @@ const legacyWalletPresent = ref(false)
 const signedEnvelope = ref<SignedTransactionEnvelope | null>(null)
 const networkResponse = ref<BroadcastResponse | null>(null)
 const networkHealthy = ref<boolean | null>(null)
+const chainId = ref('')
 const statusMessage = ref('Create, unlock, or import an account to begin.')
 const faucetAmount = ref(100)
 const isBusy = ref(false)
@@ -120,8 +121,15 @@ async function refreshNodeState(updateStatus = true) {
 async function refreshHealth() {
   try {
     networkHealthy.value = await pingNode(apiBase.value)
+    if (!networkHealthy.value) {
+      chainId.value = ''
+      return
+    }
+    const status = await fetchNodeStatus(apiBase.value)
+    chainId.value = status.chainId
   } catch {
     networkHealthy.value = false
+    chainId.value = ''
   }
 }
 
@@ -265,7 +273,10 @@ async function handleSignTransaction() {
   isBusy.value = true
 
   try {
-    const envelope = await signTransaction(account.value, form.value)
+    if (!chainId.value) {
+      throw new Error('Node chain identity is unavailable; refresh the node connection before signing')
+    }
+    const envelope = await signTransaction(account.value, form.value, chainId.value)
     signedEnvelope.value = envelope
     statusMessage.value = 'Transaction signed locally using the unlocked device key.'
   } catch (error) {
@@ -311,6 +322,7 @@ async function handleBroadcast() {
           Node health:
           {{ networkHealthy === null ? 'checking' : networkHealthy ? 'online' : 'offline' }}
         </span>
+        <span class="pill">Chain: {{ chainId || 'unavailable' }}</span>
         <span class="pill">{{ balancePill }}</span>
       </div>
     </section>

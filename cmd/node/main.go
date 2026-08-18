@@ -20,6 +20,9 @@ func main() {
 
 	config := api.DefaultConfig()
 	enableDevEndpoints := false
+	if chainID := os.Getenv("ZEPHYR_CHAIN_ID"); chainID != "" {
+		config.ChainID = chainID
+	}
 	if nodeID := os.Getenv("ZEPHYR_NODE_ID"); nodeID != "" {
 		config.NodeID = nodeID
 	}
@@ -145,8 +148,9 @@ func main() {
 	defer server.Close()
 
 	log.Printf(
-		"zephyr node %s listening on %s (validator: %s, data dir: %s, block interval: %s, consensus automation: %t, consensus interval: %s, round timeout: %s, peer sync: %t, structured logs: %t, peer identity required: %t, peer bindings: %d, proposer schedule enforced: %t, consensus certificates required: %t, dev endpoints: %t, peers: %d)",
+		"zephyr node %s on chain %s listening on %s (validator: %s, data dir: %s, block interval: %s, consensus automation: %t, consensus interval: %s, round timeout: %s, peer sync: %t, structured logs: %t, peer identity required: %t, peer bindings: %d, proposer schedule enforced: %t, consensus certificates required: %t, dev endpoints: %t, peers: %d)",
 		config.NodeID,
+		config.ChainID,
 		addr,
 		config.ValidatorAddress,
 		config.DataDir,

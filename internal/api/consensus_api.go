@@ -45,6 +45,10 @@ func (s *Server) handleConsensusProposal(w http.ResponseWriter, r *http.Request)
 	if request.ProposedAt.IsZero() {
 		request.ProposedAt = time.Now().UTC()
 	}
+	if err := request.ValidateForChain(s.config.ChainID); err != nil {
+		writeJSON(w, statusForError(err), map[string]string{"error": err.Error()})
+		return
+	}
 
 	sourceNode := requestSourceNode(r)
 	var err error
@@ -101,6 +105,10 @@ func (s *Server) handleConsensusVote(w http.ResponseWriter, r *http.Request) {
 	}
 	if request.VotedAt.IsZero() {
 		request.VotedAt = time.Now().UTC()
+	}
+	if err := request.ValidateForChain(s.config.ChainID); err != nil {
+		writeJSON(w, statusForError(err), map[string]string{"error": err.Error()})
+		return
 	}
 
 	sourceNode := requestSourceNode(r)

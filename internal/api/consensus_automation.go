@@ -132,6 +132,7 @@ func (s *Server) maybeAutomateProposal(now time.Time) (bool, error) {
 	if previousProposal, exists := s.ledger.LatestProposalForHeight(consensusView.NextHeight); exists && previousProposal.Round < consensusView.CurrentRound {
 		proposal.BlockHash = previousProposal.BlockHash
 		proposal.PreviousHash = previousProposal.PreviousHash
+		proposal.StateRoot = previousProposal.StateRoot
 		proposal.ProducedAt = previousProposal.ProducedAt
 		proposal.TransactionIDs = append([]string(nil), previousProposal.TransactionIDs...)
 		proposal.Transactions = append([]tx.Envelope(nil), previousProposal.Transactions...)
@@ -142,6 +143,7 @@ func (s *Server) maybeAutomateProposal(now time.Time) (bool, error) {
 		}
 		proposal.BlockHash = block.Hash
 		proposal.PreviousHash = block.PreviousHash
+		proposal.StateRoot = block.StateRoot
 		proposal.ProducedAt = block.ProducedAt
 		proposal.TransactionIDs = append([]string(nil), block.TransactionIDs...)
 		proposal.Transactions = append([]tx.Envelope(nil), block.Transactions...)
@@ -294,4 +296,3 @@ func ignoreConsensusAutomationError(err error) bool {
 		return false
 	}
 }
-
