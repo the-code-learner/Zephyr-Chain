@@ -9,7 +9,7 @@ import (
 )
 
 var (
-	errPeerIdentityRequired    = errors.New("peer request must include a signed transport identity")
+	errPeerIdentityRequired    = errors.New("peer request must include a signed request proof")
 	errPeerValidatorNotAllowed = errors.New("peer validator is not admitted by local policy")
 )
 
@@ -71,6 +71,9 @@ func (s *Server) buildPeerView(peerURL string, status StatusResponse, now time.T
 	admissionError := ""
 
 	switch {
+	case status.ChainID != s.config.ChainID:
+		admitted = false
+		admissionError = fmt.Sprintf("peer chain %s does not match local chain %s", status.ChainID, s.config.ChainID)
 	case s.peerIdentityRequired() && status.Identity == nil:
 		admitted = false
 		admissionError = "peer does not expose a signed transport identity"
@@ -163,26 +166,37 @@ func (s *Server) admittedPeerURLs() []string {
 }
 
 func (s *Server) validatePeerRequest(r *http.Request) error {
-	identity, err := transportIdentityFromRequest(r)
-	if err != nil {
-		return err
-	}
 	if requestSourceNode(r) == "" {
 		return nil
 	}
-	if !s.peerIdentityRequired() {
-		return nil
+
+	proof, err := validateAndRememberRequestProof(s, r)
+	if err != nil {
+		return err
 	}
-	if identity == nil {
+	if proof == nil {
 		return errPeerIdentityRequired
 	}
 
 	allowed := s.allowedPeerValidators()
-	if len(allowed) == 0 {
-		return nil
+	if len(allowed) > 0 {
+		if _, ok := allowed[proof.ValidatorAddress]; !ok {
+			return errPeerValidatorNotAllowed
+		}
 	}
-	if _, ok := allowed[identity.ValidatorAddress]; !ok {
-		return errPeerValidatorNotAllowed
+
+	validatorSet := s.ledger.ValidatorSet()
+	if len(validatorSet.Validators) > 0 {
+		active := false
+		for _, validator := range validatorSet.Validators {
+			if validator.Address == proof.ValidatorAddress {
+				active = true
+				break
+			}
+		}
+		if !active {
+			return errPeerValidatorNotAllowed
+		}
 	}
 	return nil
 }
