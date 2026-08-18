@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -134,6 +135,10 @@ func main() {
 		enableDevEndpoints = parsed
 	}
 
+	if err := ensurePrivateNodeState(config.DataDir); err != nil {
+		log.Fatalf("unable to protect node state directory: %v", err)
+	}
+
 	server, err := api.NewServerWithConfig(config)
 	if err != nil {
 		log.Fatalf("unable to create node server: %v", err)
@@ -164,6 +169,25 @@ func main() {
 	if err := http.ListenAndServe(addr, handler); err != nil {
 		log.Fatalf("server stopped: %v", err)
 	}
+}
+
+func ensurePrivateNodeState(dataDir string) error {
+	if err := os.MkdirAll(dataDir, 0o700); err != nil {
+		return err
+	}
+	if err := os.Chmod(dataDir, 0o700); err != nil {
+		return err
+	}
+
+	statePath := filepath.Join(dataDir, "state.json")
+	file, err := os.OpenFile(statePath, os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		return err
+	}
+	if err := file.Close(); err != nil {
+		return err
+	}
+	return os.Chmod(statePath, 0o600)
 }
 
 func splitCSV(value string) []string {
