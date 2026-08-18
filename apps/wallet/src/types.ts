@@ -6,6 +6,23 @@ export type StoredAccount = {
   publicKeySpki: string
 }
 
+export type EncryptedWalletBackup = {
+  version: 1
+  address: string
+  createdAt: string
+  publicKeyJwk: JsonWebKey
+  publicKeySpki: string
+  encryption: {
+    algorithm: 'AES-GCM'
+    kdf: 'PBKDF2'
+    hash: 'SHA-256'
+    iterations: number
+    salt: string
+    iv: string
+    ciphertext: string
+  }
+}
+
 export type TransactionDraft = {
   from: string
   to: string
