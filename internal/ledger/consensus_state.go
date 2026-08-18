@@ -135,8 +135,9 @@ func consensusArtifactsFromState(state persistedState) ConsensusArtifactsView {
 
 func recordProposalIntoState(state persistedState, proposal consensus.Proposal) (persistedState, error) {
 	state = normalizeState(state)
+	observedAt := time.Now().UTC()
 	if proposal.ProposedAt.IsZero() {
-		proposal.ProposedAt = time.Now().UTC()
+		proposal.ProposedAt = observedAt
 	}
 	if err := proposal.ValidateStatic(); err != nil {
 		return state, err
@@ -154,7 +155,7 @@ func recordProposalIntoState(state persistedState, proposal consensus.Proposal) 
 		return state, ErrValidatorNotActive
 	}
 	var err error
-	state, err = alignRoundStateWithProposal(state, proposal)
+	state, err = alignRoundStateWithProposal(state, proposal, observedAt)
 	if err != nil {
 		return state, err
 	}
@@ -182,8 +183,9 @@ func recordProposalIntoState(state persistedState, proposal consensus.Proposal) 
 
 func recordVoteIntoState(state persistedState, vote consensus.Vote) (persistedState, VoteTally, *CommitCertificate, error) {
 	state = normalizeState(state)
+	observedAt := time.Now().UTC()
 	if vote.VotedAt.IsZero() {
-		vote.VotedAt = time.Now().UTC()
+		vote.VotedAt = observedAt
 	}
 	if err := vote.ValidateStatic(); err != nil {
 		return state, VoteTally{}, nil, err
@@ -195,7 +197,7 @@ func recordVoteIntoState(state persistedState, vote consensus.Vote) (persistedSt
 		return state, VoteTally{}, nil, ErrConsensusHeightMismatch
 	}
 	var err error
-	state, err = alignRoundStateWithVote(state, vote)
+	state, err = alignRoundStateWithVote(state, vote, observedAt)
 	if err != nil {
 		return state, VoteTally{}, nil, err
 	}
@@ -331,30 +333,30 @@ func votersForBlock(votes []VoteRecord, height uint64, round uint64, blockHash s
 	return voters
 }
 
-func alignRoundStateWithProposal(state persistedState, proposal consensus.Proposal) (persistedState, error) {
+func alignRoundStateWithProposal(state persistedState, proposal consensus.Proposal, observedAt time.Time) (persistedState, error) {
 	currentRound := state.RoundState.Round
 	switch {
 	case proposal.Round < currentRound:
 		return state, ErrConsensusRoundMismatch
 	case proposal.Round > currentRound:
 		state.RoundState.Round = proposal.Round
-		state.RoundState.StartedAt = proposal.ProposedAt.UTC()
+		state.RoundState.StartedAt = observedAt.UTC()
 	case state.RoundState.StartedAt.IsZero():
-		state.RoundState.StartedAt = proposal.ProposedAt.UTC()
+		state.RoundState.StartedAt = observedAt.UTC()
 	}
 	return state, nil
 }
 
-func alignRoundStateWithVote(state persistedState, vote consensus.Vote) (persistedState, error) {
+func alignRoundStateWithVote(state persistedState, vote consensus.Vote, observedAt time.Time) (persistedState, error) {
 	currentRound := state.RoundState.Round
 	switch {
 	case vote.Round < currentRound:
 		return state, ErrConsensusRoundMismatch
 	case vote.Round > currentRound:
 		state.RoundState.Round = vote.Round
-		state.RoundState.StartedAt = vote.VotedAt.UTC()
+		state.RoundState.StartedAt = observedAt.UTC()
 	case state.RoundState.StartedAt.IsZero():
-		state.RoundState.StartedAt = vote.VotedAt.UTC()
+		state.RoundState.StartedAt = observedAt.UTC()
 	}
 	return state, nil
 }
