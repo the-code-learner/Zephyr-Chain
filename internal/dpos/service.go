@@ -2,10 +2,14 @@ package dpos
 
 import (
 	"errors"
+	"math"
 	"sort"
 )
 
-var ErrInvalidElectionConfig = errors.New("invalid election config")
+var (
+	ErrInvalidElectionConfig = errors.New("invalid election config")
+	ErrStakeOverflow         = errors.New("stake total exceeds uint64 capacity")
+)
 
 type Service struct {
 	config ElectionConfig
@@ -46,7 +50,11 @@ func (s *Service) ElectValidators(candidates []Candidate, votes []Vote) ([]Valid
 			continue
 		}
 
-		delegatedStake[vote.Candidate] += vote.Amount
+		current := delegatedStake[vote.Candidate]
+		if vote.Amount > math.MaxUint64-current {
+			return nil, ErrStakeOverflow
+		}
+		delegatedStake[vote.Candidate] = current + vote.Amount
 	}
 
 	validators := make([]Validator, 0, len(index))
@@ -59,11 +67,16 @@ func (s *Service) ElectValidators(candidates []Candidate, votes []Vote) ([]Valid
 			continue
 		}
 
+		delegated := delegatedStake[address]
+		if delegated > math.MaxUint64-candidate.SelfStake {
+			return nil, ErrStakeOverflow
+		}
+
 		validators = append(validators, Validator{
 			Address:        address,
-			VotingPower:    candidate.SelfStake + delegatedStake[address],
+			VotingPower:    candidate.SelfStake + delegated,
 			SelfStake:      candidate.SelfStake,
-			DelegatedStake: delegatedStake[address],
+			DelegatedStake: delegated,
 			CommissionRate: candidate.CommissionRate,
 		})
 	}
@@ -88,10 +101,17 @@ func (s *Service) ElectValidators(candidates []Candidate, votes []Vote) ([]Valid
 		validators = validators[:cfg.MaxValidators]
 	}
 
+	var totalVotingPower uint64
+	for _, validator := range validators {
+		if validator.VotingPower > math.MaxUint64-totalVotingPower {
+			return nil, ErrStakeOverflow
+		}
+		totalVotingPower += validator.VotingPower
+	}
+
 	for i := range validators {
 		validators[i].Rank = i + 1
 	}
 
 	return validators, nil
 }
-

@@ -23,6 +23,9 @@ var (
 	ErrInvalidBlock          = errors.New("invalid block")
 	ErrBlockOutOfSequence    = errors.New("block out of sequence")
 	ErrBlockConflict         = errors.New("conflicting block at height")
+	ErrBalanceOverflow       = errors.New("account balance overflow")
+	ErrNonceExhausted        = errors.New("account nonce exhausted")
+	ErrVotingPowerOverflow   = errors.New("validator voting power overflow")
 )
 
 type AccountState struct {
@@ -38,6 +41,7 @@ type AccountView struct {
 	Nonce               uint64 `json:"nonce"`
 	NextNonce           uint64 `json:"nextNonce"`
 	PendingTransactions int    `json:"pendingTransactions"`
+	NonceExhausted      bool   `json:"nonceExhausted"`
 }
 
 type MempoolEntry struct {
@@ -103,6 +107,7 @@ type pendingState struct {
 	NextNonce       uint64
 	ReservedBalance uint64
 	PendingCount    int
+	NonceExhausted  bool
 }
 
 type persistedState struct {
@@ -146,7 +151,7 @@ func NewStore(dataDir string) (*Store, error) {
 		dataDir = filepath.Join("var", "node")
 	}
 
-	if err := os.MkdirAll(dataDir, 0o755); err != nil {
+	if err := os.MkdirAll(dataDir, 0o700); err != nil {
 		return nil, err
 	}
 
@@ -202,7 +207,11 @@ func (s *Store) CreditWithID(requestID string, address string, amount uint64) (A
 
 	account := state.Accounts[address]
 	account.Address = address
-	account.Balance += amount
+	nextBalance, ok := addUint64(account.Balance, amount)
+	if !ok {
+		return AccountState{}, ErrBalanceOverflow
+	}
+	account.Balance = nextBalance
 	state.Accounts[address] = account
 	if requestID != "" {
 		state.AppliedFundingIDs = append(state.AppliedFundingIDs, requestID)
@@ -281,6 +290,9 @@ func (s *Store) SetValidators(validators []dpos.Validator, config dpos.ElectionC
 	defer s.mu.Unlock()
 
 	state := s.snapshotLocked()
+	if _, ok := sumValidatorVotingPower(validators); !ok {
+		return ValidatorSnapshot{}, ErrVotingPowerOverflow
+	}
 	now := time.Now().UTC()
 	state.ValidatorSnapshot = normalizeValidatorSnapshot(ValidatorSnapshot{
 		Validators:     cloneValidators(validators),
@@ -350,8 +362,14 @@ func (s *Store) Accept(envelope tx.Envelope) (string, error) {
 	account := state.Accounts[envelope.From]
 	account.Address = envelope.From
 
-	expectedNonce := account.Nonce + 1
-	if senderPending, ok := pending[envelope.From]; ok && senderPending.PendingCount > 0 {
+	expectedNonce, ok := nextUint64(account.Nonce)
+	if !ok {
+		return "", ErrNonceExhausted
+	}
+	if senderPending, exists := pending[envelope.From]; exists && senderPending.PendingCount > 0 {
+		if senderPending.NonceExhausted {
+			return "", ErrNonceExhausted
+		}
 		expectedNonce = senderPending.NextNonce
 	}
 
@@ -492,7 +510,7 @@ func (s *Store) writeState(state persistedState) error {
 		return err
 	}
 
-	return os.WriteFile(s.statePath, raw, 0o644)
+	return writeFileAtomic(s.statePath, raw, 0o600)
 }
 
 func (s *Store) snapshotLocked() persistedState {
@@ -551,9 +569,13 @@ func (s *Store) accountViewLocked(address string) AccountView {
 		availableBalance -= pending.ReservedBalance
 	}
 
-	nextNonce := account.Nonce + 1
+	nextNonce, nonceAvailable := nextUint64(account.Nonce)
+	if !nonceAvailable {
+		nextNonce = account.Nonce
+	}
 	if pending.PendingCount > 0 {
 		nextNonce = pending.NextNonce
+		nonceAvailable = !pending.NonceExhausted
 	}
 
 	return AccountView{
@@ -563,6 +585,7 @@ func (s *Store) accountViewLocked(address string) AccountView {
 		Nonce:               account.Nonce,
 		NextNonce:           nextNonce,
 		PendingTransactions: pending.PendingCount,
+		NonceExhausted:      !nonceAvailable,
 	}
 }
 
@@ -594,7 +617,8 @@ func produceBlockFromState(state persistedState, maxTransactions int, producedAt
 		envelope := entry.Envelope
 		sender := accounts[envelope.From]
 		sender.Address = envelope.From
-		if sender.Balance < envelope.Amount || sender.Nonce+1 != envelope.Nonce {
+		expectedNonce, ok := nextUint64(sender.Nonce)
+		if !ok || sender.Balance < envelope.Amount || expectedNonce != envelope.Nonce {
 			return state, Block{}, ErrBlockInvariant
 		}
 
@@ -604,7 +628,11 @@ func produceBlockFromState(state persistedState, maxTransactions int, producedAt
 
 		receiver := accounts[envelope.To]
 		receiver.Address = envelope.To
-		receiver.Balance += envelope.Amount
+		receiverBalance, ok := addUint64(receiver.Balance, envelope.Amount)
+		if !ok {
+			return state, Block{}, ErrBlockInvariant
+		}
+		receiver.Balance = receiverBalance
 		accounts[envelope.To] = receiver
 
 		transactionIDs = append(transactionIDs, entry.ID)
@@ -681,7 +709,8 @@ func importBlockIntoState(state persistedState, block Block) (persistedState, er
 
 		sender := accounts[envelope.From]
 		sender.Address = envelope.From
-		if sender.Balance < envelope.Amount || sender.Nonce+1 != envelope.Nonce {
+		expectedNonce, ok := nextUint64(sender.Nonce)
+		if !ok || sender.Balance < envelope.Amount || expectedNonce != envelope.Nonce {
 			return state, ErrBlockInvariant
 		}
 
@@ -691,7 +720,11 @@ func importBlockIntoState(state persistedState, block Block) (persistedState, er
 
 		receiver := accounts[envelope.To]
 		receiver.Address = envelope.To
-		receiver.Balance += envelope.Amount
+		receiverBalance, ok := addUint64(receiver.Balance, envelope.Amount)
+		if !ok {
+			return state, ErrBlockInvariant
+		}
+		receiver.Balance = receiverBalance
 		accounts[envelope.To] = receiver
 
 		transactionIDs = append(transactionIDs, id)
@@ -824,10 +857,7 @@ func consensusFromState(state persistedState) ConsensusView {
 	snapshot := state.ValidatorSnapshot
 	currentHeight := uint64(len(state.Blocks))
 	nextHeight := currentHeight + 1
-	totalVotingPower := uint64(0)
-	for _, validator := range snapshot.Validators {
-		totalVotingPower += validator.VotingPower
-	}
+	totalPower := totalVotingPower(snapshot)
 
 	return ConsensusView{
 		CurrentHeight:         currentHeight,
@@ -837,8 +867,8 @@ func consensusFromState(state persistedState) ConsensusView {
 		ValidatorSetVersion:   snapshot.Version,
 		ValidatorSetUpdatedAt: cloneTimePointer(snapshot.UpdatedAt),
 		ValidatorCount:        len(snapshot.Validators),
-		TotalVotingPower:      totalVotingPower,
-		QuorumVotingPower:     quorumVotingPower(totalVotingPower),
+		TotalVotingPower:      totalPower,
+		QuorumVotingPower:     quorumVotingPower(totalPower),
 		NextProposer:          proposerForHeightRound(snapshot.Validators, nextHeight, state.RoundState.Round),
 	}
 }
@@ -877,7 +907,7 @@ func quorumVotingPower(totalVotingPower uint64) uint64 {
 	if totalVotingPower == 0 {
 		return 0
 	}
-	return (totalVotingPower*2)/3 + 1
+	return (totalVotingPower/3)*2 + ((totalVotingPower%3)*2)/3 + 1
 }
 
 func cloneTimePointer(value *time.Time) *time.Time {
@@ -901,11 +931,15 @@ func rebuildPendingState(accounts map[string]AccountState, mempool []MempoolEntr
 	for _, entry := range mempool {
 		envelope := entry.Envelope
 		state := pending[envelope.From]
-		if state.PendingCount == 0 {
-			state.NextNonce = accounts[envelope.From].Nonce + 1
+		nextNonce, ok := nextUint64(envelope.Nonce)
+		if ok {
+			state.NextNonce = nextNonce
+			state.NonceExhausted = false
+		} else {
+			state.NextNonce = envelope.Nonce
+			state.NonceExhausted = true
 		}
-		state.NextNonce = envelope.Nonce + 1
-		state.ReservedBalance += envelope.Amount
+		state.ReservedBalance = saturatingAddUint64(state.ReservedBalance, envelope.Amount)
 		state.PendingCount++
 		pending[envelope.From] = state
 	}

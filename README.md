@@ -11,7 +11,7 @@ Implemented today:
 - Go HTTP node entrypoint in `cmd/node`
 - DPoS election primitives and tests in `internal/dpos`
 - transaction envelope validation in `internal/tx`
-- durable accounts, mempool, committed blocks, restart-safe state, and snapshot restore in `internal/ledger`
+- durable accounts, mempool, committed blocks, atomic restart-safe state persistence, and snapshot restore in `internal/ledger`
 - durable validator-set snapshots with versioning, proposer scheduling, and quorum summaries in `internal/ledger`
 - durable consensus round state with restart-safe height, round, and round-start tracking in `internal/ledger`
 - durable signed consensus proposals, validator votes, and quorum certificates in `internal/ledger`
@@ -28,7 +28,7 @@ Implemented today:
 - consensus visibility endpoints for status, validator snapshots, active round inspection, proposer schedule inspection, latest consensus artifacts, and next-block template preview
 - operator-facing observability endpoints for readiness, alerts, SLO summaries, alert-rule exports, recording-rule exports, dashboard bundles, Grafana dashboard export, JSON metrics, Prometheus metrics, and structured logs
 - Vue wallet in `apps/wallet`
-- wallet account generation, import/export, local signing, account inspection, faucet funding, and transaction broadcast
+- wallet account generation, encrypted import/export, passphrase-protected local key storage, local signing, account inspection, faucet funding, and transaction broadcast
 
 Implemented in this iteration:
 
@@ -97,21 +97,23 @@ PowerShell note: if your shell blocks `npm`, use `npm.cmd` instead.
 
 ### 1. Run one node
 
-From the repository root:
+From the repository root, enable development-only endpoints only when you need the local faucet or manual block tools:
 
 ```powershell
+$env:ZEPHYR_ENABLE_DEV_ENDPOINTS="true"
 go run ./cmd/node
 ```
 
-By default the node:
+For a normal node process, leave `ZEPHYR_ENABLE_DEV_ENDPOINTS` unset or set it to `false`. The node process:
 
-- listens on `:8080`
+- listens on `127.0.0.1:8080` by default; set `ZEPHYR_HTTP_ADDR` explicitly to bind another interface
 - stores durable state in `var/node`
 - produces blocks every `15s` when transactions are queued
 - runs the consensus automation ticker every `1s`, but automation stays off until `ZEPHYR_ENABLE_CONSENSUS_AUTOMATION=true`
 - uses a `5s` consensus round timeout once automation is enabled
 - runs peer sync only if `ZEPHYR_PEERS` is configured
 - exposes consensus status even before a validator set has been elected
+- keeps `/v1/dev/*` unavailable unless `ZEPHYR_ENABLE_DEV_ENDPOINTS=true` is explicitly configured
 
 Useful probes:
 
@@ -148,7 +150,7 @@ npm.cmd install
 npm.cmd run dev
 ```
 
-Vite serves the wallet on `http://localhost:5173` by default.
+Vite serves the wallet on `http://localhost:5173` by default and proxies `/health`, `/v1`, and `/metrics` to `http://127.0.0.1:8080`, so local development stays same-origin in the browser. Set `ZEPHYR_WALLET_DEV_NODE` to change the dev proxy target, or `VITE_ZEPHYR_API_BASE` when intentionally targeting a different API origin.
 
 ### 3. Run a two-node local devnet
 

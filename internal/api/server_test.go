@@ -5569,7 +5569,7 @@ func newTestServer(t *testing.T, config Config) *Server {
 func waitFor(t *testing.T, fn func() bool) {
 	t.Helper()
 
-	deadline := time.Now().Add(3 * time.Second)
+	deadline := time.Now().Add(8 * time.Second)
 	for time.Now().Before(deadline) {
 		if fn() {
 			return

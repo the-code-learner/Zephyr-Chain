@@ -3,8 +3,8 @@ package main
 import (
 	"fmt"
 	"log"
-	"net/http"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -15,10 +15,11 @@ import (
 func main() {
 	addr := os.Getenv("ZEPHYR_HTTP_ADDR")
 	if addr == "" {
-		addr = ":8080"
+		addr = "127.0.0.1:8080"
 	}
 
 	config := api.DefaultConfig()
+	enableDevEndpoints := false
 	if nodeID := os.Getenv("ZEPHYR_NODE_ID"); nodeID != "" {
 		config.NodeID = nodeID
 	}
@@ -125,6 +126,17 @@ func main() {
 		}
 		config.RequireConsensusCertificates = parsed
 	}
+	if enabled := os.Getenv("ZEPHYR_ENABLE_DEV_ENDPOINTS"); enabled != "" {
+		parsed, err := strconv.ParseBool(enabled)
+		if err != nil {
+			log.Fatalf("invalid ZEPHYR_ENABLE_DEV_ENDPOINTS %q", enabled)
+		}
+		enableDevEndpoints = parsed
+	}
+
+	if err := ensurePrivateNodeState(config.DataDir); err != nil {
+		log.Fatalf("unable to protect node state directory: %v", err)
+	}
 
 	server, err := api.NewServerWithConfig(config)
 	if err != nil {
@@ -133,7 +145,7 @@ func main() {
 	defer server.Close()
 
 	log.Printf(
-		"zephyr node %s listening on %s (validator: %s, data dir: %s, block interval: %s, consensus automation: %t, consensus interval: %s, round timeout: %s, peer sync: %t, structured logs: %t, peer identity required: %t, peer bindings: %d, proposer schedule enforced: %t, consensus certificates required: %t, peers: %d)",
+		"zephyr node %s listening on %s (validator: %s, data dir: %s, block interval: %s, consensus automation: %t, consensus interval: %s, round timeout: %s, peer sync: %t, structured logs: %t, peer identity required: %t, peer bindings: %d, proposer schedule enforced: %t, consensus certificates required: %t, dev endpoints: %t, peers: %d)",
 		config.NodeID,
 		addr,
 		config.ValidatorAddress,
@@ -148,11 +160,33 @@ func main() {
 		len(config.PeerValidatorBindings),
 		config.EnforceProposerSchedule,
 		config.RequireConsensusCertificates,
+		enableDevEndpoints,
 		len(config.PeerURLs),
 	)
-	if err := http.ListenAndServe(addr, server.Handler()); err != nil {
+
+	handler := server.PublicHandler(api.PublicHandlerOptions{EnableDevEndpoints: enableDevEndpoints})
+	if err := runNodeHTTPServer(addr, handler); err != nil {
 		log.Fatalf("server stopped: %v", err)
 	}
+}
+
+func ensurePrivateNodeState(dataDir string) error {
+	if err := os.MkdirAll(dataDir, 0o700); err != nil {
+		return err
+	}
+	if err := os.Chmod(dataDir, 0o700); err != nil {
+		return err
+	}
+
+	statePath := filepath.Join(dataDir, "state.json")
+	file, err := os.OpenFile(statePath, os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		return err
+	}
+	if err := file.Close(); err != nil {
+		return err
+	}
+	return os.Chmod(statePath, 0o600)
 }
 
 func splitCSV(value string) []string {
