@@ -1,33 +1,27 @@
 === go vet ===
 # github.com/zephyr-chain/zephyr-chain/internal/api
 # [github.com/zephyr-chain/zephyr-chain/internal/api]
-vet: internal/api/server_test.go:3387:9: undefined: stateRoots
+vet: internal/api/server_test.go:2183:49: undefined: proposer
 === go test failures ===
 # github.com/zephyr-chain/zephyr-chain/internal/api [github.com/zephyr-chain/zephyr-chain/internal/api.test]
-internal/api/server_test.go:3387:9: undefined: stateRoots
-internal/api/server_test.go:3388:15: undefined: stateRoots
-ok  	github.com/zephyr-chain/zephyr-chain/cmd/node	0.004s
+internal/api/server_test.go:2183:49: undefined: proposer
+internal/api/server_test.go:2497:98: unknown field ObservedAt in struct literal of type ledger.PeerSyncIncident
+ok  	github.com/zephyr-chain/zephyr-chain/cmd/node	0.005s
 FAIL	github.com/zephyr-chain/zephyr-chain/internal/api [build failed]
-ok  	github.com/zephyr-chain/zephyr-chain/internal/consensus	0.007s
+ok  	github.com/zephyr-chain/zephyr-chain/internal/consensus	0.006s
 ok  	github.com/zephyr-chain/zephyr-chain/internal/dpos	0.002s
---- FAIL: TestRecordProposalUsesLocalObservationTimeForRoundStart (0.00s)
-    consensus_timing_test.go:28: record higher-round proposal: block template does not match the stored proposal set
---- FAIL: TestStoreRecordProposalVotesAndCertificatePersistAcrossRestart (0.00s)
-    store_test.go:411: record proposal: block template does not match the stored proposal set
---- FAIL: TestStoreRecordProposalAcceptsHigherRoundAndRejectsStaleRound (0.00s)
-    store_test.go:556: record round-one proposal: block template does not match the stored proposal set
---- FAIL: TestStoreProduceCertifiedBlockFromProposalBodyWithoutMempool (0.00s)
-    store_test.go:646: record proposal: block template does not match the stored proposal set
---- FAIL: TestStoreImportBlockWithConsensusRequiresProposalAndCertificate (0.02s)
+--- FAIL: TestStoreRejectsNonceAfterUint64Exhaustion (0.00s)
+    store_arithmetic_test.go:62: restore exhausted account: snapshot does not have trusted validator quorum
+--- FAIL: TestStoreSnapshotRestoreRehydratesState (0.00s)
+    store_test.go:360: restore snapshot: snapshot does not have trusted validator quorum
+--- FAIL: TestStoreRecordProposalVotesAndCertificatePersistAcrossRestart (0.01s)
+    store_test.go:456: restore snapshot: snapshot does not have trusted validator quorum
+--- FAIL: TestStoreProduceBlockWithConsensusRequiresProposalAndCertificate (0.01s)
+    store_test.go:613: expected template mismatch error for mismatched producedAt, got block template does not match the stored proposal set
+--- FAIL: TestStoreImportBlockWithConsensusRequiresProposalAndCertificate (0.01s)
     store_test.go:741: expected template mismatch error for mismatched import, got invalid block
---- FAIL: TestStoreSetValidatorsClearsPendingConsensusArtifacts (0.00s)
-    store_test.go:772: record proposal: block template does not match the stored proposal set
---- FAIL: TestStoreConsensusRecoveryPersistsAcrossRestartAndCompletesOnCommit (0.03s)
-    store_test.go:834: record proposal with action: block template does not match the stored proposal set
---- FAIL: TestStoreRestoreFromPeerSnapshotPreservesLocalRecoveryAndDiagnostics (0.01s)
-    store_test.go:928: restore from peer snapshot: snapshot does not have trusted validator quorum
 FAIL
-FAIL	github.com/zephyr-chain/zephyr-chain/internal/ledger	0.546s
+FAIL	github.com/zephyr-chain/zephyr-chain/internal/ledger	0.347s
 ?   	github.com/zephyr-chain/zephyr-chain/internal/protocol	[no test files]
 ok  	github.com/zephyr-chain/zephyr-chain/internal/tx	0.004s
 FAIL
