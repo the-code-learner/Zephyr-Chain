@@ -21,6 +21,7 @@ var (
 	ErrInvalidChainID             = errors.New("consensus message chain ID does not match local chain")
 	ErrInvalidDomain              = errors.New("invalid consensus signing domain")
 	ErrInvalidHash                = errors.New("invalid block hash")
+	ErrInvalidStateRoot           = errors.New("invalid state root")
 	ErrInvalidHeight              = errors.New("height must be greater than zero")
 	ErrInvalidProducedAt          = errors.New("producedAt must be set")
 	ErrInvalidTransactionID       = errors.New("invalid transaction ID")
@@ -37,6 +38,7 @@ type Proposal struct {
 	Round          uint64        `json:"round"`
 	BlockHash      string        `json:"blockHash"`
 	PreviousHash   string        `json:"previousHash"`
+	StateRoot      string        `json:"stateRoot"`
 	ProducedAt     time.Time     `json:"producedAt"`
 	TransactionIDs []string      `json:"transactionIds"`
 	Transactions   []tx.Envelope `json:"transactions"`
@@ -69,6 +71,7 @@ type canonicalProposal struct {
 	ProducedAt     string   `json:"producedAt"`
 	Proposer       string   `json:"proposer"`
 	Round          uint64   `json:"round"`
+	StateRoot      string   `json:"stateRoot"`
 	TransactionIDs []string `json:"transactionIds"`
 }
 
@@ -81,16 +84,24 @@ type canonicalVote struct {
 	Voter     string `json:"voter"`
 }
 
-func BlockHash(height uint64, previousHash string, producedAt time.Time, transactionIDs []string) string {
-	payload, _ := json.Marshal(struct {
-		Height         uint64   `json:"height"`
-		PreviousHash   string   `json:"previousHash"`
-		ProducedAt     string   `json:"producedAt"`
-		TransactionIDs []string `json:"transactionIds"`
-	}{
+type canonicalBlock struct {
+	ChainID        string   `json:"chainId"`
+	Domain         string   `json:"domain"`
+	Height         uint64   `json:"height"`
+	PreviousHash   string   `json:"previousHash"`
+	ProducedAt     string   `json:"producedAt"`
+	StateRoot      string   `json:"stateRoot"`
+	TransactionIDs []string `json:"transactionIds"`
+}
+
+func BlockHash(chainID string, height uint64, previousHash string, producedAt time.Time, stateRoot string, transactionIDs []string) string {
+	payload, _ := json.Marshal(canonicalBlock{
+		ChainID:        strings.TrimSpace(chainID),
+		Domain:         protocol.BlockDomain,
 		Height:         height,
 		PreviousHash:   previousHash,
 		ProducedAt:     producedAt.UTC().Format(time.RFC3339Nano),
+		StateRoot:      stateRoot,
 		TransactionIDs: append([]string(nil), transactionIDs...),
 	})
 
@@ -108,6 +119,7 @@ func (p Proposal) CanonicalPayload() string {
 		ProducedAt:     p.ProducedAt.UTC().Format(time.RFC3339Nano),
 		Proposer:       p.Proposer,
 		Round:          p.Round,
+		StateRoot:      p.StateRoot,
 		TransactionIDs: append([]string(nil), p.TransactionIDs...),
 	})
 
@@ -115,13 +127,13 @@ func (p Proposal) CanonicalPayload() string {
 }
 
 func (p Proposal) CandidateHash() string {
-	return BlockHash(p.Height, p.PreviousHash, p.ProducedAt, p.TransactionIDs)
+	return BlockHash(p.ChainID, p.Height, p.PreviousHash, p.ProducedAt, p.StateRoot, p.TransactionIDs)
 }
 
 func (p Proposal) ValidateStatic() error {
 	chainID := strings.TrimSpace(p.ChainID)
 	domain := strings.TrimSpace(p.Domain)
-	if chainID == "" || domain == "" || p.BlockHash == "" || p.Proposer == "" || p.Payload == "" || p.PublicKey == "" || p.Signature == "" || len(p.TransactionIDs) == 0 {
+	if chainID == "" || domain == "" || p.BlockHash == "" || p.StateRoot == "" || p.Proposer == "" || p.Payload == "" || p.PublicKey == "" || p.Signature == "" || len(p.TransactionIDs) == 0 {
 		return ErrMissingFields
 	}
 	if err := protocol.ValidateChainID(chainID); err != nil {
@@ -138,6 +150,9 @@ func (p Proposal) ValidateStatic() error {
 	}
 	if err := validateHash(p.BlockHash, false); err != nil {
 		return err
+	}
+	if err := validateHash(p.StateRoot, false); err != nil {
+		return ErrInvalidStateRoot
 	}
 	if err := validateHash(p.PreviousHash, true); err != nil {
 		return err
