@@ -68,7 +68,15 @@ func (t *httpPeerTransport) FetchBlock(peerURL string, height uint64) (ledger.Bl
 }
 
 func (t *httpPeerTransport) FetchSnapshot(peerURL string) (ledger.Snapshot, error) {
-	response, err := t.client.Get(peerURL + "/v1/internal/snapshot")
+	request, err := http.NewRequest(http.MethodGet, peerURL+"/v1/internal/snapshot", nil)
+	if err != nil {
+		return ledger.Snapshot{}, err
+	}
+	if err := t.applyPeerHeaders(request); err != nil {
+		return ledger.Snapshot{}, err
+	}
+
+	response, err := t.client.Do(request)
 	if err != nil {
 		return ledger.Snapshot{}, err
 	}
@@ -115,17 +123,8 @@ func (t *httpPeerTransport) postJSON(target string, payload any) error {
 		return err
 	}
 	request.Header.Set("Content-Type", "application/json")
-	request.Header.Set(sourceNodeHeader, t.sourceNode)
-	if t.identitySigner != nil {
-		identity, err := t.identitySigner.Build(time.Now().UTC())
-		if err != nil {
-			return err
-		}
-		request.Header.Set(sourceValidatorHeader, identity.ValidatorAddress)
-		request.Header.Set(sourceIdentityPayloadHeader, identity.Payload)
-		request.Header.Set(sourcePublicKeyHeader, identity.PublicKey)
-		request.Header.Set(sourceSignatureHeader, identity.Signature)
-		request.Header.Set(sourceSignedAtHeader, identity.SignedAt.UTC().Format(time.RFC3339Nano))
+	if err := t.applyPeerHeaders(request); err != nil {
+		return err
 	}
 
 	response, err := t.client.Do(request)
@@ -136,5 +135,23 @@ func (t *httpPeerTransport) postJSON(target string, payload any) error {
 	if response.StatusCode >= 400 && response.StatusCode != http.StatusConflict && response.StatusCode != http.StatusAccepted && response.StatusCode != http.StatusOK {
 		return fmt.Errorf("peer returned status %d", response.StatusCode)
 	}
+	return nil
+}
+
+func (t *httpPeerTransport) applyPeerHeaders(request *http.Request) error {
+	request.Header.Set(sourceNodeHeader, t.sourceNode)
+	if t.identitySigner == nil {
+		return nil
+	}
+
+	identity, err := t.identitySigner.Build(time.Now().UTC())
+	if err != nil {
+		return err
+	}
+	request.Header.Set(sourceValidatorHeader, identity.ValidatorAddress)
+	request.Header.Set(sourceIdentityPayloadHeader, identity.Payload)
+	request.Header.Set(sourcePublicKeyHeader, identity.PublicKey)
+	request.Header.Set(sourceSignatureHeader, identity.Signature)
+	request.Header.Set(sourceSignedAtHeader, identity.SignedAt.UTC().Format(time.RFC3339Nano))
 	return nil
 }
