@@ -1,0 +1,66 @@
+name: Consensus timing refresh
+
+on:
+  pull_request:
+
+permissions:
+  contents: write
+
+jobs:
+  refresh:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v6
+        with:
+          ref: chatgpt/hardening-foundation
+
+      - name: Patch local round timing
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('internal/ledger/consensus_state.go')
+          source = path.read_text()
+
+          replacements = {
+              'func recordProposalIntoState(state persistedState, proposal consensus.Proposal) (persistedState, error) {\n\tstate = normalizeState(state)\n\tif proposal.ProposedAt.IsZero() {\n\t\tproposal.ProposedAt = time.Now().UTC()\n\t}\n\tif err := proposal.ValidateStatic(); err != nil {':
+              'func recordProposalIntoState(state persistedState, proposal consensus.Proposal) (persistedState, error) {\n\tstate = normalizeState(state)\n\tobservedAt := time.Now().UTC()\n\tif proposal.ProposedAt.IsZero() {\n\t\tproposal.ProposedAt = observedAt\n\t}\n\tif err := proposal.ValidateStatic(); err != nil {',
+              'state, err = alignRoundStateWithProposal(state, proposal)': 'state, err = alignRoundStateWithProposal(state, proposal, observedAt)',
+              'func recordVoteIntoState(state persistedState, vote consensus.Vote) (persistedState, VoteTally, *CommitCertificate, error) {\n\tstate = normalizeState(state)\n\tif vote.VotedAt.IsZero() {\n\t\tvote.VotedAt = time.Now().UTC()\n\t}\n\tif err := vote.ValidateStatic(); err != nil {':
+              'func recordVoteIntoState(state persistedState, vote consensus.Vote) (persistedState, VoteTally, *CommitCertificate, error) {\n\tstate = normalizeState(state)\n\tobservedAt := time.Now().UTC()\n\tif vote.VotedAt.IsZero() {\n\t\tvote.VotedAt = observedAt\n\t}\n\tif err := vote.ValidateStatic(); err != nil {',
+              'state, err = alignRoundStateWithVote(state, vote)': 'state, err = alignRoundStateWithVote(state, vote, observedAt)',
+              'func alignRoundStateWithProposal(state persistedState, proposal consensus.Proposal) (persistedState, error) {': 'func alignRoundStateWithProposal(state persistedState, proposal consensus.Proposal, observedAt time.Time) (persistedState, error) {',
+              '\t\tstate.RoundState.StartedAt = proposal.ProposedAt.UTC()': '\t\tstate.RoundState.StartedAt = observedAt.UTC()',
+              'func alignRoundStateWithVote(state persistedState, vote consensus.Vote) (persistedState, error) {': 'func alignRoundStateWithVote(state persistedState, vote consensus.Vote, observedAt time.Time) (persistedState, error) {',
+              '\t\tstate.RoundState.StartedAt = vote.VotedAt.UTC()': '\t\tstate.RoundState.StartedAt = observedAt.UTC()',
+          }
+
+          for old, new in replacements.items():
+              count = source.count(old)
+              expected = 2 if old in ('\t\tstate.RoundState.StartedAt = proposal.ProposedAt.UTC()', '\t\tstate.RoundState.StartedAt = vote.VotedAt.UTC()') else 1
+              if count != expected:
+                  raise SystemExit(f'expected {expected} occurrences of {old!r}, found {count}')
+              source = source.replace(old, new)
+
+          path.write_text(source)
+          PY
+          gofmt -w internal/ledger/consensus_state.go internal/ledger/consensus_timing_test.go
+
+      - name: Verify ledger package
+        run: go test ./internal/ledger
+
+      - name: Commit timing hardening
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add internal/ledger/consensus_state.go internal/ledger/consensus_timing_test.go
+          if git diff --cached --quiet; then
+            echo "No timing changes to commit."
+            exit 0
+          fi
+          git commit -m "keep consensus round timing local"
+          git push origin HEAD:chatgpt/hardening-foundation
