@@ -21,11 +21,43 @@ jobs:
           python scripts/protocol_backend_refresh.py
           python scripts/protocol_backend_testfix.py
           gofmt -w internal/protocol internal/tx internal/consensus internal/ledger internal/api cmd/node
-      - name: Verify backend
+      - name: Verify backend and capture failures
+        id: verify
+        shell: bash
         run: |
-          go vet ./...
-          go test ./...
+          set +e
+          go vet ./... > /tmp/protocol-vet.log 2>&1
+          vet_status=$?
+          go test ./... > /tmp/protocol-test.log 2>&1
+          test_status=$?
+          {
+            echo "=== go vet ==="
+            if [ "$vet_status" -ne 0 ]; then
+              tail -n 200 /tmp/protocol-vet.log
+            else
+              echo "PASS"
+            fi
+            echo "=== go test failures ==="
+            if [ "$test_status" -ne 0 ]; then
+              grep -E -B 2 -A 6 -- '--- FAIL:|FAIL[[:space:]]|panic:|undefined:|cannot use|not enough arguments|too many arguments|expected .* got|unexpected .* got|condition was not met|invalid|mismatch|missing|required' /tmp/protocol-test.log | tail -n 500 || tail -n 300 /tmp/protocol-test.log
+            else
+              echo "PASS"
+            fi
+          } > protocol-test-failures.txt
+          echo "vet_status=$vet_status" >> "$GITHUB_OUTPUT"
+          echo "test_status=$test_status" >> "$GITHUB_OUTPUT"
+      - name: Publish failure diagnostics
+        if: steps.verify.outputs.vet_status != '0' || steps.verify.outputs.test_status != '0'
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add protocol-test-failures.txt
+          git commit -m "capture protocol backend test failures"
+          git push origin HEAD:chatgpt/protocol-hardening
+          exit 1
       - name: Commit verified backend integration
+        if: steps.verify.outputs.vet_status == '0' && steps.verify.outputs.test_status == '0'
         shell: bash
         run: |
           git config user.name "github-actions[bot]"
