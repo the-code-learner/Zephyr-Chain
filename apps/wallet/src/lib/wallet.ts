@@ -164,7 +164,7 @@ async function encryptAccount(account: StoredAccount, passphrase: string): Promi
   const ciphertext = await crypto.subtle.encrypt(
     {
       name: 'AES-GCM',
-      iv,
+      iv: bytesToArrayBuffer(iv),
       additionalData: new TextEncoder().encode(walletAAD(metadata)),
       tagLength: 128
     },
@@ -197,12 +197,12 @@ async function decryptBackup(backup: EncryptedWalletBackup, passphrase: string):
     plaintext = await crypto.subtle.decrypt(
       {
         name: 'AES-GCM',
-        iv,
+        iv: bytesToArrayBuffer(iv),
         additionalData: new TextEncoder().encode(walletAAD(backup)),
         tagLength: 128
       },
       key,
-      ciphertext
+      bytesToArrayBuffer(ciphertext)
     )
   } catch {
     throw new Error('Invalid wallet passphrase or corrupted backup')
@@ -244,7 +244,7 @@ async function deriveEncryptionKey(
     {
       name: 'PBKDF2',
       hash: 'SHA-256',
-      salt,
+      salt: bytesToArrayBuffer(salt),
       iterations
     },
     keyMaterial,
@@ -349,7 +349,14 @@ async function assertAccountIntegrity(account: StoredAccount): Promise<void> {
   }
 
   try {
-    await Promise.all([
+    const [spkiPublicKey] = await Promise.all([
+      crypto.subtle.importKey(
+        'spki',
+        publicKeyBuffer,
+        { name: 'ECDSA', namedCurve: 'P-256' },
+        true,
+        ['verify']
+      ),
       crypto.subtle.importKey(
         'jwk',
         account.publicKeyJwk,
@@ -365,7 +372,15 @@ async function assertAccountIntegrity(account: StoredAccount): Promise<void> {
         ['sign']
       )
     ])
-  } catch {
+
+    const spkiJwk = await crypto.subtle.exportKey('jwk', spkiPublicKey)
+    if (spkiJwk.x !== account.publicKeyJwk.x || spkiJwk.y !== account.publicKeyJwk.y) {
+      throw new Error('Wallet SPKI and JWK public keys do not match')
+    }
+  } catch (error) {
+    if (error instanceof Error && error.message === 'Wallet SPKI and JWK public keys do not match') {
+      throw error
+    }
     throw new Error('Wallet key material is invalid')
   }
 }
