@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/zephyr-chain/zephyr-chain/internal/protocol"
 	"github.com/zephyr-chain/zephyr-chain/internal/tx"
 )
 
@@ -17,6 +18,8 @@ var (
 	ErrInvalidPublicKey           = errors.New("invalid public key")
 	ErrInvalidAddress             = errors.New("signer address does not match public key")
 	ErrInvalidSignature           = errors.New("invalid signature")
+	ErrInvalidChainID             = errors.New("consensus message chain ID does not match local chain")
+	ErrInvalidDomain              = errors.New("invalid consensus signing domain")
 	ErrInvalidHash                = errors.New("invalid block hash")
 	ErrInvalidHeight              = errors.New("height must be greater than zero")
 	ErrInvalidProducedAt          = errors.New("producedAt must be set")
@@ -28,6 +31,8 @@ var (
 )
 
 type Proposal struct {
+	ChainID        string        `json:"chainId"`
+	Domain         string        `json:"domain"`
 	Height         uint64        `json:"height"`
 	Round          uint64        `json:"round"`
 	BlockHash      string        `json:"blockHash"`
@@ -43,6 +48,8 @@ type Proposal struct {
 }
 
 type Vote struct {
+	ChainID   string    `json:"chainId"`
+	Domain    string    `json:"domain"`
 	Height    uint64    `json:"height"`
 	Round     uint64    `json:"round"`
 	BlockHash string    `json:"blockHash"`
@@ -55,6 +62,8 @@ type Vote struct {
 
 type canonicalProposal struct {
 	BlockHash      string   `json:"blockHash"`
+	ChainID        string   `json:"chainId"`
+	Domain         string   `json:"domain"`
 	Height         uint64   `json:"height"`
 	PreviousHash   string   `json:"previousHash"`
 	ProducedAt     string   `json:"producedAt"`
@@ -65,6 +74,8 @@ type canonicalProposal struct {
 
 type canonicalVote struct {
 	BlockHash string `json:"blockHash"`
+	ChainID   string `json:"chainId"`
+	Domain    string `json:"domain"`
 	Height    uint64 `json:"height"`
 	Round     uint64 `json:"round"`
 	Voter     string `json:"voter"`
@@ -90,6 +101,8 @@ func BlockHash(height uint64, previousHash string, producedAt time.Time, transac
 func (p Proposal) CanonicalPayload() string {
 	payload, _ := json.Marshal(canonicalProposal{
 		BlockHash:      p.BlockHash,
+		ChainID:        strings.TrimSpace(p.ChainID),
+		Domain:         strings.TrimSpace(p.Domain),
 		Height:         p.Height,
 		PreviousHash:   p.PreviousHash,
 		ProducedAt:     p.ProducedAt.UTC().Format(time.RFC3339Nano),
@@ -106,11 +119,19 @@ func (p Proposal) CandidateHash() string {
 }
 
 func (p Proposal) ValidateStatic() error {
+	chainID := strings.TrimSpace(p.ChainID)
+	domain := strings.TrimSpace(p.Domain)
+	if chainID == "" || domain == "" || p.BlockHash == "" || p.Proposer == "" || p.Payload == "" || p.PublicKey == "" || p.Signature == "" || len(p.TransactionIDs) == 0 {
+		return ErrMissingFields
+	}
+	if err := protocol.ValidateChainID(chainID); err != nil {
+		return ErrInvalidChainID
+	}
+	if domain != protocol.ConsensusProposalDomain {
+		return ErrInvalidDomain
+	}
 	if p.Height == 0 {
 		return ErrInvalidHeight
-	}
-	if p.BlockHash == "" || p.Proposer == "" || p.Payload == "" || p.PublicKey == "" || p.Signature == "" || len(p.TransactionIDs) == 0 {
-		return ErrMissingFields
 	}
 	if p.ProducedAt.IsZero() {
 		return ErrInvalidProducedAt
@@ -124,7 +145,7 @@ func (p Proposal) ValidateStatic() error {
 	if err := validateTransactionIDs(p.TransactionIDs); err != nil {
 		return err
 	}
-	if err := validateProposalTransactions(p.TransactionIDs, p.Transactions); err != nil {
+	if err := validateProposalTransactions(chainID, p.TransactionIDs, p.Transactions); err != nil {
 		return err
 	}
 	if p.BlockHash != p.CandidateHash() {
@@ -148,7 +169,7 @@ func (p Proposal) ValidateStatic() error {
 		switch {
 		case errors.Is(err, tx.ErrInvalidPublicKey):
 			return ErrInvalidPublicKey
-		case errors.Is(err, tx.ErrInvalidSignature):
+		case errors.Is(err, tx.ErrInvalidSignature), errors.Is(err, tx.ErrNonCanonicalSignature):
 			return ErrInvalidSignature
 		default:
 			return err
@@ -158,9 +179,22 @@ func (p Proposal) ValidateStatic() error {
 	return nil
 }
 
+func (p Proposal) ValidateForChain(expectedChainID string) error {
+	if err := p.ValidateStatic(); err != nil {
+		return err
+	}
+	expectedChainID = strings.TrimSpace(expectedChainID)
+	if err := protocol.ValidateChainID(expectedChainID); err != nil || strings.TrimSpace(p.ChainID) != expectedChainID {
+		return ErrInvalidChainID
+	}
+	return nil
+}
+
 func (v Vote) CanonicalPayload() string {
 	payload, _ := json.Marshal(canonicalVote{
 		BlockHash: v.BlockHash,
+		ChainID:   strings.TrimSpace(v.ChainID),
+		Domain:    strings.TrimSpace(v.Domain),
 		Height:    v.Height,
 		Round:     v.Round,
 		Voter:     v.Voter,
@@ -170,11 +204,19 @@ func (v Vote) CanonicalPayload() string {
 }
 
 func (v Vote) ValidateStatic() error {
+	chainID := strings.TrimSpace(v.ChainID)
+	domain := strings.TrimSpace(v.Domain)
+	if chainID == "" || domain == "" || v.BlockHash == "" || v.Voter == "" || v.Payload == "" || v.PublicKey == "" || v.Signature == "" {
+		return ErrMissingFields
+	}
+	if err := protocol.ValidateChainID(chainID); err != nil {
+		return ErrInvalidChainID
+	}
+	if domain != protocol.ConsensusVoteDomain {
+		return ErrInvalidDomain
+	}
 	if v.Height == 0 {
 		return ErrInvalidHeight
-	}
-	if v.BlockHash == "" || v.Voter == "" || v.Payload == "" || v.PublicKey == "" || v.Signature == "" {
-		return ErrMissingFields
 	}
 	if err := validateHash(v.BlockHash, false); err != nil {
 		return err
@@ -197,13 +239,24 @@ func (v Vote) ValidateStatic() error {
 		switch {
 		case errors.Is(err, tx.ErrInvalidPublicKey):
 			return ErrInvalidPublicKey
-		case errors.Is(err, tx.ErrInvalidSignature):
+		case errors.Is(err, tx.ErrInvalidSignature), errors.Is(err, tx.ErrNonCanonicalSignature):
 			return ErrInvalidSignature
 		default:
 			return err
 		}
 	}
 
+	return nil
+}
+
+func (v Vote) ValidateForChain(expectedChainID string) error {
+	if err := v.ValidateStatic(); err != nil {
+		return err
+	}
+	expectedChainID = strings.TrimSpace(expectedChainID)
+	if err := protocol.ValidateChainID(expectedChainID); err != nil || strings.TrimSpace(v.ChainID) != expectedChainID {
+		return ErrInvalidChainID
+	}
 	return nil
 }
 
@@ -238,7 +291,7 @@ func validateTransactionIDs(transactionIDs []string) error {
 	return nil
 }
 
-func validateProposalTransactions(transactionIDs []string, transactions []tx.Envelope) error {
+func validateProposalTransactions(chainID string, transactionIDs []string, transactions []tx.Envelope) error {
 	if len(transactions) == 0 {
 		return ErrMissingTransactions
 	}
@@ -246,7 +299,7 @@ func validateProposalTransactions(transactionIDs []string, transactions []tx.Env
 		return ErrTransactionMismatch
 	}
 	for index, envelope := range transactions {
-		if err := envelope.ValidateStatic(); err != nil {
+		if err := envelope.ValidateForChain(chainID); err != nil {
 			return ErrInvalidProposalTransaction
 		}
 		if tx.ID(envelope) != transactionIDs[index] {
