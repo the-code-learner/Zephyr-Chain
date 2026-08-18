@@ -1,0 +1,34 @@
+name: Fix protocol refresh selector
+
+on:
+  pull_request:
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: chatgpt/protocol-hardening
+      - name: Fix snapshot selector
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('.github/workflows/protocol-backend-refresh.yml')
+          s = p.read_text()
+          old = """          replace_exact(store,\n              '\\tPeerSyncIncidents       []PeerSyncIncident      `json:\"peerSyncIncidents\"`\\n}',\n              '\\tPeerSyncIncidents       []PeerSyncIncident      `json:\"peerSyncIncidents\"`\\n\\tProof                   SnapshotProof            `json:\"proof\"`\\n}', 1)"""
+          new = """          replace_regex(store,\n              r'(type Snapshot struct \\{.*?\\tPeerSyncIncidents       \\[\\]PeerSyncIncident      `json:\"peerSyncIncidents\"`\\n)\\}',\n              r'\\1\\tProof                   SnapshotProof            `json:\"proof\"`\\n}', 1)"""
+          if old not in s:
+              raise SystemExit('snapshot selector block not found')
+          p.write_text(s.replace(old, new))
+          PY
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .github/workflows/protocol-backend-refresh.yml
+          git commit -m "fix protocol refresh snapshot selector"
+          git push origin HEAD:chatgpt/protocol-hardening
