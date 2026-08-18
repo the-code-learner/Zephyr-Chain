@@ -14,6 +14,7 @@ const (
 	ConsensusVoteDomain     = "zephyr/consensus/vote/v1"
 	TransportIdentityDomain = "zephyr/transport/identity/v1"
 	TransportRequestDomain  = "zephyr/transport/request/v1"
+	StateDomain             = "zephyr/state/v1"
 	SnapshotDomain          = "zephyr/snapshot/v1"
 )
 
