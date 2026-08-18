@@ -1,0 +1,68 @@
+name: Wallet same-origin refresh
+
+on:
+  pull_request:
+
+permissions:
+  contents: write
+
+jobs:
+  refresh:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v6
+        with:
+          ref: chatgpt/hardening-foundation
+
+      - name: Patch wallet default API origin and docs
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path: str, old: str, new: str) -> None:
+              file = Path(path)
+              source = file.read_text()
+              count = source.count(old)
+              if count != 1:
+                  raise SystemExit(f'{path}: expected exactly one occurrence of {old!r}, found {count}')
+              file.write_text(source.replace(old, new))
+
+          replace_once(
+              'apps/wallet/src/App.vue',
+              "const apiBase = ref(import.meta.env.VITE_ZEPHYR_API_BASE ?? 'http://localhost:8080')",
+              "const apiBase = ref(import.meta.env.VITE_ZEPHYR_API_BASE ?? '')",
+          )
+          replace_once(
+              'apps/wallet/src/App.vue',
+              'placeholder="http://localhost:8080"',
+              'placeholder="Same origin (recommended) or https://node.example"',
+          )
+          replace_once(
+              'README.md',
+              'Vite serves the wallet on `http://localhost:5173` by default.',
+              'Vite serves the wallet on `http://localhost:5173` by default and proxies `/health`, `/v1`, and `/metrics` to `http://127.0.0.1:8080`, so local development stays same-origin in the browser. Set `ZEPHYR_WALLET_DEV_NODE` to change the dev proxy target, or `VITE_ZEPHYR_API_BASE` when intentionally targeting a different API origin.',
+          )
+          PY
+
+      - name: Verify wallet
+        working-directory: apps/wallet
+        run: |
+          npm ci
+          npm audit --audit-level=high
+          npm run build
+
+      - name: Commit wallet origin hardening
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add apps/wallet/src/App.vue apps/wallet/vite.config.ts README.md
+          if git diff --cached --quiet; then
+            echo "No wallet-origin changes to commit."
+            exit 0
+          fi
+          git commit -m "use same-origin wallet API by default"
+          git push origin HEAD:chatgpt/hardening-foundation
