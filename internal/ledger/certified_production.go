@@ -7,12 +7,15 @@ import (
 	"github.com/zephyr-chain/zephyr-chain/internal/tx"
 )
 
-func produceCertifiedBlockFromState(state persistedState, producedAt time.Time) (persistedState, Block, error) {
+func produceCertifiedBlockFromState(state persistedState, producedAt time.Time, chainID string) (persistedState, Block, error) {
 	state = normalizeState(state)
 
 	proposal, err := proposalForProduction(state, producedAt, true)
 	if err != nil {
 		return state, Block{}, err
+	}
+	if proposal.ChainID != chainID {
+		return state, Block{}, ErrInvalidBlock
 	}
 
 	block := blockFromProposal(*proposal)
@@ -20,7 +23,7 @@ func produceCertifiedBlockFromState(state persistedState, producedAt time.Time) 
 		return state, Block{}, err
 	}
 
-	nextState, err := importBlockIntoState(state, block)
+	nextState, err := importBlockIntoState(state, block, chainID)
 	if err != nil {
 		return state, Block{}, err
 	}
@@ -67,8 +70,10 @@ func proposalForProduction(state persistedState, producedAt time.Time, requireCe
 
 func blockFromProposal(proposal consensus.Proposal) Block {
 	block := Block{
+		ChainID:          proposal.ChainID,
 		Height:           proposal.Height,
 		PreviousHash:     proposal.PreviousHash,
+		StateRoot:        proposal.StateRoot,
 		ProducedAt:       proposal.ProducedAt,
 		TransactionCount: len(proposal.Transactions),
 		TransactionIDs:   append([]string(nil), proposal.TransactionIDs...),
