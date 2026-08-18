@@ -1,473 +1,480 @@
 === go vet ===
 PASS
 === go test failures ===
-2026/08/18 14:21:45 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:45 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:45 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:45 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:45 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:45 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:45 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:45 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:45 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:45 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:45 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:45 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:45 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:45 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:45 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:45 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:45 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:45 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:45 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:45 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:45 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:45 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:45 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:45 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:46 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:46 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:46 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:46 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:46 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:46 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:46 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:46 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:46 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:46 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:46 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:46 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:46 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:46 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:46 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:46 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:46 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:46 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:46 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:46 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:46 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:46 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:46 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:46 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:46 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:46 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:46 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:46 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:46 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:46 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:46 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:46 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:46 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:46 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:46 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:46 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:46 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:46 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:46 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:46 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:46 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:46 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:46 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:46 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:46 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:46 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:46 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:46 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:46 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:46 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:47 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:47 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:47 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:47 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:47 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:47 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:47 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:47 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:47 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:47 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:47 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:47 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:47 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:47 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:47 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:47 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:47 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:47 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:47 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:47 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:47 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:47 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:47 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:47 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:47 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:47 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:47 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:47 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:47 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:47 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:47 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:47 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:47 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:47 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:47 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:47 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:47 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:47 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:47 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:47 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:47 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:47 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:47 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:47 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:47 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:47 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:47 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:47 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:47 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:47 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:48 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:48 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:48 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:48 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:48 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:48 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:48 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:48 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:48 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:48 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:48 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:48 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:48 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:48 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:48 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:48 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:48 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:48 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:48 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:48 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:48 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:48 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:48 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:48 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:48 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:48 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:48 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:48 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:48 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:48 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:48 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:48 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:48 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:48 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:48 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:48 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:48 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:48 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:48 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:48 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:48 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:48 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:48 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:48 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:48 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:48 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:48 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:48 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:48 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:48 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:49 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:49 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:49 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:49 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:49 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:49 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:49 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:49 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:49 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:49 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:49 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:49 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:49 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:49 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:49 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:49 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:49 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:49 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:49 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:49 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:49 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:49 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:49 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:49 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:49 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:01 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:01 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:01 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:01 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:01 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:01 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:01 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:01 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:01 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:01 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:01 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:01 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:01 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:01 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:01 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:01 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:01 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:01 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:01 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:01 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:01 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:02 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:02 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:02 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:02 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:02 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:02 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:02 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:02 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:02 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:02 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:02 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:02 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:02 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:02 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:02 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:02 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:02 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:02 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:02 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:02 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:02 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:02 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:02 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:02 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:02 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:02 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:02 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:02 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:02 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:02 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:02 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:02 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:02 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:02 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:02 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:02 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:02 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:02 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:02 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:02 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:02 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:02 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:02 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:02 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:02 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:02 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:02 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:02 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:02 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:02 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:03 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:03 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:03 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:03 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:03 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:03 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:03 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:03 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:03 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:03 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:03 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:03 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:03 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:03 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:03 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:03 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:03 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:03 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:03 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:03 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:03 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:03 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:03 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:03 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:03 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:03 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:03 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:03 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:03 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:03 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:03 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:03 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:03 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:03 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:03 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:03 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:03 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:03 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:03 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:03 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:03 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:03 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:03 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:03 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:03 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:03 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:03 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:03 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:03 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:03 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:04 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:04 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:04 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:04 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:04 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:04 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:04 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:04 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:04 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:04 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:04 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:04 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:04 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:04 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:04 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:04 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:04 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:04 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:04 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:04 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:04 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:04 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:04 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:04 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:04 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:04 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:04 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:04 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:04 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:04 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:04 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:04 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:04 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:04 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:04 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:04 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:04 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:04 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:04 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:04 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:04 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:04 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:04 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:04 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:04 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:04 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:04 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:04 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:04 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:04 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:05 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:05 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:05 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:05 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:05 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:05 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:05 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:05 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:05 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:05 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:05 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:05 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:05 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:05 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:05 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:05 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:05 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:05 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:05 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:05 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:05 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:05 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:05 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:05 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:05 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:05 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:05 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:05 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:05 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:05 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:05 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:05 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:05 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:05 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:05 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:05 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:05 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:05 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:05 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:05 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:05 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:05 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:05 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:05 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:05 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:05 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:05 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:05 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:05 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:05 zephyr consensus-automation: proposal contains an invalid transaction
 --- FAIL: TestConsensusAutomationReplicatesProposalVotesAndCommitAcrossValidators (8.01s)
     server_test.go:1835: condition was not met before timeout
 --- FAIL: TestConsensusAutomationReproposesStoredCandidateAfterRoundTimeout (0.00s)
     server_test.go:1888: record round-zero proposal: missing required consensus fields
-2026/08/18 14:21:49 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:49 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:49 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:49 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:49 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:49 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:49 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:49 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:50 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:50 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:50 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:50 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:50 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:50 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:50 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:50 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:50 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:50 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:50 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:50 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:50 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:50 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:50 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:50 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:50 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:50 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:50 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:50 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:50 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:50 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:50 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:50 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:50 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:50 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:51 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:51 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:51 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:51 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:51 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:51 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:51 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:51 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:51 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:51 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:51 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:51 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:51 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:51 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:51 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:51 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:51 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:51 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:51 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:51 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:51 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:51 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:51 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:51 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:51 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:51 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:52 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:52 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:52 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:52 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:52 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:52 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:52 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:52 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:52 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:52 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:52 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:52 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:52 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:52 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:52 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:52 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:52 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:52 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:52 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:52 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:52 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:52 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:52 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:52 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:52 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:52 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:53 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:53 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:53 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:53 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:53 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:53 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:53 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:53 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:53 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:53 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:53 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:53 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:53 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:53 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:53 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:53 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:53 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:53 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:53 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:53 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:53 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:53 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:53 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:53 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:53 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:53 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:54 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:54 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:54 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:54 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:54 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:54 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:54 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:54 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:54 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:54 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:54 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:54 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:54 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:54 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:54 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:54 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:54 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:54 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:54 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:54 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:54 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:54 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:54 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:54 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:55 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:55 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:55 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:55 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:55 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:55 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:55 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:55 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:55 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:55 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:55 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:55 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:55 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:55 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:55 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:55 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:55 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:55 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:55 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:55 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:55 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:55 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:55 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:55 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:56 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:56 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:56 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:56 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:56 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:56 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:56 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:56 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:56 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:56 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:56 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:56 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:56 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:56 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:56 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:56 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:56 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:56 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:56 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:56 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:56 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:56 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:56 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:56 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:57 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:57 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:57 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:57 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:57 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:57 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:57 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:57 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:57 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:57 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:57 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:57 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:57 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:57 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:57 zephyr consensus-automation: proposal contains an invalid transaction
-2026/08/18 14:21:57 zephyr consensus-automation: proposal contains an invalid transaction
---- FAIL: TestConsensusAutomationAdvancesRoundAndRotatesProposerAfterTimeout (8.01s)
+2026/08/18 14:26:06 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:06 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:06 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:06 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:06 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:06 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:06 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:06 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:06 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:06 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:06 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:06 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:06 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:06 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:06 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:06 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:06 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:06 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:06 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:06 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:06 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:06 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:06 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:06 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:07 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:07 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:07 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:07 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:07 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:07 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:07 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:07 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:07 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:07 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:07 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:07 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:07 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:07 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:07 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:07 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:07 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:07 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:07 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:07 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:07 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:07 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:07 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:07 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:08 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:08 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:08 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:08 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:08 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:08 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:08 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:08 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:08 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:08 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:08 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:08 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:08 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:08 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:08 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:08 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:08 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:08 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:08 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:08 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:08 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:08 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:08 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:08 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:09 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:09 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:09 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:09 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:09 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:09 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:09 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:09 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:09 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:09 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:09 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:09 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:09 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:09 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:09 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:09 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:09 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:09 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:09 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:09 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:09 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:09 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:09 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:09 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:10 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:10 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:10 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:10 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:10 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:10 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:10 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:10 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:10 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:10 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:10 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:10 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:10 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:10 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:10 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:10 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:10 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:10 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:10 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:10 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:10 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:10 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:10 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:10 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:10 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:10 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:11 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:11 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:11 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:11 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:11 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:11 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:11 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:11 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:11 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:11 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:11 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:11 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:11 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:11 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:11 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:11 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:11 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:11 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:11 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:11 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:11 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:11 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:11 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:11 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:11 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:11 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:12 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:12 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:12 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:12 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:12 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:12 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:12 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:12 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:12 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:12 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:12 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:12 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:12 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:12 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:12 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:12 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:12 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:12 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:12 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:12 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:12 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:12 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:12 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:12 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:12 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:12 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:13 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:13 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:13 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:13 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:13 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:13 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:13 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:13 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:13 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:13 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:13 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:13 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:13 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:13 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:13 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:13 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:13 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:13 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:13 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:13 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:13 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:13 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:13 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:13 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:13 zephyr consensus-automation: proposal contains an invalid transaction
+2026/08/18 14:26:13 zephyr consensus-automation: proposal contains an invalid transaction
+--- FAIL: TestConsensusAutomationAdvancesRoundAndRotatesProposerAfterTimeout (8.02s)
     server_test.go:1972: condition was not met before timeout
 --- FAIL: TestPeerBroadcastSkipsUnadmittedPeer (0.00s)
     server_test.go:2138: expected broadcast status 202, got 400
 --- FAIL: TestPeerReplicationPropagatesConsensusProposalAndVotes (0.00s)
     server_test.go:2204: expected proposal status 202, got 400
-2026/08/18 14:21:57 zephyr broadcast-faucet http://127.0.0.1:42467: peer request must include a signed request proof
---- FAIL: TestPeerReplicationImportsCertifiedBlockWhenConsensusRequired (8.01s)
+2026/08/18 14:26:14 zephyr broadcast-faucet http://127.0.0.1:34053: peer request must include a signed request proof
+--- FAIL: TestPeerReplicationImportsCertifiedBlockWhenConsensusRequired (8.02s)
     server_test.go:2294: condition was not met before timeout
-2026/08/18 14:22:05 zephyr broadcast-faucet http://127.0.0.1:33047: peer request must include a signed request proof
---- FAIL: TestPeerReplicationPropagatesFaucetTransactionAndBlock (8.01s)
+2026/08/18 14:26:22 zephyr broadcast-faucet http://127.0.0.1:37925: peer request must include a signed request proof
+--- FAIL: TestPeerReplicationPropagatesFaucetTransactionAndBlock (8.02s)
     server_test.go:2414: condition was not met before timeout
-2026/08/18 14:22:13 zephyr peer-sync http://127.0.0.1:40327: snapshot does not have trusted validator quorum
-2026/08/18 14:22:13 zephyr peer-sync http://127.0.0.1:40327: snapshot does not have trusted validator quorum
-2026/08/18 14:22:13 zephyr peer-sync http://127.0.0.1:40327: snapshot does not have trusted validator quorum
-2026/08/18 14:22:13 zephyr peer-sync http://127.0.0.1:40327: snapshot does not have trusted validator quorum
-2026/08/18 14:22:13 zephyr peer-sync http://127.0.0.1:40327: snapshot does not have trusted validator quorum
-2026/08/18 14:22:14 zephyr peer-sync http://127.0.0.1:40327: snapshot does not have trusted validator quorum
+2026/08/18 14:26:30 zephyr peer-sync http://127.0.0.1:43999: snapshot does not have trusted validator quorum
+2026/08/18 14:26:30 zephyr peer-sync http://127.0.0.1:43999: snapshot does not have trusted validator quorum
+2026/08/18 14:26:30 zephyr peer-sync http://127.0.0.1:43999: snapshot does not have trusted validator quorum
+2026/08/18 14:26:30 zephyr peer-sync http://127.0.0.1:43999: snapshot does not have trusted validator quorum
+2026/08/18 14:26:30 zephyr peer-sync http://127.0.0.1:43999: snapshot does not have trusted validator quorum
+2026/08/18 14:26:30 zephyr peer-sync http://127.0.0.1:43999: snapshot does not have trusted validator quorum
 --
-2026/08/18 14:22:21 zephyr peer-sync http://127.0.0.1:40327: snapshot does not have trusted validator quorum
-2026/08/18 14:22:21 zephyr peer-sync http://127.0.0.1:40327: snapshot does not have trusted validator quorum
+2026/08/18 14:26:38 zephyr peer-sync http://127.0.0.1:43999: snapshot does not have trusted validator quorum
+2026/08/18 14:26:38 zephyr peer-sync http://127.0.0.1:43999: snapshot does not have trusted validator quorum
 --- FAIL: TestPeerSyncRestoresSnapshotForLateJoiningNode (8.02s)
     server_test.go:2486: condition was not met before timeout
-2026/08/18 14:22:21 zephyr peer-sync http://127.0.0.1:41321: snapshot does not have trusted validator quorum
-2026/08/18 14:22:21 zephyr peer-sync http://127.0.0.1:41321: snapshot does not have trusted validator quorum
-2026/08/18 14:22:21 zephyr peer-sync http://127.0.0.1:41321: snapshot does not have trusted validator quorum
-2026/08/18 14:22:21 zephyr peer-sync http://127.0.0.1:41321: snapshot does not have trusted validator quorum
-2026/08/18 14:22:21 zephyr peer-sync http://127.0.0.1:41321: snapshot does not have trusted validator quorum
-2026/08/18 14:22:22 zephyr peer-sync http://127.0.0.1:41321: snapshot does not have trusted validator quorum
+2026/08/18 14:26:38 zephyr peer-sync http://127.0.0.1:35111: snapshot does not have trusted validator quorum
+2026/08/18 14:26:38 zephyr peer-sync http://127.0.0.1:35111: snapshot does not have trusted validator quorum
+2026/08/18 14:26:38 zephyr peer-sync http://127.0.0.1:35111: snapshot does not have trusted validator quorum
+2026/08/18 14:26:38 zephyr peer-sync http://127.0.0.1:35111: snapshot does not have trusted validator quorum
+2026/08/18 14:26:38 zephyr peer-sync http://127.0.0.1:35111: snapshot does not have trusted validator quorum
+2026/08/18 14:26:38 zephyr peer-sync http://127.0.0.1:35111: snapshot does not have trusted validator quorum
 --
-2026/08/18 14:22:29 zephyr peer-sync http://127.0.0.1:41321: snapshot does not have trusted validator quorum
-2026/08/18 14:22:29 zephyr peer-sync http://127.0.0.1:41321: snapshot does not have trusted validator quorum
+2026/08/18 14:26:46 zephyr peer-sync http://127.0.0.1:35111: snapshot does not have trusted validator quorum
+2026/08/18 14:26:46 zephyr peer-sync http://127.0.0.1:35111: snapshot does not have trusted validator quorum
 --- FAIL: TestPeerSyncRestoresSnapshotWhenSameHeightDiverges (8.03s)
     server_test.go:2555: condition was not met before timeout
-2026/08/18 14:22:29 zephyr peer-sync http://127.0.0.1:37397: snapshot does not have trusted validator quorum
+2026/08/18 14:26:46 zephyr peer-sync http://127.0.0.1:39485: snapshot does not have trusted validator quorum
 --- FAIL: TestPeerSyncHistoryPersistsAcrossServerRestart (0.08s)
-    server_test.go:2691: unexpected restarted peer sync history {PeerURL:http://127.0.0.1:37397 State:sync_error Reason: LocalHeight:1 PeerHeight:1 HeightDelta:0 BlockHash: ErrorCode: ErrorMessage:snapshot does not have trusted validator quorum FirstObservedAt:2026-08-18 14:22:29.801778406 +0000 UTC LastObservedAt:2026-08-18 14:22:29.801778406 +0000 UTC Occurrences:1}
-2026/08/18 14:22:29 zephyr broadcast-proposal http://peer-a.example: dial tcp timeout
+    server_test.go:2691: unexpected restarted peer sync history {PeerURL:http://127.0.0.1:39485 State:sync_error Reason: LocalHeight:1 PeerHeight:1 HeightDelta:0 BlockHash: ErrorCode: ErrorMessage:snapshot does not have trusted validator quorum FirstObservedAt:2026-08-18 14:26:46.318154691 +0000 UTC LastObservedAt:2026-08-18 14:26:46.318154691 +0000 UTC Occurrences:1}
+2026/08/18 14:26:46 zephyr broadcast-proposal http://peer-a.example: dial tcp timeout
 --- FAIL: TestHandleImportBlockRejectsAndExposesPendingImportRecovery (0.00s)
     server_test.go:5133: record producer proposal: missing required consensus fields
 --- FAIL: TestPeerSyncConsensusImportFailureRestoresSnapshotAndRecordsRecoveryHistory (0.00s)
     server_test.go:5243: record producer proposal: missing required consensus fields
 FAIL
-FAIL	github.com/zephyr-chain/zephyr-chain/internal/api	80.681s
---- FAIL: TestProposalValidateStaticAcceptsValidSignedProposal (0.00s)
-    messages_test.go:25: expected valid proposal, got missing required consensus fields
---- FAIL: TestProposalValidateStaticRejectsAddressMismatch (0.00s)
-    messages_test.go:34: expected invalid address error, got missing required consensus fields
---- FAIL: TestProposalValidateStaticRejectsMissingTransactions (0.00s)
-    messages_test.go:43: expected missing transactions error, got missing required consensus fields
---- FAIL: TestProposalValidateStaticRejectsTransactionMismatch (0.00s)
-    messages_test.go:52: expected transaction mismatch error, got missing required consensus fields
---- FAIL: TestProposalValidateStaticRejectsHashMismatch (0.00s)
-    messages_test.go:61: expected hash mismatch error, got missing required consensus fields
---- FAIL: TestVoteValidateStaticAcceptsValidSignedVote (0.00s)
-    messages_test.go:69: expected valid vote, got missing required consensus fields
---- FAIL: TestVoteValidateStaticRejectsPayloadMismatch (0.00s)
-    messages_test.go:78: expected invalid payload error, got missing required consensus fields
-FAIL
-FAIL	github.com/zephyr-chain/zephyr-chain/internal/consensus	0.006s
-ok  	github.com/zephyr-chain/zephyr-chain/internal/dpos	0.003s
+FAIL	github.com/zephyr-chain/zephyr-chain/internal/api	80.751s
+ok  	github.com/zephyr-chain/zephyr-chain/internal/consensus	0.006s
+ok  	github.com/zephyr-chain/zephyr-chain/internal/dpos	0.004s
 --- FAIL: TestRecordProposalUsesLocalObservationTimeForRoundStart (0.00s)
     consensus_timing_test.go:28: record higher-round proposal: missing required consensus fields
---- FAIL: TestStoreImportBlockCommitsValidRemoteBlock (0.00s)
+--- FAIL: TestStoreImportBlockCommitsValidRemoteBlock (0.01s)
     store_test.go:248: import block: invalid block
 --- FAIL: TestStoreRecordProposalVotesAndCertificatePersistAcrossRestart (0.00s)
     store_test.go:410: record proposal: missing required consensus fields
@@ -487,17 +494,10 @@ ok  	github.com/zephyr-chain/zephyr-chain/internal/dpos	0.003s
     store_test.go:771: record proposal: missing required consensus fields
 --- FAIL: TestStoreConsensusRecoveryPersistsAcrossRestartAndCompletesOnCommit (0.00s)
     store_test.go:833: record proposal with action: missing required consensus fields
---- FAIL: TestStoreRestoreFromPeerSnapshotPreservesLocalRecoveryAndDiagnostics (0.00s)
+--- FAIL: TestStoreRestoreFromPeerSnapshotPreservesLocalRecoveryAndDiagnostics (0.01s)
     store_test.go:927: restore from peer snapshot: snapshot does not have trusted validator quorum
 FAIL
-FAIL	github.com/zephyr-chain/zephyr-chain/internal/ledger	0.237s
+FAIL	github.com/zephyr-chain/zephyr-chain/internal/ledger	0.312s
 ?   	github.com/zephyr-chain/zephyr-chain/internal/protocol	[no test files]
---- FAIL: TestEnvelopeValidateStaticAcceptsWalletCompatibleSignature (0.00s)
-    envelope_test.go:19: expected valid envelope, got error: missing required transaction fields
---- FAIL: TestEnvelopeValidateStaticRejectsPayloadMismatch (0.00s)
-    envelope_test.go:32: expected invalid payload error, got missing required transaction fields
---- FAIL: TestEnvelopeValidateStaticRejectsAddressMismatch (0.00s)
-    envelope_test.go:41: expected invalid address error, got missing required transaction fields
-FAIL
-FAIL	github.com/zephyr-chain/zephyr-chain/internal/tx	0.004s
+ok  	github.com/zephyr-chain/zephyr-chain/internal/tx	0.004s
 FAIL
