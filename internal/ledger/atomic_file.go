@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 )
 
 func writeFileAtomic(path string, data []byte, mode os.FileMode) error {
@@ -43,18 +44,22 @@ func writeFileAtomic(path string, data []byte, mode os.FileMode) error {
 		return fmt.Errorf("set state permissions: %w", err)
 	}
 
-	// Syncing the containing directory makes the rename durable on filesystems
-	// that support directory fsync. Some platforms do not, so only propagate a
-	// sync error after the directory itself was opened successfully.
+	// Windows does not expose the same durable-directory fsync semantics as
+	// Unix-like systems. The file itself has already been synced before rename.
+	if runtime.GOOS == "windows" {
+		return nil
+	}
+
 	directoryHandle, err := os.Open(directory)
-	if err == nil {
-		if syncErr := directoryHandle.Sync(); syncErr != nil {
-			_ = directoryHandle.Close()
-			return fmt.Errorf("sync state directory: %w", syncErr)
-		}
-		if closeErr := directoryHandle.Close(); closeErr != nil {
-			return fmt.Errorf("close state directory: %w", closeErr)
-		}
+	if err != nil {
+		return fmt.Errorf("open state directory for sync: %w", err)
+	}
+	if syncErr := directoryHandle.Sync(); syncErr != nil {
+		_ = directoryHandle.Close()
+		return fmt.Errorf("sync state directory: %w", syncErr)
+	}
+	if closeErr := directoryHandle.Close(); closeErr != nil {
+		return fmt.Errorf("close state directory: %w", closeErr)
 	}
 
 	return nil
