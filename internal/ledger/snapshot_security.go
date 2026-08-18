@@ -76,6 +76,9 @@ func ValidateSnapshotCommittedState(snapshot Snapshot, chainID string) error {
 	if err := protocol.ValidateChainID(chainID); err != nil {
 		return ErrSnapshotChainMismatch
 	}
+	if snapshot.ChainID != chainID {
+		return ErrSnapshotChainMismatch
+	}
 	if len(snapshot.Blocks) == 0 {
 		return fmt.Errorf("%w: no committed blocks", ErrInvalidSnapshot)
 	}
@@ -113,7 +116,7 @@ func ValidateSnapshotCommittedState(snapshot Snapshot, chainID string) error {
 	}
 
 	latest := snapshot.Blocks[len(snapshot.Blocks)-1]
-	root, err := StateRoot(chainID, snapshot.Accounts, snapshot.ValidatorSnapshot)
+	root, err := stateRootWithFundingIDs(chainID, snapshot.Accounts, snapshot.ValidatorSnapshot, snapshot.AppliedFundingIDs)
 	if err != nil || root != latest.StateRoot {
 		return ErrInvalidStateRoot
 	}
@@ -199,7 +202,6 @@ func (s *Store) RestoreQuorumSnapshot(snapshot Snapshot, chainID string, proofs 
 
 	incoming := persistedFromSnapshot(snapshot)
 	incoming.Mempool = make([]MempoolEntry, 0)
-	incoming.AppliedFundingIDs = make([]string, 0)
 	incoming.RoundState = ConsensusRoundState{Height: uint64(len(incoming.Blocks) + 1)}
 	incoming.Proposals = make([]consensus.Proposal, 0)
 	incoming.Votes = make([]VoteRecord, 0)

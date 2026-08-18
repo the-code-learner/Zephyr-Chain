@@ -27,6 +27,7 @@ var (
 	ErrBalanceOverflow       = errors.New("account balance overflow")
 	ErrNonceExhausted        = errors.New("account nonce exhausted")
 	ErrVotingPowerOverflow   = errors.New("validator voting power overflow")
+	ErrStateChainMismatch    = errors.New("persisted state chain ID does not match configured chain")
 )
 
 type AccountState struct {
@@ -91,6 +92,7 @@ type ConsensusView struct {
 }
 
 type Snapshot struct {
+	ChainID                 string                  `json:"chainId"`
 	Accounts                map[string]AccountState `json:"accounts"`
 	Mempool                 []MempoolEntry          `json:"mempool"`
 	Blocks                  []Block                 `json:"blocks"`
@@ -115,6 +117,7 @@ type pendingState struct {
 }
 
 type persistedState struct {
+	ChainID                 string                  `json:"chainId"`
 	Accounts                map[string]AccountState `json:"accounts"`
 	Mempool                 []MempoolEntry          `json:"mempool"`
 	Blocks                  []Block                 `json:"blocks"`
@@ -486,18 +489,26 @@ func (s *Store) ImportBlockWithOptions(block Block, requireConsensus bool) error
 func (s *Store) load() error {
 	raw, err := os.ReadFile(s.statePath)
 	if errors.Is(err, os.ErrNotExist) {
-		return nil
+		return s.writeState(s.snapshotLocked())
 	}
 	if err != nil {
 		return err
 	}
 	if len(raw) == 0 {
-		return nil
+		return s.writeState(s.snapshotLocked())
 	}
 
 	var state persistedState
 	if err := json.Unmarshal(raw, &state); err != nil {
 		return err
+	}
+	if state.ChainID == "" || state.ChainID != s.chainID {
+		return ErrStateChainMismatch
+	}
+	for _, block := range state.Blocks {
+		if block.ChainID != s.chainID {
+			return ErrStateChainMismatch
+		}
 	}
 
 	state = normalizeState(state)
@@ -509,6 +520,12 @@ func (s *Store) load() error {
 }
 
 func (s *Store) writeState(state persistedState) error {
+	if state.ChainID == "" {
+		state.ChainID = s.chainID
+	}
+	if state.ChainID != s.chainID {
+		return ErrStateChainMismatch
+	}
 	state = normalizeState(state)
 	raw, err := json.MarshalIndent(state, "", "  ")
 	if err != nil {
@@ -522,6 +539,7 @@ func (s *Store) snapshotLocked() persistedState {
 	committedIDs := mapKeys(s.committedTransactions)
 	appliedFundingIDs := mapKeys(s.appliedFundingIDs)
 	return persistedState{
+		ChainID:                 s.chainID,
 		Accounts:                cloneAccounts(s.accounts),
 		Mempool:                 cloneMempool(s.mempool),
 		Blocks:                  cloneBlocks(s.blocks),
@@ -844,6 +862,7 @@ func normalizeState(state persistedState) persistedState {
 func snapshotFromPersisted(state persistedState) Snapshot {
 	state = normalizeState(state)
 	return Snapshot{
+		ChainID:                 state.ChainID,
 		Accounts:                cloneAccounts(state.Accounts),
 		Mempool:                 cloneMempool(state.Mempool),
 		Blocks:                  cloneBlocks(state.Blocks),
@@ -862,6 +881,7 @@ func snapshotFromPersisted(state persistedState) Snapshot {
 
 func persistedFromSnapshot(snapshot Snapshot) persistedState {
 	return normalizeState(persistedState{
+		ChainID:                 snapshot.ChainID,
 		Accounts:                cloneAccounts(snapshot.Accounts),
 		Mempool:                 cloneMempool(snapshot.Mempool),
 		Blocks:                  cloneBlocks(snapshot.Blocks),

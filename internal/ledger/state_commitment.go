@@ -31,6 +31,7 @@ type committedValidator struct {
 
 type committedStatePayload struct {
 	Accounts            []committedAccount   `json:"accounts"`
+	AppliedFundingIDs   []string             `json:"appliedFundingIds"`
 	ChainID             string               `json:"chainId"`
 	Domain              string               `json:"domain"`
 	ElectionConfig      dpos.ElectionConfig  `json:"electionConfig"`
@@ -39,6 +40,10 @@ type committedStatePayload struct {
 }
 
 func StateRoot(chainID string, accounts map[string]AccountState, snapshot ValidatorSnapshot) (string, error) {
+	return stateRootWithFundingIDs(chainID, accounts, snapshot, nil)
+}
+
+func stateRootWithFundingIDs(chainID string, accounts map[string]AccountState, snapshot ValidatorSnapshot, appliedFundingIDs []string) (string, error) {
 	chainID = strings.TrimSpace(chainID)
 	if err := protocol.ValidateChainID(chainID); err != nil {
 		return "", ErrInvalidStateRoot
@@ -84,6 +89,7 @@ func StateRoot(chainID string, accounts map[string]AccountState, snapshot Valida
 
 	payload, err := json.Marshal(committedStatePayload{
 		Accounts:            committedAccounts,
+		AppliedFundingIDs:   uniqueSortedStrings(appliedFundingIDs),
 		ChainID:             chainID,
 		Domain:              protocol.StateDomain,
 		ElectionConfig:      snapshot.ElectionConfig,
@@ -99,5 +105,5 @@ func StateRoot(chainID string, accounts map[string]AccountState, snapshot Valida
 
 func stateRootFromState(chainID string, state persistedState) (string, error) {
 	state = normalizeState(state)
-	return StateRoot(chainID, state.Accounts, state.ValidatorSnapshot)
+	return stateRootWithFundingIDs(chainID, state.Accounts, state.ValidatorSnapshot, state.AppliedFundingIDs)
 }

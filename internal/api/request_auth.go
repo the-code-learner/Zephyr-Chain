@@ -36,6 +36,7 @@ var (
 	errRequestTimestamp       = errors.New("peer request timestamp is outside the allowed window")
 	errRequestReplay          = errors.New("peer request nonce has already been used")
 	errRequestReplayStoreFull = errors.New("peer request replay store is full")
+	errRequestBodyTooLarge    = errors.New("peer request body exceeds the allowed limit")
 )
 
 type requestProof struct {
@@ -119,7 +120,7 @@ func requestProofFromRequest(r *http.Request, expectedChainID string) (*requestP
 
 	body, err := readAndRestoreRequestBody(r)
 	if err != nil {
-		return nil, nil, errInvalidRequestProof
+		return nil, nil, err
 	}
 	proof := &requestProof{
 		BodyHash:         bodySHA256(body),
@@ -186,9 +187,12 @@ func readAndRestoreRequestBody(r *http.Request) ([]byte, error) {
 	if r.Body == nil {
 		return nil, nil
 	}
-	body, err := io.ReadAll(r.Body)
+	body, err := io.ReadAll(io.LimitReader(r.Body, maxPublicRequestBodyBytes+1))
 	if err != nil {
 		return nil, err
+	}
+	if int64(len(body)) > maxPublicRequestBodyBytes {
+		return nil, errRequestBodyTooLarge
 	}
 	r.Body = io.NopCloser(bytes.NewReader(body))
 	return body, nil

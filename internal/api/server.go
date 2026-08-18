@@ -916,8 +916,11 @@ func statusForError(err error) int {
 		errors.Is(err, errValidatorAddressRequired),
 		errors.Is(err, errNotScheduledProposer):
 		return http.StatusConflict
+	case errors.Is(err, errRequestBodyTooLarge):
+		return http.StatusRequestEntityTooLarge
 	case errors.Is(err, ledger.ErrBlockInvariant),
-		errors.Is(err, ledger.ErrInvalidBlock):
+		errors.Is(err, ledger.ErrInvalidBlock),
+		errors.Is(err, ledger.ErrStateChainMismatch):
 		return http.StatusBadRequest
 	default:
 		return http.StatusInternalServerError
