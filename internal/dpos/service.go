@@ -101,6 +101,14 @@ func (s *Service) ElectValidators(candidates []Candidate, votes []Vote) ([]Valid
 		validators = validators[:cfg.MaxValidators]
 	}
 
+	var totalVotingPower uint64
+	for _, validator := range validators {
+		if validator.VotingPower > math.MaxUint64-totalVotingPower {
+			return nil, ErrStakeOverflow
+		}
+		totalVotingPower += validator.VotingPower
+	}
+
 	for i := range validators {
 		validators[i].Rank = i + 1
 	}
