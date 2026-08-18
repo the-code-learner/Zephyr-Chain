@@ -19,7 +19,7 @@ const (
 
 var ErrInvalidChainID = errors.New("invalid chain ID")
 
-func NormalizeChainID(chainID string) string {
+func ConfiguredChainID(chainID string) string {
 	chainID = strings.TrimSpace(chainID)
 	if chainID == "" {
 		return DefaultChainID
