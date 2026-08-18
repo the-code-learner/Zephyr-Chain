@@ -1,0 +1,56 @@
+name: Protocol backend refresh v2
+
+on:
+  pull_request:
+
+permissions:
+  contents: write
+
+jobs:
+  refresh:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: chatgpt/protocol-hardening
+          fetch-depth: 0
+      - name: Run corrected integration patch
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          text = Path('.github/workflows/protocol-backend-refresh.yml').read_text()
+          marker = "          python - <<'PY'\n"
+          start = text.index(marker) + len(marker)
+          end = text.index("\n          PY\n", start)
+          lines = text[start:end].splitlines()
+          script = "\n".join(line[10:] if line.startswith("          ") else line for line in lines)
+          old = """replace_exact(store,
+    '\\tPeerSyncIncidents       []PeerSyncIncident      `json:\"peerSyncIncidents\"`\\n}',
+    '\\tPeerSyncIncidents       []PeerSyncIncident      `json:\"peerSyncIncidents\"`\\n\\tProof                   SnapshotProof            `json:\"proof\"`\\n}', 1)"""
+          new = """replace_regex(store,
+    r'(type Snapshot struct \\{.*?\\tPeerSyncIncidents       \\[\\]PeerSyncIncident      `json:\"peerSyncIncidents\"`\\n)\\}',
+    r'\\1\\tProof                   SnapshotProof            `json:\"proof\"`\\n}', 1)"""
+          if old not in script:
+              raise SystemExit('unable to patch snapshot selector in integration script')
+          script = script.replace(old, new)
+          exec(compile(script, 'protocol-backend-refresh', 'exec'))
+          PY
+          gofmt -w internal/protocol internal/tx internal/consensus internal/ledger internal/api cmd/node
+      - name: Verify backend
+        run: |
+          go vet ./...
+          go test ./...
+      - name: Commit verified backend
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add internal cmd
+          if git diff --cached --quiet; then
+            echo "No backend changes to commit."
+            exit 0
+          fi
+          git commit -m "integrate chain-bound protocol and snapshot quorum"
+          git push origin HEAD:chatgpt/protocol-hardening
