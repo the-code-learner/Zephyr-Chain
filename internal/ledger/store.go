@@ -146,7 +146,7 @@ func NewStore(dataDir string) (*Store, error) {
 		dataDir = filepath.Join("var", "node")
 	}
 
-	if err := os.MkdirAll(dataDir, 0o755); err != nil {
+	if err := os.MkdirAll(dataDir, 0o700); err != nil {
 		return nil, err
 	}
 
@@ -492,7 +492,7 @@ func (s *Store) writeState(state persistedState) error {
 		return err
 	}
 
-	return os.WriteFile(s.statePath, raw, 0o644)
+	return writeFileAtomic(s.statePath, raw, 0o600)
 }
 
 func (s *Store) snapshotLocked() persistedState {
