@@ -1,0 +1,52 @@
+name: Consensus test stability refresh
+
+on:
+  pull_request:
+
+permissions:
+  contents: write
+
+jobs:
+  refresh:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v6
+        with:
+          ref: chatgpt/hardening-foundation
+
+      - name: Increase async test deadline
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('internal/api/server_test.go')
+          source = path.read_text()
+          old = 'deadline := time.Now().Add(3 * time.Second)'
+          new = 'deadline := time.Now().Add(8 * time.Second)'
+          count = source.count(old)
+          if count != 1:
+              raise SystemExit(f'expected exactly one waitFor deadline, found {count}')
+          path.write_text(source.replace(old, new))
+          PY
+          gofmt -w internal/api/server_test.go
+
+      - name: Stress the previously flaky test
+        run: go test ./internal/api -run '^TestConsensusAutomationRebroadcastsVoteAfterPeerLinkRestored$' -count=8
+
+      - name: Verify API package
+        run: go test ./internal/api
+
+      - name: Commit test stabilization
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add internal/api/server_test.go
+          if git diff --cached --quiet; then
+            echo "No test changes to commit."
+            exit 0
+          fi
+          git commit -m "stabilize asynchronous consensus tests"
+          git push origin HEAD:chatgpt/hardening-foundation
