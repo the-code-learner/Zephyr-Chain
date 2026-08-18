@@ -150,7 +150,7 @@ npm.cmd install
 npm.cmd run dev
 ```
 
-Vite serves the wallet on `http://localhost:5173` by default.
+Vite serves the wallet on `http://localhost:5173` by default and proxies `/health`, `/v1`, and `/metrics` to `http://127.0.0.1:8080`, so local development stays same-origin in the browser. Set `ZEPHYR_WALLET_DEV_NODE` to change the dev proxy target, or `VITE_ZEPHYR_API_BASE` when intentionally targeting a different API origin.
 
 ### 3. Run a two-node local devnet
 

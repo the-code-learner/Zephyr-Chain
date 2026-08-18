@@ -20,7 +20,7 @@ import type {
   TransactionDraft
 } from './types'
 
-const apiBase = ref(import.meta.env.VITE_ZEPHYR_API_BASE ?? 'http://localhost:8080')
+const apiBase = ref(import.meta.env.VITE_ZEPHYR_API_BASE ?? '')
 const account = ref<StoredAccount | null>(null)
 const accountView = ref<AccountView | null>(null)
 const backupDraft = ref('')
@@ -329,7 +329,7 @@ async function handleBroadcast() {
 
         <label class="stack">
           <span>Node API base URL</span>
-          <input v-model="apiBase" type="url" placeholder="http://localhost:8080" />
+          <input v-model="apiBase" type="url" placeholder="Same origin (recommended) or https://node.example" />
         </label>
 
         <label class="stack">
