@@ -24,6 +24,7 @@ jobs:
           python scripts/fix_protocol_fixture_script.py
           python scripts/protocol_fixture_refresh.py
           python scripts/protocol_fixture_postfix.py
+          python scripts/protocol_fixture_postpost.py
           python scripts/protocol_security_edges.py
           gofmt -w internal/protocol internal/tx internal/consensus internal/ledger internal/api cmd/node
       - name: Verify backend and capture failures
