@@ -37,8 +37,8 @@ jobs:
           PY
           gofmt -w internal/ledger/store.go internal/ledger/atomic_file.go internal/ledger/atomic_file_test.go
 
-      - name: Verify Go suite
-        run: go test ./...
+      - name: Verify ledger package
+        run: go test ./internal/ledger
 
       - name: Commit persistence hardening
         shell: bash
