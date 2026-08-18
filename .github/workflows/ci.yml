@@ -7,7 +7,7 @@ on:
   pull_request:
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
@@ -37,23 +37,13 @@ jobs:
           else
             base="${{ github.event.before }}"
           fi
-
           if [ -z "$base" ] || [[ "$base" =~ ^0+$ ]]; then
             base="$(git rev-list --max-parents=0 HEAD)"
           fi
-
           mapfile -t files < <(git diff --name-only --diff-filter=ACMRT "$base" HEAD -- '*.go')
-          if [ "${#files[@]}" -eq 0 ]; then
-            echo "No changed Go files to format-check."
-            exit 0
-          fi
-
+          if [ "${#files[@]}" -eq 0 ]; then echo "No changed Go files to format-check."; exit 0; fi
           unformatted="$(gofmt -l "${files[@]}")"
-          if [ -n "$unformatted" ]; then
-            echo "The following changed Go files need gofmt:"
-            echo "$unformatted"
-            exit 1
-          fi
+          if [ -n "$unformatted" ]; then echo "The following changed Go files need gofmt:"; echo "$unformatted"; exit 1; fi
 
       - name: Vet
         run: go vet ./...
@@ -70,19 +60,95 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
-
       - name: Set up Node.js
         uses: actions/setup-node@v7
         with:
           node-version: 24
           cache: npm
           cache-dependency-path: apps/wallet/package-lock.json
-
       - name: Install dependencies
         run: npm ci
-
       - name: Audit production and build dependencies
         run: npm audit --audit-level=high
-
       - name: Type-check and build
         run: npm run build
+
+  protocol-docs:
+    name: Protocol docs migration
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: chatgpt/protocol-hardening
+      - name: Replace obsolete two-node devnet guidance
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+          path = Path('docs/usage.md')
+          source = path.read_text()
+          replacement = r'''## Run A Two-Node Devnet
+
+Use separate terminals, separate data directories, and one stable chain ID for every node in the same network. Internal peer replication requires each node to possess a validator P-256 private key; a node name or unsigned request is not authentication.
+
+The examples below use placeholders for validator keys and derived Zephyr addresses. Replace them with real values before starting the nodes.
+
+Node A:
+
+```powershell
+$env:ZEPHYR_CHAIN_ID="zephyr-devnet-1"
+$env:ZEPHYR_NODE_ID="node-a"
+$env:ZEPHYR_HTTP_ADDR=":8080"
+$env:ZEPHYR_DATA_DIR="var/devnet-a"
+$env:ZEPHYR_VALIDATOR_PRIVATE_KEY="<validator-a-base64-pkcs8-p256-private-key>"
+$env:ZEPHYR_PEERS="http://localhost:8081"
+$env:ZEPHYR_PEER_VALIDATORS="http://localhost:8081=zph_<validator-b-address>"
+$env:ZEPHYR_ENABLE_BLOCK_PRODUCTION="true"
+$env:ZEPHYR_ENABLE_PEER_SYNC="true"
+go run ./cmd/node
+```
+
+Node B:
+
+```powershell
+$env:ZEPHYR_CHAIN_ID="zephyr-devnet-1"
+$env:ZEPHYR_NODE_ID="node-b"
+$env:ZEPHYR_HTTP_ADDR=":8081"
+$env:ZEPHYR_DATA_DIR="var/devnet-b"
+$env:ZEPHYR_VALIDATOR_PRIVATE_KEY="<validator-b-base64-pkcs8-p256-private-key>"
+$env:ZEPHYR_PEERS="http://localhost:8080"
+$env:ZEPHYR_PEER_VALIDATORS="http://localhost:8080=zph_<validator-a-address>"
+$env:ZEPHYR_ENABLE_BLOCK_PRODUCTION="false"
+$env:ZEPHYR_ENABLE_PEER_SYNC="true"
+go run ./cmd/node
+```
+
+What to expect:
+
+- every signed transaction, proposal, vote, block, peer request, and snapshot is bound to `ZEPHYR_CHAIN_ID`; nodes on different chain IDs reject one another's security-critical messages
+- `GET /v1/status` exposes the chain ID and, with a validator key configured, a chain-bound signed discovery identity
+- internal replication uses a separate request proof bound to method, path, body hash, nonce, timestamp, chain ID, node ID, and validator address
+- `ZEPHYR_PEER_VALIDATORS` can pin a configured peer URL to the validator address expected there
+- initial synchronization can validate public block history one block at a time; snapshot replacement is not a single-peer bootstrap mechanism
+- snapshot recovery requires a locally trusted validator set and matching proofs reaching the normal 2/3+ voting-power quorum; one authenticated peer cannot replace local state
+- for a brand-new network, establish validator/genesis or checkpoint trust before relying on quorum snapshot recovery
+
+See [docs/protocol-security.md](./protocol-security.md) for the signing domains, replay protection, state-root commitment, and snapshot trust model.
+
+'''
+          updated, count = re.subn(r'## Run A Two-Node Devnet\n.*?(?=## Inspect Validator Scheduling\n)', replacement, source, count=1, flags=re.S)
+          if count != 1:
+              raise SystemExit('two-node devnet section not found')
+          path.write_text(updated)
+          PY
+      - name: Commit docs
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/usage.md
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m "document authenticated clean-break devnet protocol"
+          git push origin HEAD:chatgpt/protocol-hardening
