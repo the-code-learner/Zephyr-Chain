@@ -10,6 +10,7 @@ const (
 	DefaultChainID = "zephyr-devnet-1"
 
 	TransactionDomain       = "zephyr/transaction/v1"
+	BlockDomain             = "zephyr/block/v1"
 	ConsensusProposalDomain = "zephyr/consensus/proposal/v1"
 	ConsensusVoteDomain     = "zephyr/consensus/vote/v1"
 	TransportIdentityDomain = "zephyr/transport/identity/v1"
