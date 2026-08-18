@@ -17,19 +17,20 @@ import (
 )
 
 var (
-	ErrMissingFields    = errors.New("missing required transaction fields")
-	ErrInvalidAmount    = errors.New("amount must be greater than zero")
-	ErrInvalidPayload   = errors.New("payload does not match canonical transaction")
-	ErrInvalidPublicKey = errors.New("invalid public key")
-	ErrInvalidAddress   = errors.New("from address does not match public key")
-	ErrInvalidSignature = errors.New("invalid signature")
-	ErrInvalidChainID   = errors.New("transaction chain ID does not match local chain")
-	ErrInvalidDomain    = errors.New("invalid transaction signing domain")
+	ErrMissingFields          = errors.New("missing required transaction fields")
+	ErrInvalidAmount          = errors.New("amount must be greater than zero")
+	ErrInvalidPayload         = errors.New("payload does not match canonical transaction")
+	ErrInvalidPublicKey       = errors.New("invalid public key")
+	ErrInvalidAddress         = errors.New("from address does not match public key")
+	ErrInvalidSignature       = errors.New("invalid signature")
+	ErrNonCanonicalSignature  = errors.New("signature must use canonical low-S P-256 form")
+	ErrInvalidChainID         = errors.New("transaction chain ID does not match local chain")
+	ErrInvalidDomain          = errors.New("invalid transaction signing domain")
 )
 
 type Envelope struct {
-	ChainID   string `json:"chainId,omitempty"`
-	Domain    string `json:"domain,omitempty"`
+	ChainID   string `json:"chainId"`
+	Domain    string `json:"domain"`
 	From      string `json:"from"`
 	To        string `json:"to"`
 	Amount    uint64 `json:"amount"`
@@ -61,26 +62,11 @@ type canonicalIdentity struct {
 	To        string `json:"to"`
 }
 
-func (e Envelope) EffectiveChainID() string {
-	return protocol.NormalizeChainID(e.ChainID)
-}
-
-func (e Envelope) EffectiveDomain() string {
-	if strings.TrimSpace(e.Domain) == "" {
-		return protocol.TransactionDomain
-	}
-	return strings.TrimSpace(e.Domain)
-}
-
 func (e Envelope) CanonicalPayload() string {
-	return e.CanonicalPayloadForChain(e.EffectiveChainID())
-}
-
-func (e Envelope) CanonicalPayloadForChain(chainID string) string {
 	payload, _ := json.Marshal(canonicalPayload{
 		Amount:  e.Amount,
-		ChainID: protocol.NormalizeChainID(chainID),
-		Domain:  e.EffectiveDomain(),
+		ChainID: strings.TrimSpace(e.ChainID),
+		Domain:  strings.TrimSpace(e.Domain),
 		From:    e.From,
 		Memo:    e.Memo,
 		Nonce:   e.Nonce,
@@ -90,22 +76,16 @@ func (e Envelope) CanonicalPayloadForChain(chainID string) string {
 }
 
 func (e Envelope) ValidateStatic() error {
-	return e.ValidateForChain(protocol.DefaultChainID)
-}
-
-func (e Envelope) ValidateForChain(expectedChainID string) error {
-	expectedChainID = protocol.NormalizeChainID(expectedChainID)
-	if err := protocol.ValidateChainID(expectedChainID); err != nil {
-		return ErrInvalidChainID
-	}
-	if e.EffectiveChainID() != expectedChainID {
-		return ErrInvalidChainID
-	}
-	if e.EffectiveDomain() != protocol.TransactionDomain {
-		return ErrInvalidDomain
-	}
-	if e.From == "" || e.To == "" || e.Payload == "" || e.PublicKey == "" || e.Signature == "" {
+	chainID := strings.TrimSpace(e.ChainID)
+	domain := strings.TrimSpace(e.Domain)
+	if chainID == "" || domain == "" || e.From == "" || e.To == "" || e.Payload == "" || e.PublicKey == "" || e.Signature == "" {
 		return ErrMissingFields
+	}
+	if err := protocol.ValidateChainID(chainID); err != nil {
+		return ErrInvalidChainID
+	}
+	if domain != protocol.TransactionDomain {
+		return ErrInvalidDomain
 	}
 	if e.Amount == 0 {
 		return ErrInvalidAmount
@@ -118,10 +98,21 @@ func (e Envelope) ValidateForChain(expectedChainID string) error {
 	if address != e.From {
 		return ErrInvalidAddress
 	}
-	if e.Payload != e.CanonicalPayloadForChain(expectedChainID) {
+	if e.Payload != e.CanonicalPayload() {
 		return ErrInvalidPayload
 	}
 	return VerifySignature(e.PublicKey, e.Payload, e.Signature)
+}
+
+func (e Envelope) ValidateForChain(expectedChainID string) error {
+	if err := e.ValidateStatic(); err != nil {
+		return err
+	}
+	expectedChainID = strings.TrimSpace(expectedChainID)
+	if err := protocol.ValidateChainID(expectedChainID); err != nil || strings.TrimSpace(e.ChainID) != expectedChainID {
+		return ErrInvalidChainID
+	}
+	return nil
 }
 
 func DeriveAddressFromPublicKey(encodedPublicKey string) (string, error) {
@@ -192,6 +183,9 @@ func VerifySignature(encodedPublicKey string, payload string, encodedSignature s
 	if err != nil {
 		return err
 	}
+	if s.Cmp(halfOrder()) > 0 {
+		return ErrNonCanonicalSignature
+	}
 	digest := sha256.Sum256([]byte(payload))
 	if !ecdsa.Verify(publicKey, digest[:], r, s) {
 		return ErrInvalidSignature
@@ -202,8 +196,8 @@ func VerifySignature(encodedPublicKey string, payload string, encodedSignature s
 func ID(e Envelope) string {
 	payload, _ := json.Marshal(canonicalIdentity{
 		Amount:    e.Amount,
-		ChainID:   e.EffectiveChainID(),
-		Domain:    e.EffectiveDomain(),
+		ChainID:   strings.TrimSpace(e.ChainID),
+		Domain:    strings.TrimSpace(e.Domain),
 		From:      e.From,
 		Memo:      e.Memo,
 		Nonce:     e.Nonce,
