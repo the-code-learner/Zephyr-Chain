@@ -4,11 +4,13 @@ import { broadcastTransaction, fetchAccount, fundAccount, pingNode } from './lib
 import {
   clearAccount,
   createAccount,
-  exportAccount,
+  hasLegacyStoredAccount,
+  hasStoredAccount,
   importAccount,
-  loadStoredAccount,
+  loadStoredBackup,
   saveAccount,
-  signTransaction
+  signTransaction,
+  unlockStoredAccount
 } from './lib/wallet'
 import type {
   AccountView,
@@ -22,10 +24,13 @@ const apiBase = ref(import.meta.env.VITE_ZEPHYR_API_BASE ?? 'http://localhost:80
 const account = ref<StoredAccount | null>(null)
 const accountView = ref<AccountView | null>(null)
 const backupDraft = ref('')
+const walletPassphrase = ref('')
+const storedWalletPresent = ref(false)
+const legacyWalletPresent = ref(false)
 const signedEnvelope = ref<SignedTransactionEnvelope | null>(null)
 const networkResponse = ref<BroadcastResponse | null>(null)
 const networkHealthy = ref<boolean | null>(null)
-const statusMessage = ref('Create or import an account to begin.')
+const statusMessage = ref('Create, unlock, or import an account to begin.')
 const faucetAmount = ref(100)
 const isBusy = ref(false)
 const isRefreshing = ref(false)
@@ -40,7 +45,7 @@ const form = ref<TransactionDraft>({
 
 const shortAddress = computed(() => {
   if (!account.value) {
-    return 'No wallet loaded'
+    return storedWalletPresent.value ? 'Encrypted wallet locked' : 'No wallet loaded'
   }
 
   return `${account.value.address.slice(0, 12)}...${account.value.address.slice(-6)}`
@@ -65,12 +70,14 @@ const balancePill = computed(() => {
 })
 
 onMounted(async () => {
-  const existing = loadStoredAccount()
-  if (existing) {
-    account.value = existing
-    form.value.from = existing.address
-    backupDraft.value = exportAccount(existing)
-    statusMessage.value = 'Recovered wallet from local storage.'
+  storedWalletPresent.value = hasStoredAccount()
+  legacyWalletPresent.value = hasLegacyStoredAccount()
+
+  if (legacyWalletPresent.value) {
+    statusMessage.value =
+      'Legacy unencrypted wallet storage detected. Enter a passphrase and unlock it to migrate the private key into encrypted storage.'
+  } else if (storedWalletPresent.value) {
+    statusMessage.value = 'Encrypted wallet found on this device. Enter its passphrase to unlock it.'
   }
 
   await refreshNodeState(false)
@@ -93,7 +100,9 @@ async function refreshNodeState(updateStatus = true) {
     }
 
     if (!account.value) {
-      statusMessage.value = 'Node is online. Create or import a wallet to inspect account state.'
+      statusMessage.value = storedWalletPresent.value
+        ? 'Node is online. Unlock the encrypted wallet to inspect account state.'
+        : 'Node is online. Create or import a wallet to inspect account state.'
       return
     }
 
@@ -135,20 +144,52 @@ async function refreshAccount() {
   }
 }
 
+async function activateAccount(nextAccount: StoredAccount) {
+  account.value = nextAccount
+  form.value.from = nextAccount.address
+  form.value.nonce = 1
+  signedEnvelope.value = null
+  networkResponse.value = null
+  storedWalletPresent.value = true
+  legacyWalletPresent.value = false
+  await refreshNodeState(false)
+}
+
 async function handleCreateWallet() {
   isBusy.value = true
 
   try {
     const nextAccount = await createAccount()
-    saveAccount(nextAccount)
-    account.value = nextAccount
-    form.value.from = nextAccount.address
-    form.value.nonce = 1
-    backupDraft.value = exportAccount(nextAccount)
-    signedEnvelope.value = null
-    networkResponse.value = null
-    await refreshNodeState(false)
-    statusMessage.value = 'Fresh wallet created and stored locally on this device.'
+    backupDraft.value = await saveAccount(nextAccount, walletPassphrase.value)
+    await activateAccount(nextAccount)
+    walletPassphrase.value = ''
+    statusMessage.value =
+      'Fresh wallet created. Its private key is encrypted at rest; keep the passphrase and encrypted backup safe.'
+  } catch (error) {
+    statusMessage.value = error instanceof Error ? error.message : 'Unable to create wallet.'
+  } finally {
+    isBusy.value = false
+  }
+}
+
+async function handleUnlockWallet() {
+  if (!storedWalletPresent.value) {
+    statusMessage.value = 'No stored wallet is available to unlock.'
+    return
+  }
+
+  isBusy.value = true
+
+  try {
+    const nextAccount = await unlockStoredAccount(walletPassphrase.value)
+    await activateAccount(nextAccount)
+    backupDraft.value = loadStoredBackup() ?? ''
+    walletPassphrase.value = ''
+    statusMessage.value = legacyWalletPresent.value
+      ? 'Legacy wallet migrated into encrypted storage and unlocked.'
+      : 'Encrypted wallet unlocked for this browser session.'
+  } catch (error) {
+    statusMessage.value = error instanceof Error ? error.message : 'Unable to unlock wallet.'
   } finally {
     isBusy.value = false
   }
@@ -158,14 +199,11 @@ async function handleImportWallet() {
   isBusy.value = true
 
   try {
-    const nextAccount = importAccount(backupDraft.value)
-    saveAccount(nextAccount)
-    account.value = nextAccount
-    form.value.from = nextAccount.address
-    signedEnvelope.value = null
-    networkResponse.value = null
-    await refreshNodeState(false)
-    statusMessage.value = 'Wallet backup imported successfully.'
+    const nextAccount = await importAccount(backupDraft.value, walletPassphrase.value)
+    backupDraft.value = await saveAccount(nextAccount, walletPassphrase.value)
+    await activateAccount(nextAccount)
+    walletPassphrase.value = ''
+    statusMessage.value = 'Wallet backup imported and stored locally in encrypted form.'
   } catch (error) {
     statusMessage.value = error instanceof Error ? error.message : 'Failed to import wallet backup.'
   } finally {
@@ -177,17 +215,20 @@ function handleClearWallet() {
   clearAccount()
   account.value = null
   accountView.value = null
+  storedWalletPresent.value = false
+  legacyWalletPresent.value = false
   signedEnvelope.value = null
   networkResponse.value = null
   form.value.from = ''
   form.value.nonce = 1
   backupDraft.value = ''
+  walletPassphrase.value = ''
   statusMessage.value = 'Wallet removed from local storage.'
 }
 
 async function handleFundAccount() {
   if (!account.value) {
-    statusMessage.value = 'Create or import a wallet before funding it.'
+    statusMessage.value = 'Create, unlock, or import a wallet before funding it.'
     return
   }
 
@@ -216,7 +257,7 @@ function applySuggestedNonce() {
 
 async function handleSignTransaction() {
   if (!account.value) {
-    statusMessage.value = 'Create or import a wallet before signing.'
+    statusMessage.value = 'Create, unlock, or import a wallet before signing.'
     return
   }
 
@@ -225,7 +266,7 @@ async function handleSignTransaction() {
   try {
     const envelope = await signTransaction(account.value, form.value)
     signedEnvelope.value = envelope
-    statusMessage.value = 'Transaction signed locally using your device key.'
+    statusMessage.value = 'Transaction signed locally using the unlocked device key.'
   } catch (error) {
     statusMessage.value = error instanceof Error ? error.message : 'Unable to sign transaction.'
   } finally {
@@ -259,8 +300,9 @@ async function handleBroadcast() {
       <p class="eyebrow">Zephyr Chain / Phase 1 MVP</p>
       <h1>Light wallet control without heavy infrastructure.</h1>
       <p class="lede">
-        This starter wallet keeps keys on-device, signs transactions in the browser, inspects the
-        current node account view, and can use a local dev faucet to exercise the hardened API flow.
+        This starter wallet keeps keys on-device, encrypts private key material at rest, signs
+        transactions in the browser, inspects the current node account view, and can use an explicitly
+        enabled local dev faucet to exercise the hardened API flow.
       </p>
       <div class="hero-meta">
         <span class="pill">Wallet address: {{ shortAddress }}</span>
@@ -289,8 +331,32 @@ async function handleBroadcast() {
           <input v-model="apiBase" type="url" placeholder="http://localhost:8080" />
         </label>
 
+        <label class="stack">
+          <span>Wallet passphrase</span>
+          <input
+            v-model="walletPassphrase"
+            type="password"
+            minlength="10"
+            autocomplete="current-password"
+            placeholder="At least 10 characters"
+          />
+        </label>
+        <p class="hint">
+          The passphrase never leaves the browser. It derives an AES-GCM key used to encrypt private
+          key material before it is written to local storage or exported as a backup.
+        </p>
+
         <div class="actions">
           <button type="button" @click="handleCreateWallet" :disabled="isBusy">Create wallet</button>
+          <button
+            v-if="storedWalletPresent"
+            type="button"
+            class="secondary"
+            @click="handleUnlockWallet"
+            :disabled="isBusy"
+          >
+            Unlock stored wallet
+          </button>
           <button type="button" class="secondary" @click="handleImportWallet" :disabled="isBusy">
             Import backup
           </button>
@@ -300,18 +366,19 @@ async function handleBroadcast() {
         </div>
 
         <label class="stack">
-          <span>Wallet backup JSON</span>
+          <span>Encrypted wallet backup JSON</span>
           <textarea
             v-model="backupDraft"
             rows="10"
             spellcheck="false"
-            placeholder="Generate a wallet or paste a saved backup here."
+            placeholder="Create a wallet or paste an encrypted backup here. Legacy plaintext backups are accepted once and migrated into encrypted storage."
           />
         </label>
 
         <div class="account-card" v-if="account">
           <p><strong>Address</strong> {{ account.address }}</p>
           <p><strong>Created</strong> {{ new Date(account.createdAt).toLocaleString() }}</p>
+          <p><strong>Key state</strong> Unlocked in memory for this browser session</p>
         </div>
 
         <div class="account-card" v-if="accountView">
@@ -415,4 +482,3 @@ async function handleBroadcast() {
     </section>
   </main>
 </template>
-
