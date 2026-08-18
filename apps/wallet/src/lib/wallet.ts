@@ -11,6 +11,9 @@ const MIN_PASSPHRASE_LENGTH = 10
 const KDF_ITERATIONS = 310_000
 const MIN_KDF_ITERATIONS = 100_000
 const MAX_KDF_ITERATIONS = 1_000_000
+const TRANSACTION_DOMAIN = 'zephyr/transaction/v1' as const
+const P256_ORDER = BigInt('0xffffffff00000000ffffffffffffffffbce6faada7179e84f3b9cac2fc632551')
+const P256_HALF_ORDER = P256_ORDER >> 1n
 
 export async function createAccount(): Promise<StoredAccount> {
   const keyPair = await crypto.subtle.generateKey(
@@ -107,9 +110,14 @@ export async function importAccount(raw: string, passphrase: string): Promise<St
 
 export async function signTransaction(
   account: StoredAccount,
-  draft: TransactionDraft
+  draft: TransactionDraft,
+  chainId: string
 ): Promise<SignedTransactionEnvelope> {
   await assertAccountIntegrity(account)
+  chainId = chainId.trim()
+  if (!/^[A-Za-z0-9._-]{1,64}$/.test(chainId)) {
+    throw new Error('Connect to a node with a valid Zephyr chain ID before signing')
+  }
 
   const privateKey = await crypto.subtle.importKey(
     'jwk',
@@ -123,11 +131,13 @@ export async function signTransaction(
   )
 
   const payload = canonicalize({
-    from: draft.from,
-    to: draft.to,
     amount: draft.amount,
+    chainId,
+    domain: TRANSACTION_DOMAIN,
+    from: draft.from,
+    memo: draft.memo,
     nonce: draft.nonce,
-    memo: draft.memo
+    to: draft.to
   })
 
   const signature = await crypto.subtle.sign(
@@ -143,7 +153,9 @@ export async function signTransaction(
     ...draft,
     payload,
     publicKey: account.publicKeySpki,
-    signature: bytesToBase64(new Uint8Array(signature))
+    chainId,
+    domain: TRANSACTION_DOMAIN,
+    signature: bytesToBase64(normalizeP256Signature(new Uint8Array(signature)))
   }
 }
 
@@ -425,6 +437,38 @@ function sortObject(value: unknown): unknown {
   }
 
   return value
+}
+
+function normalizeP256Signature(signature: Uint8Array): Uint8Array {
+  if (signature.length !== 64) {
+    throw new Error('Browser returned an invalid P-256 signature')
+  }
+  const r = bytesToBigInt(signature.slice(0, 32))
+  let s = bytesToBigInt(signature.slice(32))
+  if (s > P256_HALF_ORDER) {
+    s = P256_ORDER - s
+  }
+  const normalized = new Uint8Array(64)
+  normalized.set(bigIntTo32Bytes(r), 0)
+  normalized.set(bigIntTo32Bytes(s), 32)
+  return normalized
+}
+
+function bytesToBigInt(bytes: Uint8Array): bigint {
+  const hex = bytesToHex(bytes) || '0'
+  return BigInt(`0x${hex}`)
+}
+
+function bigIntTo32Bytes(value: bigint): Uint8Array {
+  const hex = value.toString(16).padStart(64, '0')
+  if (hex.length > 64) {
+    throw new Error('P-256 signature integer is out of range')
+  }
+  const bytes = new Uint8Array(32)
+  for (let index = 0; index < 32; index += 1) {
+    bytes[index] = Number.parseInt(hex.slice(index * 2, index * 2 + 2), 16)
+  }
+  return bytes
 }
 
 function bytesToHex(bytes: Uint8Array): string {
