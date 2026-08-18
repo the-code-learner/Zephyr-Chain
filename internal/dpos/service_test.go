@@ -142,3 +142,21 @@ func TestElectValidatorsRejectsVotingPowerOverflow(t *testing.T) {
 		t.Fatalf("expected voting power overflow, got %v", err)
 	}
 }
+
+func TestElectValidatorsRejectsAggregateVotingPowerOverflow(t *testing.T) {
+	service, err := NewService(ElectionConfig{MaxValidators: 2, MinSelfStake: 1, MaxMissedBlocks: 1})
+	if err != nil {
+		t.Fatalf("unexpected error creating service: %v", err)
+	}
+
+	_, err = service.ElectValidators(
+		[]Candidate{
+			{Address: "alice", SelfStake: math.MaxUint64},
+			{Address: "bob", SelfStake: 1},
+		},
+		nil,
+	)
+	if !errors.Is(err, ErrStakeOverflow) {
+		t.Fatalf("expected aggregate voting power overflow, got %v", err)
+	}
+}
