@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"log"
-	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -16,7 +15,7 @@ import (
 func main() {
 	addr := os.Getenv("ZEPHYR_HTTP_ADDR")
 	if addr == "" {
-		addr = ":8080"
+		addr = "127.0.0.1:8080"
 	}
 
 	config := api.DefaultConfig()
@@ -166,7 +165,7 @@ func main() {
 	)
 
 	handler := server.PublicHandler(api.PublicHandlerOptions{EnableDevEndpoints: enableDevEndpoints})
-	if err := http.ListenAndServe(addr, handler); err != nil {
+	if err := runNodeHTTPServer(addr, handler); err != nil {
 		log.Fatalf("server stopped: %v", err)
 	}
 }

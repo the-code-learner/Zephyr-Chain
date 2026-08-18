@@ -181,11 +181,12 @@ async function handleUnlockWallet() {
   isBusy.value = true
 
   try {
+    const wasLegacy = legacyWalletPresent.value
     const nextAccount = await unlockStoredAccount(walletPassphrase.value)
     await activateAccount(nextAccount)
     backupDraft.value = loadStoredBackup() ?? ''
     walletPassphrase.value = ''
-    statusMessage.value = legacyWalletPresent.value
+    statusMessage.value = wasLegacy
       ? 'Legacy wallet migrated into encrypted storage and unlocked.'
       : 'Encrypted wallet unlocked for this browser session.'
   } catch (error) {
