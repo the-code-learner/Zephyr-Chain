@@ -1,4 +1,4 @@
-name: Fix protocol refresh selector
+name: Protocol wallet refresh
 
 on:
   pull_request:
@@ -7,28 +7,34 @@ permissions:
   contents: write
 
 jobs:
-  fix:
+  wallet:
     if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
         with:
           ref: chatgpt/protocol-hardening
-      - name: Fix snapshot selector
+          fetch-depth: 0
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+      - name: Integrate wallet protocol
+        run: python scripts/protocol_wallet_refresh.py
+      - name: Verify wallet
+        working-directory: apps/wallet
+        run: |
+          npm ci
+          npm audit --audit-level=high
+          npm run build
+      - name: Commit verified wallet integration
         shell: bash
         run: |
-          python - <<'PY'
-          from pathlib import Path
-          p = Path('.github/workflows/protocol-backend-refresh.yml')
-          s = p.read_text()
-          old = """          replace_exact(store,\n              '\\tPeerSyncIncidents       []PeerSyncIncident      `json:\"peerSyncIncidents\"`\\n}',\n              '\\tPeerSyncIncidents       []PeerSyncIncident      `json:\"peerSyncIncidents\"`\\n\\tProof                   SnapshotProof            `json:\"proof\"`\\n}', 1)"""
-          new = """          replace_regex(store,\n              r'(type Snapshot struct \\{.*?\\tPeerSyncIncidents       \\[\\]PeerSyncIncident      `json:\"peerSyncIncidents\"`\\n)\\}',\n              r'\\1\\tProof                   SnapshotProof            `json:\"proof\"`\\n}', 1)"""
-          if old not in s:
-              raise SystemExit('snapshot selector block not found')
-          p.write_text(s.replace(old, new))
-          PY
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add .github/workflows/protocol-backend-refresh.yml
-          git commit -m "fix protocol refresh snapshot selector"
+          git add apps/wallet
+          if git diff --cached --quiet; then
+            echo "No wallet integration changes to commit."
+            exit 0
+          fi
+          git commit -m "bind wallet signatures to node chain identity"
           git push origin HEAD:chatgpt/protocol-hardening
