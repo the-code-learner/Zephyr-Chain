@@ -1,0 +1,52 @@
+name: Wallet dependency refresh
+
+on:
+  push:
+    branches:
+      - chatgpt/hardening-foundation
+    paths:
+      - .github/workflows/wallet-dependency-refresh.yml
+
+permissions:
+  contents: write
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          ref: chatgpt/hardening-foundation
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: apps/wallet/package-lock.json
+
+      - name: Refresh vulnerable dependencies
+        working-directory: apps/wallet
+        run: npm audit fix --force
+
+      - name: Verify dependency audit
+        working-directory: apps/wallet
+        run: npm audit --audit-level=high
+
+      - name: Verify wallet build
+        working-directory: apps/wallet
+        run: npm run build
+
+      - name: Commit refreshed manifest and lockfile
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add apps/wallet/package.json apps/wallet/package-lock.json
+          if git diff --cached --quiet; then
+            echo "No dependency changes to commit."
+            exit 0
+          fi
+          git commit -m "update wallet dependencies"
+          git push origin HEAD:chatgpt/hardening-foundation
