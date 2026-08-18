@@ -1,0 +1,97 @@
+name: Process hardening refresh
+
+on:
+  pull_request:
+
+permissions:
+  contents: write
+
+jobs:
+  refresh:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v6
+        with:
+          ref: chatgpt/hardening-foundation
+
+      - name: Patch process boundary, wallet message, and quick start
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path: str, old: str, new: str) -> None:
+              file = Path(path)
+              source = file.read_text()
+              count = source.count(old)
+              if count != 1:
+                  raise SystemExit(f'{path}: expected exactly one occurrence of {old!r}, found {count}')
+              file.write_text(source.replace(old, new))
+
+          replace_once('cmd/node/main.go', '\t"net/http"\n', '')
+          replace_once('cmd/node/main.go', 'addr = ":8080"', 'addr = "127.0.0.1:8080"')
+          replace_once(
+              'cmd/node/main.go',
+              'if err := http.ListenAndServe(addr, handler); err != nil {\n\t\tlog.Fatalf("server stopped: %v", err)\n\t}',
+              'if err := runNodeHTTPServer(addr, handler); err != nil {\n\t\tlog.Fatalf("server stopped: %v", err)\n\t}',
+          )
+
+          replace_once(
+              'apps/wallet/src/App.vue',
+              '  try {\n    const nextAccount = await unlockStoredAccount(walletPassphrase.value)\n    await activateAccount(nextAccount)\n    backupDraft.value = loadStoredBackup() ?? \'\'\n    walletPassphrase.value = \'\'\n    statusMessage.value = legacyWalletPresent.value\n      ? \'Legacy wallet migrated into encrypted storage and unlocked.\'\n      : \'Encrypted wallet unlocked for this browser session.\'',
+              '  try {\n    const wasLegacy = legacyWalletPresent.value\n    const nextAccount = await unlockStoredAccount(walletPassphrase.value)\n    await activateAccount(nextAccount)\n    backupDraft.value = loadStoredBackup() ?? \'\'\n    walletPassphrase.value = \'\'\n    statusMessage.value = wasLegacy\n      ? \'Legacy wallet migrated into encrypted storage and unlocked.\'\n      : \'Encrypted wallet unlocked for this browser session.\'',
+          )
+
+          replace_once(
+              'README.md',
+              '- durable accounts, mempool, committed blocks, restart-safe state, and snapshot restore in `internal/ledger`',
+              '- durable accounts, mempool, committed blocks, atomic restart-safe state persistence, and snapshot restore in `internal/ledger`',
+          )
+          replace_once(
+              'README.md',
+              '- wallet account generation, import/export, local signing, account inspection, faucet funding, and transaction broadcast',
+              '- wallet account generation, encrypted import/export, passphrase-protected local key storage, local signing, account inspection, faucet funding, and transaction broadcast',
+          )
+          replace_once(
+              'README.md',
+              'From the repository root:\n\n```powershell\ngo run ./cmd/node\n```\n\nBy default the node:',
+              'From the repository root, enable development-only endpoints only when you need the local faucet or manual block tools:\n\n```powershell\n$env:ZEPHYR_ENABLE_DEV_ENDPOINTS="true"\ngo run ./cmd/node\n```\n\nFor a normal node process, leave `ZEPHYR_ENABLE_DEV_ENDPOINTS` unset or set it to `false`. The node process:',
+          )
+          replace_once(
+              'README.md',
+              '- listens on `:8080`',
+              '- listens on `127.0.0.1:8080` by default; set `ZEPHYR_HTTP_ADDR` explicitly to bind another interface',
+          )
+          replace_once(
+              'README.md',
+              '- exposes consensus status even before a validator set has been elected',
+              '- exposes consensus status even before a validator set has been elected\n- keeps `/v1/dev/*` unavailable unless `ZEPHYR_ENABLE_DEV_ENDPOINTS=true` is explicitly configured',
+          )
+          PY
+
+          gofmt -w cmd/node/main.go cmd/node/http_server.go cmd/node/http_server_test.go
+
+      - name: Verify focused Go packages
+        run: go test ./cmd/node ./internal/ledger
+
+      - name: Verify wallet build
+        working-directory: apps/wallet
+        run: |
+          npm ci
+          npm audit --audit-level=high
+          npm run build
+
+      - name: Commit process hardening
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add cmd/node/main.go cmd/node/http_server.go cmd/node/http_server_test.go apps/wallet/src/App.vue README.md
+          if git diff --cached --quiet; then
+            echo "No process changes to commit."
+            exit 0
+          fi
+          git commit -m "harden node HTTP defaults and update quick start"
+          git push origin HEAD:chatgpt/hardening-foundation
