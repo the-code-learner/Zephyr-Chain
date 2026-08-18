@@ -28,6 +28,7 @@ jobs:
           python scripts/protocol_api_root_fixtures.py
           python scripts/protocol_security_edges.py
           python scripts/protocol_final_assertions.py
+          python scripts/protocol_last_mile.py
           gofmt -w internal/protocol internal/tx internal/consensus internal/ledger internal/api cmd/node
       - name: Verify backend and capture failures
         id: verify
