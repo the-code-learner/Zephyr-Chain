@@ -23,9 +23,13 @@ jobs:
           cache: npm
           cache-dependency-path: apps/wallet/package-lock.json
 
-      - name: Refresh vulnerable dependencies
+      - name: Upgrade Vite toolchain
         working-directory: apps/wallet
-        run: npm audit fix --force
+        run: npm install --save-dev vite@8.2.1 @vitejs/plugin-vue@latest
+
+      - name: Refresh audited transitive dependencies
+        working-directory: apps/wallet
+        run: npm audit fix
 
       - name: Verify dependency audit
         working-directory: apps/wallet
