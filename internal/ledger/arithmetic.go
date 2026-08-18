@@ -13,6 +13,14 @@ func addUint64(left uint64, right uint64) (uint64, bool) {
 	return left + right, true
 }
 
+func saturatingAddUint64(left uint64, right uint64) uint64 {
+	value, ok := addUint64(left, right)
+	if !ok {
+		return math.MaxUint64
+	}
+	return value
+}
+
 func nextUint64(value uint64) (uint64, bool) {
 	if value == math.MaxUint64 {
 		return 0, false
