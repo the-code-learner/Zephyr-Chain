@@ -21,6 +21,7 @@ jobs:
           python scripts/protocol_backend_refresh.py
           python scripts/protocol_backend_testfix.py
           python scripts/protocol_semantic_refresh.py
+          python scripts/fix_protocol_fixture_script.py
           python scripts/protocol_fixture_refresh.py
           python scripts/protocol_security_edges.py
           gofmt -w internal/protocol internal/tx internal/consensus internal/ledger internal/api cmd/node
