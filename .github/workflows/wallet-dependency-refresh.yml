@@ -1,17 +1,14 @@
 name: Wallet dependency refresh
 
 on:
-  push:
-    branches:
-      - chatgpt/hardening-foundation
-    paths:
-      - .github/workflows/wallet-dependency-refresh.yml
+  pull_request:
 
 permissions:
   contents: write
 
 jobs:
   refresh:
+    if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout branch
