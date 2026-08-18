@@ -19,6 +19,7 @@ jobs:
       - name: Integrate protocol backend
         run: |
           python scripts/protocol_backend_refresh.py
+          python scripts/protocol_backend_testfix.py
           gofmt -w internal/protocol internal/tx internal/consensus internal/ledger internal/api cmd/node
       - name: Verify backend
         run: |
