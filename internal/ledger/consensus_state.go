@@ -249,9 +249,9 @@ func recordVoteIntoState(state persistedState, vote consensus.Vote) (persistedSt
 
 func totalVotingPower(snapshot ValidatorSnapshot) uint64 {
 	snapshot = normalizeValidatorSnapshot(snapshot)
-	var total uint64
-	for _, validator := range snapshot.Validators {
-		total += validator.VotingPower
+	total, ok := sumValidatorVotingPower(snapshot.Validators)
+	if !ok {
+		return ^uint64(0)
 	}
 	return total
 }
@@ -282,7 +282,7 @@ func tallyForVotes(votes []VoteRecord, height uint64, round uint64, blockHash st
 			continue
 		}
 		tally.VoteCount++
-		tally.VotingPower += vote.VotingPower
+		tally.VotingPower = saturatingAddUint64(tally.VotingPower, vote.VotingPower)
 	}
 	tally.QuorumReached = tally.VotingPower >= quorum && quorum > 0
 	return tally
@@ -299,7 +299,7 @@ func voteTalliesForHeightRound(votes []VoteRecord, height uint64, round uint64, 
 		tally.Round = round
 		tally.BlockHash = vote.Vote.BlockHash
 		tally.VoteCount++
-		tally.VotingPower += vote.VotingPower
+		tally.VotingPower = saturatingAddUint64(tally.VotingPower, vote.VotingPower)
 		byBlock[vote.Vote.BlockHash] = tally
 	}
 
