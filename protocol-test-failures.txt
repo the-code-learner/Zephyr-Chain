@@ -1,46 +1,34 @@
 === go vet ===
 PASS
 === go test failures ===
-ok  	github.com/zephyr-chain/zephyr-chain/cmd/node	0.003s
---- FAIL: TestPublicHandlerRequiresPeerSourceForInternalSnapshot (0.00s)
-    public_handler_test.go:104: expected internal snapshot status 200 for peer source when strict identity is disabled, got 400
---- FAIL: TestHandleBroadcastTransactionRejectsMissingPeerIdentityWhenRequired (0.00s)
-    server_test.go:256: expected status 403, got 400
---- FAIL: TestHandleBroadcastTransactionRejectsUnboundPeerValidator (0.00s)
-    server_test.go:297: expected status 403, got 400
---- FAIL: TestHandleConsensusProposalAndVotesExposeArtifacts (0.00s)
-    server_test.go:518: expected proposal status 202, got 409
---- FAIL: TestHandleConsensusExposesRoundEvidence (0.01s)
-    server_test.go:596: record proposal: block template does not match the stored proposal set
---- FAIL: TestHandleConsensusExposesReproposalAndTimeoutWarnings (0.01s)
-    server_test.go:672: record proposal: block template does not match the stored proposal set
---- FAIL: TestHandleConsensusExposesRoundHistoryAcrossRounds (0.01s)
-    server_test.go:739: record round 0 proposal: block template does not match the stored proposal set
---- FAIL: TestHandleStatusExposesConsensusRecovery (0.00s)
-    server_test.go:830: record proposal with action: block template does not match the stored proposal set
---- FAIL: TestHandleBlockTemplateExposesBlockReadinessAcrossCertificateLifecycle (0.01s)
-    server_test.go:1038: expected proposal status 202, got 409
---- FAIL: TestHandleStatusRecordsConsensusDiagnosticForTemplateMismatch (0.01s)
-    server_test.go:1156: expected proposal status 202, got 409
---- FAIL: TestHandleBlockTemplateAndConsensusGatedProduceBlock (0.01s)
-    server_test.go:1563: expected proposal status 202, got 409
---- FAIL: TestHandleConsensusGatedProduceBlockUsesProposalBodyWithoutMempool (0.00s)
-    server_test.go:1657: expected proposal status 202, got 409
-2026/08/18 14:37:52 zephyr broadcast-proposal http://peer-a.example: dial tcp timeout
---- FAIL: TestHandleImportBlockRejectsAndExposesPendingImportRecovery (0.00s)
-    server_test.go:4912: record producer proposal: block template does not match the stored proposal set
---- FAIL: TestPeerSyncConsensusImportFailureRestoresSnapshotAndRecordsRecoveryHistory (0.00s)
-    server_test.go:5022: record producer proposal: block template does not match the stored proposal set
+ok  	github.com/zephyr-chain/zephyr-chain/cmd/node	0.005s
+--- FAIL: TestConsensusAutomationRebroadcastsVoteAfterPeerLinkRestored (4.40s)
+    server_test.go:1343: expected proposer to observe both votes after rebroadcast, got {LatestProposal:0xc0001f4700 LatestCertificate:0xc0001311f0 VoteTallies:[{Height:1 Round:2 BlockHash:f035bf22ac7f600b4d5d0a7417afb82edbebd4316e4a418c7d3d9926e9da514f VoteCount:2 VotingPower:100 QuorumReached:true}] ProposalCount:2 VoteCount:3 CertificateCount:1}
+2026/08/18 14:43:18 zephyr broadcast-proposal http://peer-a.example: dial tcp timeout
+--- FAIL: TestHandleImportBlockRejectsAndExposesPendingImportRecovery (0.52s)
+    server_test.go:4908: expected import status 409, got 403
+2026/08/18 14:43:21 zephyr peer-sync http://127.0.0.1:40921: peer request must include a signed request proof
+2026/08/18 14:43:22 zephyr peer-sync http://127.0.0.1:40921: peer request must include a signed request proof
+2026/08/18 14:43:22 zephyr peer-sync http://127.0.0.1:40921: peer request must include a signed request proof
+2026/08/18 14:43:22 zephyr peer-sync http://127.0.0.1:40921: peer request must include a signed request proof
+2026/08/18 14:43:23 zephyr peer-sync http://127.0.0.1:40921: peer request must include a signed request proof
+2026/08/18 14:43:23 zephyr peer-sync http://127.0.0.1:40921: peer request must include a signed request proof
+2026/08/18 14:43:23 zephyr peer-sync http://127.0.0.1:40921: peer request must include a signed request proof
+2026/08/18 14:43:23 zephyr peer-sync http://127.0.0.1:40921: peer request must include a signed request proof
+--
+2026/08/18 14:43:29 zephyr peer-sync http://127.0.0.1:40921: peer request must include a signed request proof
+2026/08/18 14:43:29 zephyr peer-sync http://127.0.0.1:40921: peer request must include a signed request proof
+2026/08/18 14:43:29 zephyr peer-sync http://127.0.0.1:40921: peer request must include a signed request proof
+--- FAIL: TestPeerSyncConsensusImportFailureRestoresSnapshotAndRecordsRecoveryHistory (9.56s)
+    server_test.go:5028: condition was not met before timeout
 FAIL
-FAIL	github.com/zephyr-chain/zephyr-chain/internal/api	1.687s
+FAIL	github.com/zephyr-chain/zephyr-chain/internal/api	17.074s
 ok  	github.com/zephyr-chain/zephyr-chain/internal/consensus	0.007s
-ok  	github.com/zephyr-chain/zephyr-chain/internal/dpos	0.003s
---- FAIL: TestStoreProduceBlockWithConsensusRequiresProposalAndCertificate (0.01s)
-    store_test.go:562: expected template mismatch for mismatched producedAt, got block template does not match the stored proposal set
+ok  	github.com/zephyr-chain/zephyr-chain/internal/dpos	0.002s
 --- FAIL: TestStoreImportBlockWithConsensusRequiresProposalAndCertificate (0.02s)
     store_test.go:690: expected invalid block error for mismatched import, got invalid block
 FAIL
-FAIL	github.com/zephyr-chain/zephyr-chain/internal/ledger	0.386s
+FAIL	github.com/zephyr-chain/zephyr-chain/internal/ledger	1.744s
 ?   	github.com/zephyr-chain/zephyr-chain/internal/protocol	[no test files]
-ok  	github.com/zephyr-chain/zephyr-chain/internal/tx	0.004s
+ok  	github.com/zephyr-chain/zephyr-chain/internal/tx	0.003s
 FAIL
