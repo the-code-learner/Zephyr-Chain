@@ -65,11 +65,11 @@ func verifiedWork(class compute.WorkClass, units, paid uint64) compute.VerifiedW
 	jobID[0] = byte(class)
 	root[0] = byte(class)
 	return compute.VerifiedWork{
-		JobID: jobID,
-		Class: class,
-		Units: units,
-		PaidZPH: paid,
+		JobID:        jobID,
+		Class:        class,
+		Units:        units,
+		PaidZPH:      paid,
 		Verification: compute.VerificationReplicated,
-		ResultRoot: root,
+		ResultRoot:   root,
 	}
 }
