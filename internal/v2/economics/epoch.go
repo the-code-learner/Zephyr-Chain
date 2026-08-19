@@ -28,6 +28,7 @@ type ShardEpochMetrics struct {
 	AgeWeightedVelocityBps    uint32
 	EscrowBackedComputeDemand uint64
 	VerifiedComputeSupply     uint64
+	ComputeSupplyReliable     bool
 	OpeningComputeBacklog     uint64
 	ComputeFulfilled          uint64
 	ComputeExpired            uint64
@@ -37,7 +38,7 @@ type ShardEpochMetrics struct {
 func (m ShardEpochMetrics) Validate() error {
 	if m.Version != EpochMetricsVersion || m.Epoch == 0 || m.ResourceCapacity == 0 ||
 		m.ResourceUsed > m.ResourceCapacity || m.AgeWeightedVelocityBps > 10*BasisPoints ||
-		m.ComputeFulfilled > m.VerifiedComputeSupply || !validComputeFlow(
+		(m.ComputeSupplyReliable && m.ComputeFulfilled > m.VerifiedComputeSupply) || !validComputeFlow(
 			m.OpeningComputeBacklog,
 			m.EscrowBackedComputeDemand,
 			m.ComputeFulfilled,
@@ -74,6 +75,7 @@ func (m ShardEpochMetrics) CanonicalBytes() ([]byte, error) {
 	w.U32(m.AgeWeightedVelocityBps)
 	w.U64(m.EscrowBackedComputeDemand)
 	w.U64(m.VerifiedComputeSupply)
+	w.Bool(m.ComputeSupplyReliable)
 	w.U64(m.OpeningComputeBacklog)
 	w.U64(m.ComputeFulfilled)
 	w.U64(m.ComputeExpired)
@@ -104,6 +106,7 @@ type EpochAggregate struct {
 	AgeWeightedVelocityBps    uint32
 	EscrowBackedComputeDemand uint64
 	VerifiedComputeSupply     uint64
+	ComputeSupplyReliable     bool
 	OpeningComputeBacklog     uint64
 	ComputeFulfilled          uint64
 	ComputeExpired            uint64
@@ -120,6 +123,7 @@ func AggregateEpochMetrics(metrics []ShardEpochMetrics) (EpochAggregate, error) 
 	epoch := ordered[0].Epoch
 	var charged, burned, validators, reserve, operations, used, capacity, circulating big.Int
 	var demand, supply, openingBacklog, fulfilled, expired, backlog, weightedVelocity big.Int
+	supplyReliable := true
 	for i, metric := range ordered {
 		if err := metric.Validate(); err != nil || metric.Epoch != epoch || (i > 0 && ordered[i-1].ShardID == metric.ShardID) {
 			return EpochAggregate{}, ErrEpochMetrics
@@ -138,6 +142,7 @@ func AggregateEpochMetrics(metrics []ShardEpochMetrics) (EpochAggregate, error) 
 		addBig(&fulfilled, metric.ComputeFulfilled)
 		addBig(&expired, metric.ComputeExpired)
 		addBig(&backlog, metric.ComputeBacklog)
+		supplyReliable = supplyReliable && metric.ComputeSupplyReliable
 		term := new(big.Int).Mul(new(big.Int).SetUint64(metric.CirculatingNativeSupply), new(big.Int).SetUint64(uint64(metric.AgeWeightedVelocityBps)))
 		weightedVelocity.Add(&weightedVelocity, term)
 	}
@@ -163,6 +168,7 @@ func AggregateEpochMetrics(metrics []ShardEpochMetrics) (EpochAggregate, error) 
 		CirculatingNativeSupply:   circulating.Uint64(),
 		EscrowBackedComputeDemand: demand.Uint64(),
 		VerifiedComputeSupply:     supply.Uint64(),
+		ComputeSupplyReliable:     supplyReliable,
 		OpeningComputeBacklog:     openingBacklog.Uint64(),
 		ComputeFulfilled:          fulfilled.Uint64(),
 		ComputeExpired:            expired.Uint64(),
@@ -175,6 +181,9 @@ func AggregateEpochMetrics(metrics []ShardEpochMetrics) (EpochAggregate, error) 
 		out.ComputeExpired,
 		out.ComputeBacklog,
 	) {
+		return EpochAggregate{}, ErrEpochMetrics
+	}
+	if out.ComputeSupplyReliable && out.ComputeFulfilled > out.VerifiedComputeSupply {
 		return EpochAggregate{}, ErrEpochMetrics
 	}
 	out.ResourceUtilizationBps = ratioBps(out.ResourceUsed, out.ResourceCapacity)
@@ -214,6 +223,7 @@ func (a EpochAggregate) ComputeMarketMetrics(computePriceTrendBps int32, compute
 	return ComputeMarketMetrics{
 		EscrowBackedDemandUnits: a.OpeningComputeBacklog + a.EscrowBackedComputeDemand,
 		VerifiedSupplyUnits:     a.VerifiedComputeSupply,
+		VerifiedSupplyReliable:  a.ComputeSupplyReliable,
 		BacklogUnits:            a.ComputeBacklog,
 		FulfilledUnits:          a.ComputeFulfilled,
 		UtilizationBps:          a.ComputeUtilizationBps,
