@@ -181,7 +181,11 @@ func (e Engine) feeOnlyOutputsExcluding(t tx.Transaction, contractObject types.O
 			return nil, nil, ErrOverflow
 		}
 		nativeOut += coin.Amount
-		created = append(created, object.Object{ID: types.ObjectIDForShard(t.ID(), uint32(i), t.ShardID), Version: 1, Owner: spec.Owner, Kind: spec.Kind, Data: append([]byte(nil), spec.Data...)})
+		stamped, err := stampCoinOutput(spec, e.Height)
+		if err != nil {
+			return nil, nil, err
+		}
+		created = append(created, object.Object{ID: types.ObjectIDForShard(t.ID(), uint32(i), t.ShardID), Version: 1, Owner: stamped.Owner, Kind: stamped.Kind, Data: append([]byte(nil), stamped.Data...)})
 	}
 	if math.MaxUint64-nativeOut < t.Fee || nativeIn != nativeOut+t.Fee {
 		return nil, nil, ErrConservation
