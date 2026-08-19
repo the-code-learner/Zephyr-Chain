@@ -33,11 +33,7 @@ func TestRuntimeOwnsIndependentEconomicsCollector(t *testing.T) {
 	if err := collector.AdvanceEpoch(2); err != nil {
 		t.Fatal(err)
 	}
-	metrics, _, err := runtime.EconomicEpochSnapshot()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(metrics) != 1 || metrics[0].Epoch != 1 {
-		t.Fatalf("external collector mutation leaked into runtime: %#v", metrics)
+	if runtime.economicCollector == nil || runtime.economicCollector.Epoch() != 1 {
+		t.Fatalf("external collector mutation leaked into runtime: runtime epoch=%d", runtime.economicCollector.Epoch())
 	}
 }
