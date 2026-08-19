@@ -9,7 +9,6 @@ on:
       - internal/v2/provider/service.go
       - internal/v2/provider/service_test.go
       - internal/v2/tx/transaction.go
-      - internal/v2/economics/shadow_epoch_engine_checkpoint_test.go
       - .github/workflows/v2-format-write.yml
 
 permissions:
@@ -31,7 +30,7 @@ jobs:
           go-version-file: go.mod
           cache: false
       - name: Format exact files
-        run: gofmt -w internal/v2/compute/messages.go internal/v2/provider/service.go internal/v2/provider/service_test.go internal/v2/tx/transaction.go internal/v2/economics/shadow_epoch_engine_checkpoint_test.go
+        run: gofmt -w internal/v2/compute/messages.go internal/v2/provider/service.go internal/v2/provider/service_test.go internal/v2/tx/transaction.go
       - name: Commit formatting if needed
         run: |
           if git diff --quiet; then
@@ -40,6 +39,6 @@ jobs:
           fi
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add internal/v2/compute/messages.go internal/v2/provider/service.go internal/v2/provider/service_test.go internal/v2/tx/transaction.go internal/v2/economics/shadow_epoch_engine_checkpoint_test.go
-          git commit -m 'gofmt Zephyr v2 shadow epoch checkpoint test'
+          git add internal/v2/compute/messages.go internal/v2/provider/service.go internal/v2/provider/service_test.go internal/v2/tx/transaction.go
+          git commit -m 'gofmt Zephyr v2 compute and provider files'
           git push origin HEAD:chatgpt/protocol-v2-foundation
