@@ -54,7 +54,7 @@ type Server struct {
 type validatorDTO struct {
 	ID        string `json:"id"`
 	PublicKey []byte `json:"publicKey"`
-	Power     uint64 `json:"power"`
+	Power     string `json:"power"`
 }
 
 type statusResponse struct {
@@ -178,7 +178,7 @@ func (s Server) snapshot() (Snapshot, error) {
 func validatorList(set v2consensus.ValidatorSet) []validatorDTO {
 	out := make([]validatorDTO, len(set.Validators))
 	for i, validator := range set.Validators {
-		out[i] = validatorDTO{ID: validator.ID.String(), PublicKey: append([]byte(nil), validator.PublicKey...), Power: validator.Power}
+		out[i] = validatorDTO{ID: validator.ID.String(), PublicKey: append([]byte(nil), validator.PublicKey...), Power: strconv.FormatUint(validator.Power, 10)}
 	}
 	return out
 }
