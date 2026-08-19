@@ -4,8 +4,8 @@ import (
 	"errors"
 	"os"
 
-	v2consensus "github.com/zephyr-chain/zephyr-chain/internal/v2/consensus"
 	"github.com/zephyr-chain/zephyr-chain/internal/v2/compute"
+	v2consensus "github.com/zephyr-chain/zephyr-chain/internal/v2/consensus"
 	"github.com/zephyr-chain/zephyr-chain/internal/v2/economics"
 	"github.com/zephyr-chain/zephyr-chain/internal/v2/types"
 	"github.com/zephyr-chain/zephyr-chain/internal/v2/worldstate"

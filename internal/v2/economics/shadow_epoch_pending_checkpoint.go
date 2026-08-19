@@ -75,12 +75,12 @@ func RestoreShadowEpochPreview(data []byte, engine *ShadowEpochEngine) (ShadowEp
 		return ShadowEpochPreview{}, err
 	}
 	preview := ShadowEpochPreview{
-		Aggregate: aggregate,
-		ComputeIndex: index,
+		Aggregate:       aggregate,
+		ComputeIndex:    index,
 		ComputeScarcity: ComputeScarcitySnapshot{Epoch: state.Epoch},
-		State: state,
-		Consumed: append([]types.ObjectID(nil), consumed...),
-		Created: append([]object.Object(nil), created...),
+		State:           state,
+		Consumed:        append([]types.ObjectID(nil), consumed...),
+		Created:         append([]object.Object(nil), created...),
 	}
 	validator := engine.Clone()
 	if validator == nil || validator.Accept(preview) != nil {

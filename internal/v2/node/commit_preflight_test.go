@@ -143,9 +143,9 @@ func manualCandidateForDeltas(t *testing.T, runtime *Runtime, deltas map[uint32]
 
 func systemObjectForShard(shard, index uint32, label string) object.Object {
 	return object.Object{
-		ID: types.ObjectIDForShard(types.HashBytes("preflight-object", []byte(label)), index, shard),
+		ID:      types.ObjectIDForShard(types.HashBytes("preflight-object", []byte(label)), index, shard),
 		Version: 1,
-		Kind: object.KindSystem,
-		Data: []byte(label),
+		Kind:    object.KindSystem,
+		Data:    []byte(label),
 	}
 }

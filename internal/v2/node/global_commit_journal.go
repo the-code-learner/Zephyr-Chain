@@ -8,19 +8,19 @@ import (
 	"path/filepath"
 	"sort"
 
-	v2consensus "github.com/zephyr-chain/zephyr-chain/internal/v2/consensus"
 	"github.com/zephyr-chain/zephyr-chain/internal/v2/codec"
+	v2consensus "github.com/zephyr-chain/zephyr-chain/internal/v2/consensus"
 	"github.com/zephyr-chain/zephyr-chain/internal/v2/object"
 	"github.com/zephyr-chain/zephyr-chain/internal/v2/sharding"
 	"github.com/zephyr-chain/zephyr-chain/internal/v2/types"
 )
 
 const (
-	globalCommitJournalVersion uint16 = 1
-	globalCommitJournalMagic          = "ZGC2"
-	globalCommitPreparing      uint8  = 1
-	globalCommitCommitted      uint8  = 2
-	maxGlobalCommitJournalBytes       = 256 << 20
+	globalCommitJournalVersion  uint16 = 1
+	globalCommitJournalMagic           = "ZGC2"
+	globalCommitPreparing       uint8  = 1
+	globalCommitCommitted       uint8  = 2
+	maxGlobalCommitJournalBytes        = 256 << 20
 	maxJournalObjects                  = 1_000_000
 )
 
@@ -57,7 +57,7 @@ func (r *Runtime) buildGlobalCommitIntent(candidate Candidate, certificate v2con
 		Status: globalCommitPreparing, Network: r.Network, NativeToken: r.NativeToken,
 		ValidatorRoot: r.ValidatorRoot, ShardCount: r.ShardCount, PreHeight: r.Height,
 		PreParentHash: r.ParentHash, Header: candidate.Header, Certificate: certificate,
-		Commitments: append([]sharding.Commitment(nil), candidate.Commitments...),
+		Commitments:        append([]sharding.Commitment(nil), candidate.Commitments...),
 		EconomicCheckpoint: append([]byte(nil), economicCheckpoint...),
 	}
 	shards := make([]int, 0, len(candidate.deltas))
@@ -75,7 +75,7 @@ func (r *Runtime) buildGlobalCommitIntent(candidate Candidate, certificate v2con
 		intent.Deltas = append(intent.Deltas, journalShardDelta{
 			ShardID: shard, PreRoot: r.States[shard].Root(), PostRoot: commitment.StateRoot,
 			Consumed: append([]types.ObjectID(nil), delta.Consumed...),
-			Created: cloneJournalObjects(delta.Created),
+			Created:  cloneJournalObjects(delta.Created),
 		})
 	}
 	if err := intent.Validate(); err != nil {
