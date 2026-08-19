@@ -73,10 +73,11 @@ func (s *Store) CertifiedBlockEvidenceAt(height uint64) (CertifiedBlockEvidence,
 }
 
 // ImportBlockWithEvidence imports the next block after independently
-// validating a quorum of signed votes for its signed proposal. This is the
-// catch-up path for a validator that contributed to (or missed) finality but
-// did not receive the committed block before peers advanced to the next
-// height.
+// validating a quorum of signed votes for its signed proposal. Matching valid
+// votes already retained by the recovering node are combined with incoming
+// signed evidence before quorum is evaluated. This lets a validator that
+// voted before a partition heal use its own durable vote rather than requiring
+// one remote peer to carry every quorum signature.
 func (s *Store) ImportBlockWithEvidence(block Block, evidence CertifiedBlockEvidence) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -144,23 +145,62 @@ func attachCertifiedBlockEvidence(state persistedState, block Block, evidence Ce
 	if quorum == 0 {
 		return state, ErrCertifiedEvidenceQuorum
 	}
-	seen := make(map[string]struct{}, len(evidence.Votes))
-	voters := make([]string, 0, len(evidence.Votes))
-	var signedPower uint64
+
+	seen := make(map[string]struct{}, len(state.Votes)+len(evidence.Votes))
+	providedSeen := make(map[string]struct{}, len(evidence.Votes))
+	voters := make([]string, 0, len(state.Votes)+len(evidence.Votes))
 	validatedVotes := make([]VoteRecord, 0, len(evidence.Votes))
+	var signedPower uint64
+
+	// Reuse only locally retained votes for the exact signed proposal. Votes
+	// from other rounds or competing block hashes remain in local history but
+	// do not contribute to this recovery certificate.
+	for _, record := range state.Votes {
+		vote := record.Vote
+		if vote.Height != proposal.Height || vote.Round != proposal.Round || vote.BlockHash != proposal.BlockHash {
+			continue
+		}
+		if _, duplicate := seen[vote.Voter]; duplicate {
+			continue
+		}
+		if err := vote.ValidateForChain(chainID); err != nil {
+			return state, ErrCertifiedEvidenceInvalid
+		}
+		power, ok := validatorVotingPower(state.ValidatorSnapshot, vote.Voter)
+		if !ok {
+			return state, ErrCertifiedEvidenceInvalid
+		}
+		nextPower, ok := addUint64(signedPower, power)
+		if !ok {
+			return state, ErrVotingPowerOverflow
+		}
+		signedPower = nextPower
+		seen[vote.Voter] = struct{}{}
+		voters = append(voters, vote.Voter)
+	}
+
 	for _, vote := range evidence.Votes {
+		if _, duplicate := providedSeen[vote.Voter]; duplicate {
+			return state, ErrCertifiedEvidenceInvalid
+		}
+		providedSeen[vote.Voter] = struct{}{}
 		if err := vote.ValidateForChain(chainID); err != nil {
 			return state, ErrCertifiedEvidenceInvalid
 		}
 		if vote.Height != proposal.Height || vote.Round != proposal.Round || vote.BlockHash != proposal.BlockHash {
 			return state, ErrCertifiedEvidenceInvalid
 		}
-		if _, duplicate := seen[vote.Voter]; duplicate {
-			return state, ErrCertifiedEvidenceInvalid
-		}
 		power, ok := validatorVotingPower(state.ValidatorSnapshot, vote.Voter)
 		if !ok {
 			return state, ErrCertifiedEvidenceInvalid
+		}
+		if existingVote := findVoteByValidator(state.Votes, vote.Height, vote.Round, vote.Voter); existingVote != nil {
+			if existingVote.BlockHash != vote.BlockHash {
+				return state, ErrConflictingVote
+			}
+		}
+		if _, alreadyCounted := seen[vote.Voter]; alreadyCounted {
+			continue
 		}
 		nextPower, ok := addUint64(signedPower, power)
 		if !ok {
@@ -190,9 +230,6 @@ func attachCertifiedBlockEvidence(state persistedState, block Block, evidence Ce
 	for _, record := range validatedVotes {
 		existingVote := findVoteByValidator(state.Votes, record.Vote.Height, record.Vote.Round, record.Vote.Voter)
 		if existingVote != nil {
-			if existingVote.BlockHash != record.Vote.BlockHash {
-				return state, ErrConflictingVote
-			}
 			continue
 		}
 		state.Votes = append(state.Votes, record)
