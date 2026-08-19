@@ -13,10 +13,6 @@ import (
 
 var ErrScriptRuntime = errors.New("zephyr script execution failed")
 
-// ScriptRuntime is Zephyr's deterministic reference smart-contract runtime.
-// It exposes no clock, randomness, filesystem, network or dynamic module load.
-// Execution is bounded by Starlark's abstract step counter, which is used as
-// deterministic fuel for consensus.
 type ScriptRuntime struct{}
 
 func (ScriptRuntime) ValidateModule(code []byte) error {
@@ -41,7 +37,6 @@ func (ScriptRuntime) Execute(request Request) (Result, error) {
 	}
 	writes := make(map[types.ObjectID][]byte)
 	events := make([][]byte, 0)
-
 	predeclared := emptyPredeclared()
 	predeclared["state_read"] = starlark.NewBuiltin("state_read", func(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 		var id string
@@ -105,7 +100,6 @@ func (ScriptRuntime) Execute(request Request) (Result, error) {
 		hash := sha256.Sum256(bytes)
 		return starlark.Bytes(string(hash[:])), nil
 	})
-
 	thread := &starlark.Thread{Name: "zephyr-contract", Load: disabledLoad}
 	thread.SetMaxExecutionSteps(request.FuelLimit)
 	globals, err := starlark.ExecFile(thread, "contract.star", string(request.Code), predeclared)
@@ -123,7 +117,7 @@ func (ScriptRuntime) Execute(request Request) (Result, error) {
 	if !ok {
 		return Result{}, fmt.Errorf("%w: entrypoint is not callable", ErrScriptRuntime)
 	}
-	value, err := starlark.Call(thread, callable, starlark.Tuple{starlark.Bytes(string(request.Arguments))}, nil)
+	value, err := starlark.Call(thread, callable, starlark.Tuple{starlark.String(string(request.Arguments))}, nil)
 	if err != nil {
 		if thread.ExecutionSteps() >= request.FuelLimit {
 			return Result{}, ErrFuelExhausted
@@ -151,12 +145,7 @@ func validationPredeclared() starlark.StringDict {
 	stub := func(_ *starlark.Thread, _ *starlark.Builtin, _ starlark.Tuple, _ []starlark.Tuple) (starlark.Value, error) {
 		return starlark.None, nil
 	}
-	return starlark.StringDict{
-		"state_read":  starlark.NewBuiltin("state_read", stub),
-		"state_write": starlark.NewBuiltin("state_write", stub),
-		"emit":        starlark.NewBuiltin("emit", stub),
-		"sha256":      starlark.NewBuiltin("sha256", stub),
-	}
+	return starlark.StringDict{"state_read": starlark.NewBuiltin("state_read", stub), "state_write": starlark.NewBuiltin("state_write", stub), "emit": starlark.NewBuiltin("emit", stub), "sha256": starlark.NewBuiltin("sha256", stub)}
 }
 
 func disabledLoad(_ *starlark.Thread, module string) (starlark.StringDict, error) {

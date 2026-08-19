@@ -5,6 +5,7 @@ import (
 	"math"
 
 	"github.com/zephyr-chain/zephyr-chain/internal/v2/assets"
+	"github.com/zephyr-chain/zephyr-chain/internal/v2/contracts"
 	"github.com/zephyr-chain/zephyr-chain/internal/v2/object"
 	"github.com/zephyr-chain/zephyr-chain/internal/v2/sharding"
 	"github.com/zephyr-chain/zephyr-chain/internal/v2/tx"
@@ -33,9 +34,11 @@ type Result struct {
 }
 
 type Engine struct {
-	Network     types.NetworkID
-	NativeToken types.TokenID
-	ShardCount  uint32
+	Network          types.NetworkID
+	NativeToken      types.TokenID
+	ShardCount       uint32
+	Height           uint64
+	ContractRuntimes map[string]contracts.MeteredRuntime
 }
 
 func (e Engine) Execute(t tx.Transaction) (Result, error) {
@@ -68,7 +71,7 @@ func (e Engine) Execute(t tx.Transaction) (Result, error) {
 	case tx.OpCreateToken:
 		return e.executeCreateToken(t, t.Operations[0].Payload)
 	default:
-		return Result{}, ErrUnsupportedOperation
+		return e.executeExtended(t, t.Operations[0])
 	}
 }
 
