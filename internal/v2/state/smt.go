@@ -245,10 +245,10 @@ func leafHash(key types.Hash, value []byte) types.Hash {
 }
 
 func branchHash(left, right types.Hash) types.Hash {
-	var w codec.Writer
-	w.Fixed(left[:])
-	w.Fixed(right[:])
-	return types.Hash(codec.DomainHash("zephyr/smt/branch/v2", w.BytesCopy()))
+	var payload [64]byte
+	copy(payload[:32], left[:])
+	copy(payload[32:], right[:])
+	return types.Hash(codec.DomainHash("zephyr/smt/branch/v2", payload[:]))
 }
 
 func prefixAtDepth(key [32]byte, depth int) [32]byte {
