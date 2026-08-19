@@ -5,17 +5,17 @@ import "testing"
 func TestShadowMonetaryControllerOffsetsBurnAndTargetsNetIssuance(t *testing.T) {
 	policy := DefaultShadowPolicy()
 	metrics := MonetaryMetrics{
-		Supply: 1_000_000_000,
-		CirculatingSupply: 900_000_000,
-		StakedSupply: 450_000_000,
-		ProtocolReserve: 100_000_000,
-		BurnedThisEpoch: 12_345,
-		FinalizedOperations: policy.OperationsTarget,
+		Supply:                 1_000_000_000,
+		CirculatingSupply:      900_000_000,
+		StakedSupply:           450_000_000,
+		ProtocolReserve:        100_000_000,
+		BurnedThisEpoch:        12_345,
+		FinalizedOperations:    policy.OperationsTarget,
 		ResourceUtilizationBps: policy.UtilizationTargetBps,
 		AgeWeightedVelocityBps: policy.VelocityTargetBps,
-		ComputeIndexQ9: 7_500_000_000,
-		ComputePriceTrendBps: 250,
-		ComputeIndexReliable: true,
+		ComputeIndexQ9:         7_500_000_000,
+		ComputePriceTrendBps:   250,
+		ComputeIndexReliable:   true,
 	}
 	decision, err := EvaluateShadow(policy.TargetInflationBps, metrics, policy)
 	if err != nil {
@@ -32,11 +32,11 @@ func TestShadowMonetaryControllerOffsetsBurnAndTargetsNetIssuance(t *testing.T) 
 func TestShadowMonetaryControllerRateLimitsAdaptiveTarget(t *testing.T) {
 	policy := DefaultShadowPolicy()
 	metrics := MonetaryMetrics{
-		Supply: 1_000_000_000,
-		CirculatingSupply: 900_000_000,
-		StakedSupply: 100_000_000,
-		ProtocolReserve: 1_000_000,
-		FinalizedOperations: 1,
+		Supply:                 1_000_000_000,
+		CirculatingSupply:      900_000_000,
+		StakedSupply:           100_000_000,
+		ProtocolReserve:        1_000_000,
+		FinalizedOperations:    1,
 		ResourceUtilizationBps: 100,
 		AgeWeightedVelocityBps: 100,
 	}
@@ -52,11 +52,11 @@ func TestShadowMonetaryControllerRateLimitsAdaptiveTarget(t *testing.T) {
 func TestComputeIndexIsTelemetryOnlyInShadowV0(t *testing.T) {
 	policy := DefaultShadowPolicy()
 	base := MonetaryMetrics{
-		Supply: 1_000_000_000,
-		CirculatingSupply: 900_000_000,
-		StakedSupply: 450_000_000,
-		ProtocolReserve: 100_000_000,
-		FinalizedOperations: policy.OperationsTarget,
+		Supply:                 1_000_000_000,
+		CirculatingSupply:      900_000_000,
+		StakedSupply:           450_000_000,
+		ProtocolReserve:        100_000_000,
+		FinalizedOperations:    policy.OperationsTarget,
 		ResourceUtilizationBps: policy.UtilizationTargetBps,
 		AgeWeightedVelocityBps: policy.VelocityTargetBps,
 	}
