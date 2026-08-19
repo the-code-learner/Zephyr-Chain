@@ -30,14 +30,14 @@ func TestCompatibilityFeePolicyPreservesFullBurn(t *testing.T) {
 
 func TestQuoteResourceFee(t *testing.T) {
 	usage := ResourceUsage{
-		BaseTransactions:       1,
-		SignatureOps:           2,
-		WitnessBytes:           100,
-		StateReads:             3,
-		StateWrites:            2,
-		ContractFuel:           50,
+		BaseTransactions:      1,
+		SignatureOps:          2,
+		WitnessBytes:          100,
+		StateReads:            3,
+		StateWrites:           2,
+		ContractFuel:          50,
 		DataAvailabilityBytes: 20,
-		CrossShardReceipts:     1,
+		CrossShardReceipts:    1,
 	}
 	prices := ResourcePrices{
 		BaseTransaction:      10,
