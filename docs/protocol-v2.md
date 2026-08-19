@@ -4,6 +4,8 @@ Status: **authoritative design target and implementation contract for the Zephyr
 
 Protocol v1 remains the prototype/conformance reference. Protocol v2 intentionally does not preserve v1 transaction wire format, persisted-state layout, node-role coupling or account-state representation. We keep the security, consensus, recovery and benchmarking lessons while replacing boundaries that would otherwise become permanent scaling debt.
 
+For the executable status of each subsystem, see `docs/protocol-v2-implementation-status.md`. For committee trust/rotation, see `docs/protocol-v2-validator-trust.md`.
+
 ## Mission
 
 Zephyr v2 has two equal scaling goals:
@@ -28,6 +30,8 @@ Large datacenters may add capacity, but must not be structurally required for Ze
 - Adding shards must not linearly increase the minimum hardware requirement of a Citizen Node.
 - Smart-contract execution is deterministic and metered.
 - Heavy/private compute is provider-executed and blockchain-settled through commitments/proofs/attestations/replication/challenges as appropriate.
+- A quorum certificate is valid only for the validator set committed by the already-trusted header chain.
+- Cross-shard imports are asynchronous and cannot bypass source finality or durable anti-replay state.
 
 ## Architecture
 
@@ -79,190 +83,228 @@ networkId = H("zephyr/genesis/v2" || canonicalGenesis)
 
 Genesis becomes the network identity and initial validator-set trust anchor. Nodes with different genesis data cannot silently claim the same network.
 
-Reference: `internal/v2/genesis`.
-
-## 2. Separate identities and roles
+The initial Citizen trust anchor is:
 
 ```text
-Account identity    -> ownership and transaction authorization
-Node identity       -> peer networking/authentication
-Validator identity  -> consensus proposal/vote authority
+TrustAnchor {
+    NetworkID
+    ValidatorRoot = Merkle(initial validator set)
+}
 ```
 
-A machine may expose one or more roles: Citizen Node, Full Node, Validator, Archive Node, Compute Provider. A full node does not need a validator key; a compute provider is not automatically a validator; a smartphone does not need permanent consensus availability.
+## 2. Validator trust chain
 
-References: `internal/v2/types`, `internal/v2/transport`.
+Every validator set is committed by a canonical Merkle root over validator ID, P-256 public key and integer voting power.
+
+Each `GlobalHeader` contains both:
+
+```text
+ValidatorRoot       // committee authorizing this header
+NextValidatorRoot   // committee authorized for the next height
+```
+
+If `NextValidatorRoot` is zero, the committee remains unchanged. A committee cannot install itself: the current committee must first finalize the header committing the next root with the normal `2/3+` quorum.
+
+Citizen wallets advance their local trust anchor only after verifying that QC. Cross-shard receipt import applies the same rule to historical source committees.
 
 ## 3. Canonical binary protocol
 
-Consensus objects use deterministic length-prefixed binary encoding with explicit versions, hard limits, big-endian integers and domain-separated hashing/signing. Consensus objects do not depend on JSON map/order behavior.
+Consensus-critical objects use a bounded binary codec with explicit widths, length prefixes and versioned hash/signing domains. JSON is an RPC representation only.
 
-The first v2 proof-carrying transaction has a complete bounded binary marshal/parse round-trip.
+Canonical binary objects include:
 
-Reference: `internal/v2/codec`.
+- transactions and witnesses;
+- objects and asset definitions;
+- shard commitments and receipts;
+- GlobalHeader;
+- proposals, votes and quorum certificates;
+- Merkle/Sparse-Merkle proofs;
+- genesis and validator commitments.
 
-## 4. Object state and native assets
+Protocol decoders reject trailing bytes, oversized fields and invalid versions.
 
-The v2 execution primitive is a protocol object:
+## 4. Proof-oriented object state
 
-```text
-Object
-├── objectId
-├── version
-├── owner
-├── kind
-└── data
-```
+Zephyr v2 replaces the v1 global account map as the consensus state primitive with versioned objects.
 
-Initial kinds cover coins, token definitions, contracts, contract state, compute offers/jobs/assignments/results and system objects. Explicit object dependencies allow independent transactions to be scheduled in parallel.
-
-For native payments the wallet still shows a normal balance; coin objects are an internal execution model. A transfer consumes coin objects and creates new ones while enforcing per-token conservation.
-
-Token creation is protocol-native rather than requiring every token to reimplement a basic ERC-style ledger in bytecode. Token definitions include name, symbol, decimals, supply policy, mint authority, burnability and transferability. Custom logic can still be controlled by contracts later.
-
-References: `internal/v2/object`, `internal/v2/assets`, `internal/v2/execution`.
-
-## 5. Proof-native incremental state
-
-The v1 performance profile identified full-state persistence/serialization as the first measured bottleneck. v2 therefore makes incremental, proof-oriented state a protocol requirement.
-
-The reference engine is a 256-bit Sparse Merkle Tree over:
+Core categories include:
 
 ```text
-objectId -> objectHash
+CoinObject
+TokenDefinition
+ContractObject
+ComputeOffer / ComputeJob / ComputeResult state
+SystemObject
 ```
 
-It already provides deterministic roots, incremental path updates, inclusion proofs, absence proofs and compressed proofs that omit default siblings. The in-memory world-state backend defines the semantics; it is not the final durable database. Production storage will put the same state model over structured durable KV/WAL/checkpoint recovery.
+User UX remains balance-oriented; wallets aggregate owned coin objects behind the scenes.
 
-Changing two objects must not require serializing the entire chain state.
+Objects have deterministic IDs. For multi-shard state, the object ID permanently encodes its assigned shard so changing the active shard count cannot silently relocate an existing object.
 
-References: `internal/v2/state`, `internal/v2/worldstate`.
+## 5. Sparse-Merkle state and proof-carrying transactions
 
-## 6. Proof-Carrying Transactions
+Each shard maintains an incremental 256-bit Sparse Merkle state root. Inclusion and absence proofs are compressed by omitting default siblings.
 
-A v2 wallet does more than sign. It may package the exact state evidence needed to validate the objects it consumes.
+A proof-carrying transaction identifies its pre-state root and carries authenticated object witnesses. A validator therefore verifies the same state evidence that the originating wallet could verify, rather than trusting wallet pre-validation.
 
 ```text
-Wallet
-  ├─ verifies finalized state root
-  ├─ obtains object proofs
-  ├─ declares inputs/outputs/operation
-  ├─ signs canonical intent
-  └─ attaches witnesses
-             |
-             v
-      Proof-Carrying Transaction
-             |
-             v
-Validator verifies signature + proofs + freshness/conflicts
-             |
-             v
-        deterministic execution
+wallet
+  -> verifies finalized state proof
+  -> declares inputs / outputs / access set
+  -> signs proof-carrying transaction
+  -> network verifies witness + signature
+  -> deterministic execution
 ```
 
-The validator never trusts the wallet's claim; it independently verifies the cryptographic witness. This makes wallet work reusable while preserving consensus as the authority for uniqueness, ordering and finality.
+Wallet-side work is useful because the evidence is independently reusable. Consensus remains responsible for uniqueness, ordering and finality.
 
-The foundation includes P-256 low-S signing, genesis-derived network binding, state-root binding, explicit input object/version/hash, bounded witnesses, random salt and expiration height.
+## 6. Deterministic parallel execution
 
-Reference: `internal/v2/tx`.
+Transactions expose enough object dependencies to reject conflicting batches before concurrent execution. Independent transactions may execute in parallel; outputs merge in deterministic transaction order.
 
-## 7. Parallel execution
+The execution gate rejects:
 
-Object inputs form an explicit conflict set. Transactions that touch disjoint objects can execute concurrently and then merge deterministically.
+- duplicate transactions;
+- duplicate/shared consumed objects in a parallel batch;
+- mismatched pre-state roots;
+- wrong-shard inputs;
+- token conservation or fee violations;
+- invalid witnesses/signatures.
 
-The first executor is deliberately simple and single-operation so we can establish correctness before a worker scheduler. The next execution milestone builds the deterministic conflict graph and benchmarks 1/4/8/16 workers on one shard before using sharding as a multiplier.
+Candidate execution computes a future root through a non-mutating state preview. Committed state changes only after a valid quorum certificate.
 
-## 8. Shard-native, one-shard-first
+Performance work is profile-driven. The v2 benchmark measures 1/4/8/16 execution workers and reports finalized throughput/allocation behavior; adding goroutines is not considered scaling if proof/state allocation remains the bottleneck.
 
-The protocol contains shard IDs, shard commitments, a global commitment root, global headers and cross-shard receipt primitives from the beginning, but the first v2 chain may run one shard.
+## 7. Sharding and cross-shard receipts
 
-A global finalized header commits to shard roots and validator/data commitments. A Citizen Node can follow global headers while fetching only the shard/state proofs relevant to it.
+Sharding is native to the protocol but optional at activation. One shard is a fully valid Zephyr network.
 
-Cross-shard movement follows:
+Account routing determines where newly created account-owned outputs live. If an output targets another shard, the source shard does **not** write that object locally. Instead it creates a cross-shard receipt committed by the source shard's `ReceiptRoot`.
+
+A destination import verifies:
+
+1. source `GlobalHeader` and its authorized validator-set QC;
+2. source shard commitment inclusion in the global root;
+3. receipt inclusion in the source `ReceiptRoot`;
+4. destination routing;
+5. absence of the durable receipt marker.
+
+The destination block then materializes both the destination object and a consensus-state anti-replay marker. Because normal transactions in that block are anchored to the destination pre-state root, an imported output becomes spendable only from a later block.
+
+Sharding is enabled beyond one shard only after multi-shard conformance/recovery and throughput evidence demonstrate a net benefit.
+
+## 8. GlobalHeader and finality
+
+A v2 block-height finality commitment is a compact `GlobalHeader` over:
 
 ```text
-source shard consumes input
-        |
-        v
-finalized receipt commitment
-        |
-        v
-destination shard verifies receipt
-        |
-        v
-creates destination output
+version
+network
+height
+parentHash
+shardCommitmentRoot
+validatorRoot
+nextValidatorRoot
+dataRoot
+certificateHash
 ```
 
-Additional shards are activated only when 1/4/16-shard benchmarks show better finalized throughput/resource efficiency without worsening the Citizen Node minimum footprint. Receipt anti-replay and recovery must pass before multi-shard activation.
+The consensus hash zeroes `certificateHash` to avoid circular signing. Proposal/vote signatures target this consensus hash. Once the quorum certificate forms, its hash is attached to the finalized header.
 
-Reference: `internal/v2/sharding`.
+The header therefore ties together execution state, receipt availability, committee trust and global finality.
 
-## 9. Citizen Node inside Zephyr Wallet
+## 9. Citizen Node
 
-A Citizen Node is not a passive RPC client. Depending on device conditions it can:
+The Zephyr Wallet includes a Citizen verifier rather than acting as a blind RPC client.
 
-- verify finalized headers and quorum/finality evidence;
-- verify object/state proofs for balances and payments;
-- verify proof-carrying transactions;
-- relay transactions through multiple peers;
-- verify shard commitments;
-- sample data availability;
-- keep a bounded recent cache;
-- optionally execute recent state while resources allow.
+A proof bundle can carry:
 
-Participation is power-aware. Low battery can reduce the role to header verification; Wi-Fi/charging can enable sampling, cache serving and recent execution. Mobile availability is not assumed for consensus liveness.
+```text
+GlobalHeader
+QuorumCertificate
+ValidatorSet
+ShardCommitment + proof
+Object + SparseMerkle proof
+```
 
-Reference: `internal/v2/citizen`.
+The strict wallet verifier starts from a genesis/checkpoint trust anchor, independently reconstructs validator IDs/root/voting power, verifies low-S P-256 votes and `2/3+` quorum using exact integer arithmetic, then verifies shard/object proofs.
 
-## 10. Data availability
+After a valid header, it may advance its local validator trust root to the QC-authorized `NextValidatorRoot`.
 
-Citizen Nodes should be able to contribute to availability without downloading all shard data. The foundation commits ordered chunks and verifies Merkle samples. It also defines an encoder boundary for a later erasure-code implementation.
+Participation remains resource-aware:
 
-Production DA still requires selection of an erasure code, reconstruction logic, sampling rules/confidence model, adversarial withholding tests and real mobile bandwidth/storage measurements. The current package is the proof contract, not a claim that production DA is finished.
+```text
+battery low         -> headers/proofs only
+wallet active       -> verify + relay
+Wi-Fi               -> + DA sampling / bounded cache
+Wi-Fi + charging    -> + opportunistic recent execution / serving
+```
 
-Reference: `internal/v2/da`.
+Mobile OS background availability is treated as opportunistic capacity, never as a consensus-liveness assumption.
 
-## 11. Deterministic smart contracts
+## 10. Native tokens
 
-Zephyr keeps smart contracts through a deterministic WebAssembly ABI. Rust is the first-class SDK target, not the only possible source language. Compatible toolchains may later include Zig, C/C++, TinyGo and others.
+Token definitions and coin objects are protocol-native so ordinary token transfers do not require executing general smart-contract bytecode.
 
-Consensus must standardize allowed WASM features, deterministic host calls, fuel/gas, memory/stack limits, state-access declarations, deterministic output/events and forbidden nondeterministic facilities.
+Native asset state supports supply limits, mint authority, burn/transfer policy and deterministic token IDs. Custom smart contracts remain available when an asset needs logic beyond the native model.
 
-The foundation validates a WASM v1 deployment envelope and defines the runtime interface. A production interpreter/metering engine is **not yet claimed complete**.
+## 11. Smart contracts
 
-Reference: `internal/v2/contracts`.
+The contract protocol targets deterministic metered WASM through a versioned ABI. Rust is the first-class SDK target, not a protocol requirement; other modern languages may target the same deterministic WASM subset.
+
+The runtime boundary already requires:
+
+- bounded module/request/output sizes;
+- deterministic imports/opcodes;
+- fuel limits;
+- memory/stack policy;
+- declared object read/write access;
+- no undeclared writes;
+- bounded events.
+
+The concrete production WASM engine and audited fuel schedule are selected only after cross-machine deterministic conformance and performance measurement.
 
 ## 12. Native distributed compute market
 
-Heavy workloads remain outside consensus execution. The blockchain owns marketplace and settlement state; providers execute the work.
+Heavy workloads are a native Zephyr market but run outside validator consensus execution.
 
-Native objects will cover provider offers, resource capabilities, price/collateral, jobs, assignments, escrow, result commitments, verification mode, challenges/disputes, settlement and reputation/slashing.
+Provider offers describe CPU, GPU, RAM, VRAM, storage, bandwidth, capabilities, verification modes, pricing and collateral. Jobs describe content-addressed inputs/workload, resource requirements, budget/escrow, deadline and verification policy.
 
-Target workloads include scientific/numerical computing, AI training/inference, video/3D rendering, compilation and data processing.
+Supported verification-policy primitives include:
 
-Verification is workload-specific. Supported modes are:
-
-- deterministic re-execution;
-- replicated execution;
-- challenge-based verification;
-- zero-knowledge/validity proof;
-- TEE/remote attestation;
+- deterministic replay for suitable bounded jobs;
+- replicated providers and matching result commitments;
+- challenge evidence;
+- ZK validity proof integration;
+- TEE attestation integration;
 - client approval;
-- hybrid combinations.
+- hybrid policies.
 
-Confidential workloads keep private datasets/results off-chain where appropriate; Zephyr stores commitments, encrypted references, attestations/proofs and settlement state.
+Validators settle compact evidence and payment state. They do not replay AI training, scientific simulations, rendering or other expensive compute merely to finalize payment.
 
-The foundation defines resource/offer/job/result data models and verification modes. Provider daemon, scheduling, escrow transitions, disputes and production TEE/ZK integrations are later milestones.
+Confidential workloads keep private datasets/results off-chain where appropriate; Zephyr stores commitments, encrypted references and settlement evidence.
 
-Reference: `internal/v2/compute`.
+## 13. Data availability
 
-## 13. Transport boundaries
+Shard/global commitments include data roots. Citizen Nodes can verify bounded samples rather than downloading global block data.
 
-Consensus, transaction relay and light-proof retrieval are distinct logical capabilities. HTTP remains usable as a reference/test transport; future libp2p/QUIC/WebTransport implementations sit behind the same contracts. The Consensus & Performance Lab fault transport must be adapted to this boundary so correctness tests run independently of the production transport.
+The checked-in foundation defines chunk/sample commitment verification; production erasure coding, reconstruction, confidence parameters and withholding fault tests remain activation gates.
 
-Reference: `internal/v2/transport`.
+The invariant is that increasing shard/data capacity must not linearly increase the minimum data requirement of every Citizen Node.
 
-## 14. Performance has two axes
+## 14. Transport boundaries
+
+Consensus, transaction relay and light-proof retrieval are distinct capabilities. HTTP remains the reference/test transport. Production peer networking can move to libp2p/QUIC/WebTransport behind those interfaces without redefining consensus objects.
+
+Shard-aware gossip, mobile relay/NAT traversal and the production transport implementation must pass the same conformance suite as the reference transport before public activation.
+
+## 15. Durable state
+
+The v2 durable backend uses an append-only network-bound WAL with checksums/sequence numbers/fsync plus atomic checkpoints and crash-tail recovery. This removes the v1 requirement to serialize the entire node state for every mutation.
+
+It remains a reference durable backend while large-state benchmark evidence determines whether the final production backend should be a structured KV/LSM implementation.
+
+## 16. Performance has two axes
 
 ### Scale up — how fast can Zephyr finalize?
 
@@ -274,97 +316,65 @@ Measure Citizen Node resident memory, cache size, sync bandwidth, proof size/ver
 
 No phone or hardware budget becomes a production claim before measurement on real reference devices.
 
-## 15. Security and consensus continuity
+## 17. Security and consensus continuity
 
-The existing Consensus & Performance Lab remains the gate. v2 must preserve or strengthen network/domain separation, low-S canonical signatures, quorum finality, pre-vote state-root verification, validator identity/signature validation, quorum-only recovery evidence, no single-peer snapshot trust, partition safety and recovery after quorum returns.
+The existing Consensus & Performance Lab remains a regression gate and v2 has its own seven-validator conformance suite.
 
-The new architecture changes **what consensus commits to**, not how much evidence is required for finality.
+V2 conformance covers certified happy path, 4/3 no-quorum partition, heal/recovery, 5/2 quorum/minority catch-up and conflicting proposal rejection. More restart/transport/Byzantine cases remain required before public devnet.
 
-## 16. Clean-break compatibility policy
+The architecture changes **what consensus commits to**, not how much evidence is required for finality.
 
-v2 intentionally breaks v1 compatibility for network identity, transaction wire/signing domain, object/state format, persistent backend, state-root calculation, node-role model, shard commitments and contract ABI.
+## 18. Clean-break compatibility policy
 
-It carries forward security invariants, consensus/fault lessons, performance methodology, recovery requirements, wallet self-custody and P-256 usability unless later benchmark/security evidence justifies changing it.
+V2 intentionally breaks v1 compatibility for network identity, transaction wire/signing domain, object/state format, persistent backend, state-root calculation, node-role model, shard commitments, validator trust chain and contract ABI.
 
-No public v2 network will silently accept v1 protocol objects.
+It carries forward security invariants, consensus/fault lessons, performance methodology, recovery requirements, wallet self-custody and P-256 usability unless later benchmark/security evidence justifies changing them.
 
-## 17. Implementation sequence
+No public v2 network silently accepts v1 protocol objects or pre-transition experimental v2 wire objects.
 
-### Foundation — implemented by this branch
+## 19. Implementation sequence
 
-- canonical binary codec and typed v2 identities;
-- genesis-derived network ID;
-- Sparse Merkle reference state and compressed proofs;
-- object/coin model and native token definitions;
+### Executable foundation
+
+Implemented on the v2 branch:
+
+- canonical binary codec and typed identities;
+- genesis-derived network/trust identity;
+- validator-set roots and QC-backed committee transitions;
+- Sparse-Merkle reference state and compressed proofs;
+- proof-oriented object/coin model and native tokens;
 - signed proof-carrying transaction wire format;
-- native transfer and token-creation reference executor;
-- object world-state backend;
-- shard routing, commitments/proofs, global header and receipt primitives;
-- DA chunk/sample verification boundary;
-- Citizen Node verifier and resource-aware participation policy;
-- deterministic WASM deployment/runtime boundary;
-- native compute-market data model and verification modes;
+- deterministic parallel executor and non-mutating state preview;
+- durable WAL/checkpoint state backend;
+- v2 proposal/vote/QC and GlobalHeader finality path;
+- permanent object shard placement;
+- finalized cross-shard receipt import with durable anti-replay marker;
+- Citizen light API and strict wallet cryptographic verifier;
+- deterministic WASM metering/runtime boundary;
+- native compute-market state-machine foundation;
+- data-availability sample boundary;
 - separate consensus/transaction/light transport interfaces;
-- unit tests and reference state/proof microbenchmarks.
+- dedicated v2 seven-validator partition/conformance CI gate;
+- finalized v2 batch benchmark.
 
-### Integration
+### Next integration gates
 
-- add v2 genesis to the Consensus & Performance Lab;
-- make current certified consensus finalize a v2 global header;
-- run one-shard v2 transfers end to end;
-- introduce durable structured KV persistence with crash/restart recovery;
-- compare v1/v2 finalized TPS, finality, allocations and state-write cost.
-
-### Mobile
-
-- compact header/state-proof APIs;
-- Citizen verifier inside Zephyr Wallet;
-- bounded/resumable cache and multi-peer relay;
-- real Android/iOS resource measurements;
-- eliminate correctness dependence on any single RPC endpoint.
-
-### Parallel execution
-
-- deterministic conflict graph;
-- parallel non-conflicting execution;
-- deterministic merge;
-- 1/4/8/16-worker benchmark on one shard.
-
-### Sharding
-
-- 4-shard Lab;
-- cross-shard receipt consume and anti-replay;
-- shard-aware gossip/recovery;
-- 1/4/16-shard benchmarks;
-- activate more shards only if evidence is positive.
-
-### WASM
-
-- select production deterministic runtime;
-- validate imports/opcodes;
-- define fuel schedule and memory limits;
-- deploy/call state transitions;
-- Rust SDK and deterministic conformance suite.
-
-### Compute market
-
-- offer/job/assignment/result state transitions;
-- escrow/settlement and provider daemon;
-- deterministic/replicated verification first;
-- collateral/slashing/disputes;
-- optional TEE/ZK backends and confidential workload flow.
-
-### Data availability
-
-- select erasure code and reconstruction;
-- sampling/confidence rules;
-- withholding/fault tests;
-- mobile bandwidth/storage benchmarks;
-- shard-aware DA propagation.
+- mount a live v2 runtime/genesis/light provider in the process-facing node path;
+- persist runtime height/header/validator-transition metadata alongside shard state;
+- expand v2 fault injection to restart, proposer death, Byzantine payloads, wrong-chain data and transport delay/reorder;
+- profile/reduce proof/state allocation and compare controlled-hardware v1/v2 throughput;
+- add shard-aware recovery/gossip and 4/16-shard conformance;
+- implement trusted checkpoint history across long validator rotations;
+- integrate a production deterministic WASM engine and Rust SDK;
+- move compute-market transitions into consensus object execution and build provider daemon/escrow/dispute flows;
+- select production erasure coding and implement DA reconstruction/withholding tests;
+- connect libp2p/QUIC/mobile peer transport;
+- embed Citizen lifecycle/cache/relay controls in the wallet UI/native shell;
+- benchmark real Android/iOS devices and commodity validators.
 
 ### Public devnet gate
 
-No public v2 devnet until safety/liveness conformance, durable state recovery and Citizen Node correctness pass; one-shard performance is characterized; shard activation rules are defined; and genesis/checkpoint/operator/wallet upgrade procedures are explicit.
+No public v2 devnet until safety/liveness conformance, durable state/runtime recovery and Citizen trust-chain correctness pass; one-shard performance is characterized; multi-shard activation rules are defined; contract execution is deterministic/metered; and genesis/checkpoint/operator/wallet upgrade procedures are explicit.
 
 ## Architectural north star
 
