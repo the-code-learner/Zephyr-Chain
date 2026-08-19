@@ -40,7 +40,7 @@ func (e Engine) executeMintToken(t tx.Transaction, payload []byte) (Result, erro
 	created = append(created, updatedDefinition)
 	consumed = append(consumed, definitionObject.ID)
 
-	minted, err := object.NewCoinOutput(request.Recipient, definition.TokenID, request.Amount)
+	minted, err := object.NewCoinOutputAtHeight(request.Recipient, definition.TokenID, request.Amount, e.Height)
 	if err != nil {
 		return Result{}, err
 	}
@@ -130,9 +130,13 @@ func (e Engine) executeBurnToken(t tx.Transaction, payload []byte) (Result, erro
 		default:
 			return Result{}, ErrConservation
 		}
+		stamped, err := stampCoinOutput(spec, e.Height)
+		if err != nil {
+			return Result{}, err
+		}
 		created = append(created, object.Object{
 			ID: types.ObjectIDForShard(t.ID(), uint32(i), t.ShardID), Version: 1,
-			Owner: spec.Owner, Kind: spec.Kind, Data: append([]byte(nil), spec.Data...),
+			Owner: stamped.Owner, Kind: stamped.Kind, Data: append([]byte(nil), stamped.Data...),
 		})
 	}
 	if math.MaxUint64-nativeOut < t.Fee || nativeIn != nativeOut+t.Fee {
