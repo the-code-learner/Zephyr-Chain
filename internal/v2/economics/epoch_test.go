@@ -9,7 +9,7 @@ func TestAggregateEpochMetricsSeparatesChainAndComputeUtilization(t *testing.T) 
 			ChargedFees: 100, BurnedFees: 40, ValidatorFees: 50, ReserveFees: 10,
 			FinalizedOperations: 1_000, ResourceUsed: 50, ResourceCapacity: 100,
 			CirculatingNativeSupply: 800, AgeWeightedVelocityBps: 2_000,
-			EscrowBackedComputeDemand: 100, VerifiedComputeSupply: 80,
+			EscrowBackedComputeDemand: 100, VerifiedComputeSupply: 80, ComputeSupplyReliable: true,
 			ComputeFulfilled: 70, ComputeExpired: 10, ComputeBacklog: 20,
 		},
 		{
@@ -17,7 +17,7 @@ func TestAggregateEpochMetricsSeparatesChainAndComputeUtilization(t *testing.T) 
 			ChargedFees: 50, BurnedFees: 20, ValidatorFees: 25, ReserveFees: 5,
 			FinalizedOperations: 500, ResourceUsed: 10, ResourceCapacity: 100,
 			CirculatingNativeSupply: 200, AgeWeightedVelocityBps: 8_000,
-			EscrowBackedComputeDemand: 50, VerifiedComputeSupply: 40,
+			EscrowBackedComputeDemand: 50, VerifiedComputeSupply: 40, ComputeSupplyReliable: true,
 			ComputeFulfilled: 30, ComputeExpired: 10, ComputeBacklog: 10,
 		},
 	}
@@ -37,11 +37,11 @@ func TestAggregateEpochMetricsSeparatesChainAndComputeUtilization(t *testing.T) 
 	if aggregate.AgeWeightedVelocityBps != 3_200 {
 		t.Fatalf("velocity must be supply-weighted across shards, got %d", aggregate.AgeWeightedVelocityBps)
 	}
-	if aggregate.ComputeExpired != 20 {
-		t.Fatalf("expired compute = %d, want 20", aggregate.ComputeExpired)
+	if aggregate.ComputeExpired != 20 || !aggregate.ComputeSupplyReliable {
+		t.Fatalf("unexpected compute aggregate: %#v", aggregate)
 	}
 	market := aggregate.ComputeMarketMetrics(500, true)
-	if market.UtilizationBps != aggregate.ComputeUtilizationBps || market.EscrowBackedDemandUnits != 150 || market.VerifiedSupplyUnits != 120 {
+	if market.UtilizationBps != aggregate.ComputeUtilizationBps || market.EscrowBackedDemandUnits != 150 || market.VerifiedSupplyUnits != 120 || !market.VerifiedSupplyReliable {
 		t.Fatalf("unexpected compute market projection: %#v", market)
 	}
 }
@@ -49,7 +49,8 @@ func TestAggregateEpochMetricsSeparatesChainAndComputeUtilization(t *testing.T) 
 func TestShardEpochMetricsCarriesBacklogAcrossEpochs(t *testing.T) {
 	metrics := ShardEpochMetrics{
 		Version: EpochMetricsVersion, Epoch: 2, ResourceCapacity: 100,
-		OpeningComputeBacklog: 100, EscrowBackedComputeDemand: 20, VerifiedComputeSupply: 100,
+		OpeningComputeBacklog: 100, EscrowBackedComputeDemand: 20,
+		VerifiedComputeSupply: 100, ComputeSupplyReliable: true,
 		ComputeFulfilled: 80, ComputeExpired: 10, ComputeBacklog: 30,
 	}
 	if err := metrics.Validate(); err != nil {
@@ -65,11 +66,28 @@ func TestShardEpochMetricsCarriesBacklogAcrossEpochs(t *testing.T) {
 	}
 }
 
+func TestUnauthenticatedComputeSupplyCannotBecomeReliable(t *testing.T) {
+	metrics := ShardEpochMetrics{
+		Version: EpochMetricsVersion, Epoch: 1, ResourceCapacity: 100,
+		EscrowBackedComputeDemand: 100, VerifiedComputeSupply: 1_000,
+		ComputeFulfilled: 60, ComputeBacklog: 40,
+	}
+	aggregate, err := AggregateEpochMetrics([]ShardEpochMetrics{metrics})
+	if err != nil {
+		t.Fatal(err)
+	}
+	market := aggregate.ComputeMarketMetrics(0, true)
+	if market.VerifiedSupplyReliable {
+		t.Fatal("unauthenticated compute supply became reliable")
+	}
+}
+
 func TestShardEpochMetricsRejectsInconsistentAccounting(t *testing.T) {
 	base := ShardEpochMetrics{
 		Version: EpochMetricsVersion, Epoch: 1, ResourceCapacity: 100,
 		ChargedFees: 10, BurnedFees: 4, ValidatorFees: 5, ReserveFees: 1,
-		EscrowBackedComputeDemand: 100, VerifiedComputeSupply: 100, ComputeFulfilled: 60, ComputeBacklog: 40,
+		EscrowBackedComputeDemand: 100, VerifiedComputeSupply: 100, ComputeSupplyReliable: true,
+		ComputeFulfilled: 60, ComputeBacklog: 40,
 	}
 	if err := base.Validate(); err != nil {
 		t.Fatal(err)
@@ -83,6 +101,11 @@ func TestShardEpochMetricsRejectsInconsistentAccounting(t *testing.T) {
 	badDemand.ComputeBacklog = 41
 	if err := badDemand.Validate(); err != ErrEpochMetrics {
 		t.Fatalf("broken compute flow accepted: %v", err)
+	}
+	badSupply := base
+	badSupply.VerifiedComputeSupply = 59
+	if err := badSupply.Validate(); err != ErrEpochMetrics {
+		t.Fatalf("fulfilled work above authenticated supply accepted: %v", err)
 	}
 }
 
