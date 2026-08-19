@@ -5,6 +5,7 @@ import (
 	"runtime"
 	"sync"
 
+	"github.com/zephyr-chain/zephyr-chain/internal/v2/contracts"
 	"github.com/zephyr-chain/zephyr-chain/internal/v2/object"
 	"github.com/zephyr-chain/zephyr-chain/internal/v2/tx"
 	"github.com/zephyr-chain/zephyr-chain/internal/v2/types"
@@ -16,10 +17,16 @@ var (
 	ErrBatchStateRoot = errors.New("v2 batch does not target the current state root")
 )
 
-// BatchExecutor executes proof-carrying transactions concurrently only when
-// their consumed object sets are disjoint. All transactions in one batch are
-// anchored to the same pre-state root, so execution can be parallel and the
-// resulting object delta can be committed atomically in deterministic order.
+type accessMode uint8
+
+const (
+	accessRead accessMode = iota + 1
+	accessWrite
+)
+
+// BatchExecutor executes proof-carrying transactions concurrently when their
+// state access sets are independent. Shared immutable/read-only objects are
+// allowed; any read/write or write/write overlap is rejected before workers run.
 type BatchExecutor struct {
 	Engine  Engine
 	Workers int
@@ -95,8 +102,8 @@ func (b BatchExecutor) ApplyBatch(store worldstate.Backend, transactions []tx.Tr
 
 func validateIndependentBatch(transactions []tx.Transaction) error {
 	root := transactions[0].StateRoot
-	seenInputs := make(map[types.ObjectID]struct{})
 	seenTransactions := make(map[types.Hash]struct{})
+	global := make(map[types.ObjectID]accessMode)
 	for _, transaction := range transactions {
 		if transaction.StateRoot != root {
 			return ErrBatchStateRoot
@@ -106,12 +113,48 @@ func validateIndependentBatch(transactions []tx.Transaction) error {
 			return ErrBatchConflict
 		}
 		seenTransactions[id] = struct{}{}
-		for _, input := range transaction.Inputs {
-			if _, conflict := seenInputs[input.ObjectID]; conflict {
-				return ErrBatchConflict
+		accesses, err := transactionAccesses(transaction)
+		if err != nil {
+			return err
+		}
+		for objectID, mode := range accesses {
+			if prior, exists := global[objectID]; exists {
+				if prior == accessWrite || mode == accessWrite {
+					return ErrBatchConflict
+				}
+				continue
 			}
-			seenInputs[input.ObjectID] = struct{}{}
+			global[objectID] = mode
 		}
 	}
 	return nil
+}
+
+func transactionAccesses(transaction tx.Transaction) (map[types.ObjectID]accessMode, error) {
+	accesses := make(map[types.ObjectID]accessMode, len(transaction.Inputs))
+	for _, input := range transaction.Inputs {
+		accesses[input.ObjectID] = accessWrite
+	}
+	if len(transaction.Operations) != 1 || transaction.Operations[0].Kind != tx.OpContractCall {
+		return accesses, nil
+	}
+	call, err := contracts.ParseCall(transaction.Operations[0].Payload)
+	if err != nil {
+		return nil, err
+	}
+	if _, present := accesses[call.ContractObject]; !present {
+		return nil, ErrBatchConflict
+	}
+	accesses[call.ContractObject] = accessRead
+	for _, access := range call.Accesses {
+		if _, present := accesses[access.ObjectID]; !present {
+			return nil, ErrBatchConflict
+		}
+		if access.Write {
+			accesses[access.ObjectID] = accessWrite
+		} else {
+			accesses[access.ObjectID] = accessRead
+		}
+	}
+	return accesses, nil
 }
