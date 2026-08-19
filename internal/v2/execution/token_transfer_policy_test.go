@@ -66,7 +66,7 @@ func TestCustomTokenTransferRequiresTransferableDefinition(t *testing.T) {
 
 func TestCustomTokenCrossShardTransferRemainsActivationGated(t *testing.T) {
 	var keyAccount types.AccountID
-	var key = makeKey(t)
+	key := makeKey(t)
 	for attempts := 0; attempts < 64; attempts++ {
 		keyAccount = types.AccountIDFromPublicKey(elliptic.Marshal(elliptic.P256(), key.PublicKey.X, key.PublicKey.Y))
 		if types.AccountShard(keyAccount, 2) == 0 {
@@ -77,15 +77,17 @@ func TestCustomTokenCrossShardTransferRemainsActivationGated(t *testing.T) {
 	if types.AccountShard(keyAccount, 2) != 0 {
 		t.Fatal("failed to generate shard-0 sender")
 	}
+
 	var recipient types.AccountID
-	for i := 1; i < 256; i++ {
-		recipient[31] = byte(i)
+	for attempts := 0; attempts < 64; attempts++ {
+		recipientKey := makeKey(t)
+		recipient = types.AccountIDFromPublicKey(elliptic.Marshal(elliptic.P256(), recipientKey.PublicKey.X, recipientKey.PublicKey.Y))
 		if types.AccountShard(recipient, 2) == 1 {
 			break
 		}
 	}
 	if types.AccountShard(recipient, 2) != 1 {
-		t.Fatal("failed to derive shard-1 recipient")
+		t.Fatal("failed to generate shard-1 recipient")
 	}
 
 	network := types.NetworkID(types.HashBytes("network", []byte("token-cross-shard")))
