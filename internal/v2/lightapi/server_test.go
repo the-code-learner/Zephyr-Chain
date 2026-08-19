@@ -50,7 +50,11 @@ func TestLightObjectEndpointReturnsVerifiableBundle(t *testing.T) {
 	pub := elliptic.Marshal(elliptic.P256(), validatorKey.PublicKey.X, validatorKey.PublicKey.Y)
 	validatorID := types.ValidatorIDFromPublicKey(pub)
 	validators := v2consensus.ValidatorSet{Network: network, Validators: []v2consensus.Validator{{ID: validatorID, PublicKey: pub, Power: 10}}}
-	header := sharding.GlobalHeader{Version: 2, Network: network, Height: 1, ShardCommitmentRoot: commitmentRoot, ValidatorRoot: types.HashBytes("validators", []byte("root")), DataRoot: merkle.Root(nil)}
+	validatorRoot, err := validators.Root()
+	if err != nil {
+		t.Fatal(err)
+	}
+	header := sharding.GlobalHeader{Version: 2, Network: network, Height: 1, ShardCommitmentRoot: commitmentRoot, ValidatorRoot: validatorRoot, DataRoot: merkle.Root(nil)}
 	proposal, err := v2consensus.SignProposal(validatorKey, header, 0)
 	if err != nil {
 		t.Fatal(err)
@@ -76,6 +80,39 @@ func TestLightObjectEndpointReturnsVerifiableBundle(t *testing.T) {
 	}
 	if body := res.Body.String(); len(body) < 100 || !contains(body, id.String()) {
 		t.Fatalf("proof bundle missing object identity: %s", body)
+	}
+}
+
+func TestSnapshotRejectsValidatorSetNotCommittedByHeader(t *testing.T) {
+	network := types.NetworkID(types.HashBytes("network", []byte("light-validator-root")))
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pub := elliptic.Marshal(elliptic.P256(), key.PublicKey.X, key.PublicKey.Y)
+	id := types.ValidatorIDFromPublicKey(pub)
+	validators := v2consensus.ValidatorSet{Network: network, Validators: []v2consensus.Validator{{ID: id, PublicKey: pub, Power: 1}}}
+	header := sharding.GlobalHeader{
+		Version: 2, Network: network, Height: 1,
+		ShardCommitmentRoot: types.HashBytes("shards", []byte("root")),
+		ValidatorRoot:       types.HashBytes("validators", []byte("foreign")),
+		DataRoot:            merkle.Root(nil),
+	}
+	proposal, err := v2consensus.SignProposal(key, header, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	vote, err := v2consensus.SignVote(key, network, 1, 0, v2consensus.HeaderConsensusHash(header))
+	if err != nil {
+		t.Fatal(err)
+	}
+	certificate, err := validators.BuildCertificate(proposal, []v2consensus.Vote{vote})
+	if err != nil {
+		t.Fatal(err)
+	}
+	header.CertificateHash = certificate.Hash()
+	if err := (Snapshot{Header: header, Certificate: certificate, Validators: validators}).Validate(); err != ErrSnapshot {
+		t.Fatalf("expected validator-root mismatch rejection, got %v", err)
 	}
 }
 
