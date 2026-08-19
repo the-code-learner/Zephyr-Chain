@@ -42,7 +42,7 @@ func TestCandidateDoesNotMutateBeforeQCAndCommitsAfterQC(t *testing.T) {
 	change, _ := object.NewCoinOutput(alice, native, 74)
 	transaction := tx.Transaction{
 		Version: tx.Version, Network: network, ShardID: 0, StateRoot: root,
-		Inputs: []tx.InputRef{{ObjectID: inputID, Version: 1, ObjectHash: witnessHash}},
+		Inputs:  []tx.InputRef{{ObjectID: inputID, Version: 1, ObjectHash: witnessHash}},
 		Outputs: []object.OutputSpec{toBob, change}, Operations: []tx.Operation{{Kind: tx.OpTransfer}},
 		Fee: 1, Witnesses: []tx.Witness{{Object: witness, Proof: proof}},
 	}
