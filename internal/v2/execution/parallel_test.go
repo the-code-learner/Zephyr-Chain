@@ -1,6 +1,8 @@
 package execution
 
 import (
+	"crypto/ecdsa"
+	"crypto/elliptic"
 	"testing"
 
 	"github.com/zephyr-chain/zephyr-chain/internal/v2/object"
