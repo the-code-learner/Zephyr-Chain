@@ -199,6 +199,10 @@ func (r *Runtime) validateReceiptImport(destinationShard uint32, receiptImport R
 		receiptImport.Header.Height > r.Height || receiptImport.Header.Height != receiptImport.Receipt.SourceHeight {
 		return ErrReceiptImport
 	}
+	validatorRoot, err := receiptImport.Validators.Root()
+	if err != nil || validatorRoot != receiptImport.Header.ValidatorRoot {
+		return ErrReceiptImport
+	}
 	if receiptImport.Header.CertificateHash != receiptImport.Certificate.Hash() ||
 		receiptImport.Certificate.HeaderHash != v2consensus.HeaderConsensusHash(receiptImport.Header) ||
 		receiptImport.Certificate.Height != receiptImport.Header.Height {
@@ -220,6 +224,10 @@ func (r *Runtime) Commit(candidate Candidate, certificate v2consensus.Certificat
 	defer r.mu.Unlock()
 	if candidate.Header.Height != r.Height+1 || candidate.Header.ParentHash != r.ParentHash || candidate.Header.Network != r.Network {
 		return sharding.GlobalHeader{}, ErrCandidateState
+	}
+	validatorRoot, err := validators.Root()
+	if err != nil || validatorRoot != candidate.Header.ValidatorRoot || validatorRoot != r.ValidatorRoot {
+		return sharding.GlobalHeader{}, ErrCandidateCert
 	}
 	if certificate.HeaderHash != v2consensus.HeaderConsensusHash(candidate.Header) || certificate.Height != candidate.Header.Height || certificate.Network != r.Network {
 		return sharding.GlobalHeader{}, ErrCandidateCert
