@@ -1,0 +1,37 @@
+name: V2 Lab
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: v2-lab-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  v2-lab:
+    name: Protocol v2 conformance
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - name: V2 seven-validator conformance
+        run: go test ./internal/v2/lab ./internal/v2/node ./internal/v2/consensus ./internal/v2/state ./internal/v2/worldstate -count=1 -timeout=120s
+
+      - name: V2 partition stress
+        run: go test ./internal/v2/lab -run '^TestV2Lab(FourThreePartitionStallsThenHeals|FiveTwoPartitionFinalizesQuorumSideAndMinorityCatchesUp)$' -count=10 -timeout=120s
+
+      - name: V2 finalized batch scaling
+        run: go test ./internal/v2/node -run '^$' -bench '^BenchmarkV2FinalizedBatch32$' -benchtime=1x -count=1 -timeout=120s
