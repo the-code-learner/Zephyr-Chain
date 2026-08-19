@@ -6,6 +6,7 @@ func TestComputeScarcityRisesWhenVerifiedDemandExceedsSupply(t *testing.T) {
 	metrics := ComputeMarketMetrics{
 		EscrowBackedDemandUnits: 2_000,
 		VerifiedSupplyUnits:     1_000,
+		VerifiedSupplyReliable:  true,
 		BacklogUnits:            500,
 		FulfilledUnits:          1_500,
 		UtilizationBps:          9_000,
@@ -29,6 +30,7 @@ func TestComputeScarcityIgnoresUnreliablePriceSignal(t *testing.T) {
 	metrics := ComputeMarketMetrics{
 		EscrowBackedDemandUnits: 2_000,
 		VerifiedSupplyUnits:     2_000,
+		VerifiedSupplyReliable:  true,
 		FulfilledUnits:          2_000,
 		UtilizationBps:          cfg.UtilizationTargetBps,
 		ComputePriceTrendBps:    10_000,
@@ -52,6 +54,23 @@ func TestComputeScarcityRejectsImpossibleSettlementMetrics(t *testing.T) {
 	metrics := ComputeMarketMetrics{EscrowBackedDemandUnits: 100, VerifiedSupplyUnits: 100, BacklogUnits: 101}
 	if _, err := BuildComputeScarcity(1, metrics, DefaultComputeScarcityConfig()); err != ErrComputeScarcity {
 		t.Fatalf("expected invalid backlog rejection, got %v", err)
+	}
+}
+
+func TestUnauthenticatedSupplyCannotMakeZCSIReliable(t *testing.T) {
+	cfg := DefaultComputeScarcityConfig()
+	metrics := ComputeMarketMetrics{
+		EscrowBackedDemandUnits: cfg.MinDemandUnits,
+		VerifiedSupplyUnits:     cfg.MinSupplyUnits,
+		VerifiedSupplyReliable:  false,
+		BacklogUnits:            cfg.MinDemandUnits,
+	}
+	snapshot, err := BuildComputeScarcity(1, metrics, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snapshot.Reliable {
+		t.Fatal("unauthenticated compute supply made ZCSI reliable")
 	}
 }
 
