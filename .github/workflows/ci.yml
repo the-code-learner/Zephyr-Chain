@@ -7,64 +7,13 @@ on:
   pull_request:
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  persistence-experiment:
-    name: Compare state persistence hot path
-    if: github.actor != 'github-actions[bot]' && github.head_ref == 'chatgpt/state-persistence-hotpath'
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout experiment branch
-        uses: actions/checkout@v6
-        with:
-          ref: chatgpt/state-persistence-hotpath
-          fetch-depth: 0
-
-      - name: Set up Go
-        uses: actions/setup-go@v7
-        with:
-          go-version-file: go.mod
-          cache: false
-
-      - name: Baseline finalized-throughput benchmark
-        run: |
-          go test ./internal/api -run '^$' -bench '^BenchmarkLabConsensusFinality7Validators$' -benchtime=5x -count=1 -timeout=120s | tee baseline.txt
-
-      - name: Apply compact state serialization
-        run: |
-          python scripts/apply_compact_state_persistence.py
-          gofmt -w internal/ledger/store.go
-
-      - name: Verify correctness after persistence change
-        run: |
-          go vet ./...
-          go test ./...
-          go test ./internal/api -run '^TestLab' -count=1 -timeout=90s
-
-      - name: Optimized finalized-throughput benchmark
-        run: |
-          go test ./internal/api -run '^$' -bench '^BenchmarkLabConsensusFinality7Validators$' -benchtime=5x -count=1 -timeout=120s | tee optimized.txt
-
-      - name: Show direct comparison
-        run: |
-          echo '=== BASELINE ==='
-          grep 'BenchmarkLabConsensusFinality7Validators' baseline.txt || true
-          echo '=== COMPACT JSON ==='
-          grep 'BenchmarkLabConsensusFinality7Validators' optimized.txt || true
-
-      - name: Commit verified experiment
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add internal/ledger/store.go
-          git commit -m "compact persisted node state JSON"
-          git push origin HEAD:chatgpt/state-persistence-hotpath
-
   go:
     name: Go checks
     runs-on: ubuntu-latest
@@ -73,22 +22,42 @@ jobs:
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
+
       - name: Set up Go
         uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
           cache: false
+
       - name: Check formatting of changed Go files
         shell: bash
         run: |
-          if [ "${{ github.event_name }}" = "pull_request" ]; then base="${{ github.event.pull_request.base.sha }}"; else base="${{ github.event.before }}"; fi
-          if [ -z "$base" ] || [[ "$base" =~ ^0+$ ]]; then base="$(git rev-list --max-parents=0 HEAD)"; fi
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            base="${{ github.event.pull_request.base.sha }}"
+          else
+            base="${{ github.event.before }}"
+          fi
+
+          if [ -z "$base" ] || [[ "$base" =~ ^0+$ ]]; then
+            base="$(git rev-list --max-parents=0 HEAD)"
+          fi
+
           mapfile -t files < <(git diff --name-only --diff-filter=ACMRT "$base" HEAD -- '*.go')
-          if [ "${#files[@]}" -eq 0 ]; then echo "No changed Go files to format-check."; exit 0; fi
+          if [ "${#files[@]}" -eq 0 ]; then
+            echo "No changed Go files to format-check."
+            exit 0
+          fi
+
           unformatted="$(gofmt -l "${files[@]}")"
-          if [ -n "$unformatted" ]; then echo "$unformatted"; exit 1; fi
+          if [ -n "$unformatted" ]; then
+            echo "The following changed Go files need gofmt:"
+            echo "$unformatted"
+            exit 1
+          fi
+
       - name: Vet
         run: go vet ./...
+
       - name: Test
         run: go test ./...
 
@@ -98,17 +67,22 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+
       - name: Set up Go
         uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
           cache: false
+
       - name: Multi-validator conformance gate
         run: go test ./internal/api -run '^TestLab' -count=1 -timeout=90s
+
       - name: Partition recovery stress gate
         run: go test ./internal/api -run '^TestLabSevenValidatorsStallWithoutQuorumThenRecoverWithPeerSync$' -count=3 -timeout=90s
+
       - name: Seven-validator finalized-throughput sample
         run: go test ./internal/api -run '^$' -bench '^BenchmarkLabConsensusFinality7Validators$' -benchtime=3x -count=1 -timeout=120s
+
       - name: P-256 verification baseline
         run: go test ./internal/api -run '^$' -bench '^BenchmarkLabP256TransactionVerification$' -benchtime=1s -count=1
 
@@ -121,15 +95,19 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+
       - name: Set up Node.js
         uses: actions/setup-node@v7
         with:
           node-version: 24
           cache: npm
           cache-dependency-path: apps/wallet/package-lock.json
+
       - name: Install dependencies
         run: npm ci
+
       - name: Audit production and build dependencies
         run: npm audit --audit-level=high
+
       - name: Type-check and build
         run: npm run build
