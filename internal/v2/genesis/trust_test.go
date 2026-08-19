@@ -51,7 +51,7 @@ func TestTrustAnchorRejectsNonP256GenesisValidator(t *testing.T) {
 		InitialShardCount: 1, MaxShardCount: 1, NativeSymbol: "ZPH",
 		Validators: []Validator{{ID: types.ValidatorIDFromPublicKey(pub), ConsensusPublicKey: pub, VotingPower: 1}},
 	}
-	if _, err := config.TrustAnchor(); err != ErrInvalidGenesis {
+	if _, err := config.TrustAnchor(); err != ErrValidator {
 		t.Fatalf("expected invalid genesis trust anchor, got %v", err)
 	}
 }
