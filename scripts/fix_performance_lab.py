@@ -5,6 +5,31 @@ path = Path("internal/api/performance_lab_test.go")
 source = path.read_text()
 source = source.replace('\t"errors"\n', '')
 source = source.replace('\nvar _ = errors.Is\n', '\n')
+
+old_failure = '''\tstatuses := make([]uint64, 0, len(c.nodes))
+\tfor _, node := range c.nodes {
+\t\tstatuses = append(statuses, node.server.ledger.Status().Height)
+\t}
+\tc.tb.Fatalf("target height %d not reached before timeout; heights=%v", height, statuses)
+\treturn 0
+'''
+new_failure = '''\tsummaries := make([]string, 0, len(c.nodes))
+\tfor index, node := range c.nodes {
+\t\tstatus := node.server.ledger.Status()
+\t\tview := node.server.ledger.Consensus()
+\t\tround := node.server.ledger.RoundState()
+\t\tproposals := node.server.ledger.ProposalsForHeight(view.NextHeight)
+\t\tcertificates := node.server.ledger.CertificatesForHeight(view.NextHeight)
+\t\ttallies := node.server.ledger.VoteTalliesAt(view.NextHeight, view.CurrentRound)
+\t\tsummaries = append(summaries, fmt.Sprintf("node=%d height=%d mempool=%d next=%d round=%d roundHeight=%d proposer=%s proposals=%d tallies=%+v certs=%d", index, status.Height, status.MempoolSize, view.NextHeight, view.CurrentRound, round.Height, view.NextProposer, len(proposals), tallies, len(certificates)))
+\t}
+\tc.tb.Fatalf("target height %d not reached before timeout; consensus=%v", height, summaries)
+\treturn 0
+'''
+if old_failure not in source:
+    raise SystemExit("driveUntilHeight failure block not found")
+source = source.replace(old_failure, new_failure, 1)
+
 pattern = re.compile(r'func BenchmarkLabConsensusFinality7Validators\(b \*testing\.B\) \{.*?\n\}\n\n(?=func BenchmarkLabP256TransactionVerification)', re.S)
 replacement = r'''func BenchmarkLabConsensusFinality7Validators(b *testing.B) {
 	const transactionsPerBlock = 32
