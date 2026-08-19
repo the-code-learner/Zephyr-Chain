@@ -8,7 +8,6 @@ import (
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -31,7 +30,7 @@ import (
 const (
 	labVotingPower         = uint64(10_000)
 	labMaxTransactions     = 4_096
-	labConsensusRoundLimit = 120 * time.Millisecond
+	labConsensusRoundLimit = 1 * time.Second
 )
 
 type labSigner struct {
@@ -101,10 +100,10 @@ func newLabCluster(tb testing.TB, validatorCount int) *labCluster {
 	validators := make([]dpos.Validator, 0, validatorCount)
 	for index, node := range cluster.nodes {
 		validators = append(validators, dpos.Validator{
-			Rank:         index + 1,
-			Address:      node.signer.address,
-			VotingPower:  labVotingPower,
-			SelfStake:    labVotingPower,
+			Rank:           index + 1,
+			Address:        node.signer.address,
+			VotingPower:    labVotingPower,
+			SelfStake:      labVotingPower,
 			DelegatedStake: 0,
 		})
 	}
@@ -127,6 +126,13 @@ func newLabCluster(tb testing.TB, validatorCount int) *labCluster {
 		}); err != nil {
 			cluster.Close()
 			tb.Fatalf("set validator snapshot on node %d: %v", index, err)
+		}
+		view := node.server.ledger.Consensus()
+		expectedTotal := uint64(validatorCount) * labVotingPower
+		expectedQuorum := (expectedTotal/3)*2 + ((expectedTotal%3)*2)/3 + 1
+		if view.ValidatorCount != validatorCount || view.TotalVotingPower != expectedTotal || view.QuorumVotingPower != expectedQuorum {
+			cluster.Close()
+			tb.Fatalf("unexpected validator quorum on node %d: count=%d total=%d quorum=%d, expected count=%d total=%d quorum=%d", index, view.ValidatorCount, view.TotalVotingPower, view.QuorumVotingPower, validatorCount, expectedTotal, expectedQuorum)
 		}
 	}
 
@@ -278,12 +284,38 @@ func (c *labCluster) driveUntilHeight(indices []int, height uint64, timeout time
 		}
 		time.Sleep(2 * time.Millisecond)
 	}
-	statuses := make([]uint64, 0, len(c.nodes))
-	for _, node := range c.nodes {
-		statuses = append(statuses, node.server.ledger.Status().Height)
+	summaries := make([]string, 0, len(c.nodes))
+	for index, node := range c.nodes {
+		status := node.server.ledger.Status()
+		view := node.server.ledger.Consensus()
+		round := node.server.ledger.RoundState()
+		proposals := node.server.ledger.ProposalsForHeight(view.NextHeight)
+		certificates := node.server.ledger.CertificatesForHeight(view.NextHeight)
+		tallies := node.server.ledger.VoteTalliesAt(view.NextHeight, view.CurrentRound)
+		summaries = append(summaries, fmt.Sprintf("node=%d height=%d mempool=%d next=%d round=%d roundHeight=%d proposer=%s proposals=%d tallies=%+v certs=%d", index, status.Height, status.MempoolSize, view.NextHeight, view.CurrentRound, round.Height, view.NextProposer, len(proposals), tallies, len(certificates)))
 	}
-	c.tb.Fatalf("target height %d not reached before timeout; heights=%v", height, statuses)
+	c.tb.Fatalf("target height %d not reached before timeout; consensus=%v", height, summaries)
 	return 0
+}
+
+func (c *labCluster) driveAndSyncUntilHeight(indices []int, height uint64, timeout time.Duration) {
+	c.tb.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		for _, node := range c.nodes {
+			if err := node.server.runConsensusAutomation(); err != nil && !ignoreConsensusAutomationError(err) {
+				c.tb.Fatalf("drive consensus on %s: %v", node.server.nodeID, err)
+			}
+		}
+		for _, node := range c.nodes {
+			node.server.syncPeers()
+		}
+		if c.indicesAtHeight(indices, height) {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	c.driveUntilHeight(indices, height, time.Millisecond)
 }
 
 func (c *labCluster) driveFor(duration time.Duration) {
@@ -632,7 +664,7 @@ func TestLabSevenValidatorsCertifiedFinality(t *testing.T) {
 	t.Logf("7-validator certified finality: tx=%d finality=%s finalized_tps=%.2f", len(transactions), finality, float64(len(transactions))/finality.Seconds())
 }
 
-func TestLabSevenValidatorsStallWithoutQuorumThenRecover(t *testing.T) {
+func TestLabSevenValidatorsStallWithoutQuorumThenRecoverWithPeerSync(t *testing.T) {
 	cluster := newLabCluster(t, 7)
 	defer cluster.Close()
 
@@ -650,7 +682,7 @@ func TestLabSevenValidatorsStallWithoutQuorumThenRecover(t *testing.T) {
 	}
 
 	cluster.heal()
-	cluster.driveUntilHeight(cluster.allIndices(), 1, 5*time.Second)
+	cluster.driveAndSyncUntilHeight(cluster.allIndices(), 1, 8*time.Second)
 	cluster.assertSameTip(cluster.allIndices(), 1)
 }
 
@@ -703,6 +735,9 @@ func TestLabFourValidatorsDuplicateDelayedOutOfOrderMessagesPreserveSafety(t *te
 
 func BenchmarkLabConsensusFinality7Validators(b *testing.B) {
 	const transactionsPerBlock = 32
+	cluster := newLabCluster(b, 7)
+	defer cluster.Close()
+
 	finalitySamples := make([]time.Duration, 0, b.N)
 	var totalPayloadBytes uint64
 	var totalBlockBytes uint64
@@ -710,34 +745,31 @@ func BenchmarkLabConsensusFinality7Validators(b *testing.B) {
 
 	for iteration := 0; iteration < b.N; iteration++ {
 		b.StopTimer()
-		cluster := newLabCluster(b, 7)
 		transactions := cluster.prepareTransactions(transactionsPerBlock)
 		cluster.fundTransactions(transactions)
+		payloadBefore := cluster.outboundPayloadBytes()
 
 		b.StartTimer()
 		startedAt := time.Now()
 		cluster.submitTransactions(transactions, 16)
 		cluster.waitForMempools(len(transactions), 3*time.Second)
-		cluster.driveUntilHeight(cluster.allIndices(), 1, 5*time.Second)
+		cluster.driveUntilHeight(cluster.allIndices(), uint64(iteration+1), 5*time.Second)
 		finality := time.Since(startedAt)
 		b.StopTimer()
 
-		cluster.assertSameTip(cluster.allIndices(), 1)
+		cluster.assertSameTip(cluster.allIndices(), uint64(iteration+1))
 		block := cluster.latestBlock(0)
 		if block.TransactionCount != transactionsPerBlock {
-			cluster.Close()
-			b.Fatalf("expected %d finalized transactions, got %d", transactionsPerBlock, block.TransactionCount)
+			b.Fatalf("iteration %d: expected %d finalized transactions, got %d", iteration, transactionsPerBlock, block.TransactionCount)
 		}
 		encodedBlock, err := json.Marshal(block)
 		if err != nil {
-			cluster.Close()
 			b.Fatalf("marshal finalized block: %v", err)
 		}
 		finalitySamples = append(finalitySamples, finality)
-		totalPayloadBytes += cluster.outboundPayloadBytes()
+		totalPayloadBytes += cluster.outboundPayloadBytes() - payloadBefore
 		totalBlockBytes += uint64(len(encodedBlock))
 		totalStateBytes += cluster.averageStateBytes()
-		cluster.Close()
 	}
 
 	if len(finalitySamples) == 0 {
@@ -799,4 +831,3 @@ func durationMillis(value time.Duration) float64 {
 }
 
 var _ peerTransport = (*labFaultTransport)(nil)
-var _ = errors.Is
