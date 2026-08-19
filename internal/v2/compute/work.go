@@ -206,6 +206,14 @@ func (r *WorkRegistry) CanonicalSpecs() ([]WorkSpec, error) {
 	return out, nil
 }
 
+func (r *WorkRegistry) Clone() (*WorkRegistry, error) {
+	specs, err := r.CanonicalSpecs()
+	if err != nil {
+		return nil, err
+	}
+	return NewWorkRegistry(specs)
+}
+
 // Hash commits the exact normalized workload definitions used by ZCPI/ZCSI.
 // Checkpoints bind this hash instead of serializing an implicitly trusted
 // registry snapshot; restore must be supplied the same registry explicitly.
