@@ -120,12 +120,16 @@ func (n *Node) FetchLightProof(ctx context.Context, remote peer.ID, payload []by
 	return n.request(ctx, remote, n.lightProof, payload)
 }
 
+func (n *Node) SetConsensusHandler(handler Handler)   { n.install(n.consensus, handler) }
+func (n *Node) SetTransactionHandler(handler Handler) { n.install(n.transaction, handler) }
+func (n *Node) SetLightProofHandler(handler Handler)  { n.install(n.lightProof, handler) }
+
 func (n *Node) install(id protocol.ID, handler Handler) {
+	if handler == nil {
+		n.host.RemoveStreamHandler(id)
+		return
+	}
 	n.host.SetStreamHandler(id, func(stream network.Stream) {
-		if handler == nil {
-			_ = stream.Reset()
-			return
-		}
 		defer stream.Close()
 		_ = stream.SetDeadline(time.Now().Add(n.timeout))
 		payload, err := readFrame(stream, n.maxMessage)
