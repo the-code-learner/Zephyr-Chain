@@ -8,11 +8,11 @@ import (
 
 func TestSettlementReceiptRoundTrip(t *testing.T) {
 	receipt := SettlementReceipt{
-		JobID:      types.JobID{1},
-		ResultRoot: types.Hash{2},
-		Payments:   map[types.AccountID]uint64{{3}: 10, {4}: 20},
-		Refund:     5,
-		Slashed:    map[types.AccountID]uint64{{5}: 7},
+		JobID:       types.JobID{1},
+		ResultRoot:  types.Hash{2},
+		Payments:    map[types.AccountID]uint64{{3}: 10, {4}: 20},
+		Refund:      5,
+		Slashed:     map[types.AccountID]uint64{{5}: 7},
 		SlashReward: 7,
 	}
 	parsed, err := ParseSettlementReceipt(receipt.MarshalBinary())
@@ -71,11 +71,11 @@ func TestObserveFinalizedSettlementReplicatedMajority(t *testing.T) {
 		},
 	}
 	receipt := SettlementReceipt{
-		JobID:      jobID,
-		ResultRoot: root,
-		Payments:   map[types.AccountID]uint64{providers[0]: 10, providers[1]: 20},
-		Refund:     30,
-		Slashed:    map[types.AccountID]uint64{providers[2]: 4},
+		JobID:       jobID,
+		ResultRoot:  root,
+		Payments:    map[types.AccountID]uint64{providers[0]: 10, providers[1]: 20},
+		Refund:      30,
+		Slashed:     map[types.AccountID]uint64{providers[2]: 4},
 		SlashReward: 4,
 	}
 	observed, err := ObserveFinalizedSettlement(record, receipt, registry)
