@@ -134,6 +134,9 @@ func (e Engine) executeTransfer(t tx.Transaction) (Result, error) {
 		if err != nil {
 			return Result{}, ErrShard
 		}
+		if coin.Token != e.NativeToken && destination != t.ShardID {
+			return Result{}, ErrTokenPolicy
+		}
 		if destination == t.ShardID {
 			created = append(created, object.Object{
 				ID: types.ObjectIDForShard(txID, uint32(i), destination), Version: 1,
