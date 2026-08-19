@@ -11,8 +11,8 @@ func TestComputeProtocolObjectsRoundTrip(t *testing.T) {
 	owner := types.AccountIDFromPublicKey([]byte("compute-owner"))
 	provider := types.AccountIDFromPublicKey([]byte("compute-provider"))
 	offer := Offer{
-		Provider: provider,
-		Resources: Resources{CPUCores: 8, MemoryMiB: 16384, GPUCount: 1, GPUMemoryMiB: 24576, StorageMiB: 102400, BandwidthMbps: 1000, Capabilities: []string{"cuda", "render"}},
+		Provider:     provider,
+		Resources:    Resources{CPUCores: 8, MemoryMiB: 16384, GPUCount: 1, GPUMemoryMiB: 24576, StorageMiB: 102400, BandwidthMbps: 1000, Capabilities: []string{"cuda", "render"}},
 		PricePerUnit: 25, Collateral: 100, Verification: []VerificationMode{VerificationReplicated, VerificationTEE}, ValidUntilHeight: 500,
 	}
 	rawOffer, err := offer.MarshalBinary()
@@ -27,7 +27,7 @@ func TestComputeProtocolObjectsRoundTrip(t *testing.T) {
 	job := Job{
 		Owner: owner, WorkloadHash: types.HashBytes("workload", []byte("render-scene")), InputRoot: types.HashBytes("input", []byte("scene")),
 		Resources: Resources{CPUCores: 4, MemoryMiB: 8192, GPUCount: 1, GPUMemoryMiB: 8192, StorageMiB: 2048, BandwidthMbps: 100, Capabilities: []string{"render"}},
-		MaxPrice: 50, CollateralRequired: 50, Verification: VerificationReplicated, DeadlineHeight: 600, Replicas: 2,
+		MaxPrice:  50, CollateralRequired: 50, Verification: VerificationReplicated, DeadlineHeight: 600, Replicas: 2,
 	}
 	rawJob, err := job.MarshalBinary()
 	if err != nil {
