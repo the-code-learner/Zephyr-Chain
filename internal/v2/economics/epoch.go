@@ -14,28 +14,29 @@ const EpochMetricsVersion uint16 = 1
 var ErrEpochMetrics = errors.New("invalid Zephyr economic epoch metrics")
 
 type ShardEpochMetrics struct {
-	Version                    uint16
-	Epoch                      uint64
-	ShardID                    uint32
-	ChargedFees                uint64
-	BurnedFees                 uint64
-	ValidatorFees              uint64
-	ReserveFees                uint64
-	FinalizedOperations        uint64
-	ResourceUsed               uint64
-	ResourceCapacity           uint64
-	CirculatingNativeSupply    uint64
-	AgeWeightedVelocityBps     uint32
-	EscrowBackedComputeDemand  uint64
-	VerifiedComputeSupply      uint64
-	ComputeBacklog             uint64
-	ComputeFulfilled           uint64
+	Version                   uint16
+	Epoch                     uint64
+	ShardID                   uint32
+	ChargedFees               uint64
+	BurnedFees                uint64
+	ValidatorFees             uint64
+	ReserveFees               uint64
+	FinalizedOperations       uint64
+	ResourceUsed              uint64
+	ResourceCapacity          uint64
+	CirculatingNativeSupply   uint64
+	AgeWeightedVelocityBps    uint32
+	EscrowBackedComputeDemand uint64
+	VerifiedComputeSupply     uint64
+	ComputeBacklog            uint64
+	ComputeFulfilled          uint64
 }
 
 func (m ShardEpochMetrics) Validate() error {
 	if m.Version != EpochMetricsVersion || m.Epoch == 0 || m.ResourceCapacity == 0 ||
 		m.ResourceUsed > m.ResourceCapacity || m.AgeWeightedVelocityBps > 10*BasisPoints ||
-		m.ComputeBacklog > m.EscrowBackedComputeDemand || m.ComputeFulfilled > m.EscrowBackedComputeDemand {
+		m.ComputeFulfilled > m.VerifiedComputeSupply || m.ComputeFulfilled > m.EscrowBackedComputeDemand ||
+		m.ComputeBacklog > m.EscrowBackedComputeDemand-m.ComputeFulfilled {
 		return ErrEpochMetrics
 	}
 	feeTotal := new(big.Int).SetUint64(m.BurnedFees)
@@ -96,6 +97,7 @@ type EpochAggregate struct {
 	VerifiedComputeSupply     uint64
 	ComputeBacklog            uint64
 	ComputeFulfilled          uint64
+	ComputeUtilizationBps     uint32
 }
 
 func AggregateEpochMetrics(metrics []ShardEpochMetrics) (EpochAggregate, error) {
@@ -152,6 +154,9 @@ func AggregateEpochMetrics(metrics []ShardEpochMetrics) (EpochAggregate, error) 
 		return EpochAggregate{}, ErrEpochMetrics
 	}
 	out.ResourceUtilizationBps = ratioBps(out.ResourceUsed, out.ResourceCapacity)
+	if out.VerifiedComputeSupply != 0 {
+		out.ComputeUtilizationBps = ratioBps(out.ComputeFulfilled, out.VerifiedComputeSupply)
+	}
 	if out.CirculatingNativeSupply != 0 {
 		weightedVelocity.Quo(&weightedVelocity, new(big.Int).SetUint64(out.CirculatingNativeSupply))
 		if !weightedVelocity.IsUint64() || weightedVelocity.Uint64() > uint64(10*BasisPoints) {
@@ -187,7 +192,7 @@ func (a EpochAggregate) ComputeMarketMetrics(computePriceTrendBps int32, compute
 		VerifiedSupplyUnits:     a.VerifiedComputeSupply,
 		BacklogUnits:            a.ComputeBacklog,
 		FulfilledUnits:          a.ComputeFulfilled,
-		UtilizationBps:          a.ResourceUtilizationBps,
+		UtilizationBps:          a.ComputeUtilizationBps,
 		ComputePriceTrendBps:    computePriceTrendBps,
 		ComputeIndexReliable:    computeIndexReliable,
 	}
