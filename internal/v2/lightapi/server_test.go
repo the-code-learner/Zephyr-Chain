@@ -98,16 +98,13 @@ func TestSnapshotRejectsValidatorSetNotCommittedByHeader(t *testing.T) {
 		ValidatorRoot:       types.HashBytes("validators", []byte("foreign")),
 		DataRoot:            merkle.Root(nil),
 	}
-	proposal, err := v2consensus.SignProposal(key, header, 0)
+	headerHash := v2consensus.HeaderConsensusHash(header)
+	vote, err := v2consensus.SignVote(key, network, 1, 0, headerHash)
 	if err != nil {
 		t.Fatal(err)
 	}
-	vote, err := v2consensus.SignVote(key, network, 1, 0, v2consensus.HeaderConsensusHash(header))
-	if err != nil {
-		t.Fatal(err)
-	}
-	certificate, err := validators.BuildCertificate(proposal, []v2consensus.Vote{vote})
-	if err != nil {
+	certificate := v2consensus.Certificate{Network: network, Height: 1, Round: 0, HeaderHash: headerHash, Votes: []v2consensus.Vote{vote}}
+	if err := validators.VerifyCertificate(certificate); err != nil {
 		t.Fatal(err)
 	}
 	header.CertificateHash = certificate.Hash()
