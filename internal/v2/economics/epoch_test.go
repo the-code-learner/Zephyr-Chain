@@ -9,14 +9,16 @@ func TestAggregateEpochMetricsSeparatesChainAndComputeUtilization(t *testing.T) 
 			ChargedFees: 100, BurnedFees: 40, ValidatorFees: 50, ReserveFees: 10,
 			FinalizedOperations: 1_000, ResourceUsed: 50, ResourceCapacity: 100,
 			CirculatingNativeSupply: 800, AgeWeightedVelocityBps: 2_000,
-			EscrowBackedComputeDemand: 100, VerifiedComputeSupply: 80, ComputeBacklog: 20, ComputeFulfilled: 70,
+			EscrowBackedComputeDemand: 100, VerifiedComputeSupply: 80,
+			ComputeFulfilled: 70, ComputeExpired: 10, ComputeBacklog: 20,
 		},
 		{
 			Version: EpochMetricsVersion, Epoch: 7, ShardID: 1,
 			ChargedFees: 50, BurnedFees: 20, ValidatorFees: 25, ReserveFees: 5,
 			FinalizedOperations: 500, ResourceUsed: 10, ResourceCapacity: 100,
 			CirculatingNativeSupply: 200, AgeWeightedVelocityBps: 8_000,
-			EscrowBackedComputeDemand: 50, VerifiedComputeSupply: 40, ComputeBacklog: 10, ComputeFulfilled: 30,
+			EscrowBackedComputeDemand: 50, VerifiedComputeSupply: 40,
+			ComputeFulfilled: 30, ComputeExpired: 10, ComputeBacklog: 10,
 		},
 	}
 	aggregate, err := AggregateEpochMetrics(metrics)
@@ -35,9 +37,31 @@ func TestAggregateEpochMetricsSeparatesChainAndComputeUtilization(t *testing.T) 
 	if aggregate.AgeWeightedVelocityBps != 3_200 {
 		t.Fatalf("velocity must be supply-weighted across shards, got %d", aggregate.AgeWeightedVelocityBps)
 	}
+	if aggregate.ComputeExpired != 20 {
+		t.Fatalf("expired compute = %d, want 20", aggregate.ComputeExpired)
+	}
 	market := aggregate.ComputeMarketMetrics(500, true)
 	if market.UtilizationBps != aggregate.ComputeUtilizationBps || market.EscrowBackedDemandUnits != 150 || market.VerifiedSupplyUnits != 120 {
 		t.Fatalf("unexpected compute market projection: %#v", market)
+	}
+}
+
+func TestShardEpochMetricsCarriesBacklogAcrossEpochs(t *testing.T) {
+	metrics := ShardEpochMetrics{
+		Version: EpochMetricsVersion, Epoch: 2, ResourceCapacity: 100,
+		OpeningComputeBacklog: 100, EscrowBackedComputeDemand: 20, VerifiedComputeSupply: 100,
+		ComputeFulfilled: 80, ComputeExpired: 10, ComputeBacklog: 30,
+	}
+	if err := metrics.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	market, err := AggregateEpochMetrics([]ShardEpochMetrics{metrics})
+	if err != nil {
+		t.Fatal(err)
+	}
+	projected := market.ComputeMarketMetrics(0, false)
+	if projected.EscrowBackedDemandUnits != 120 || projected.BacklogUnits != 30 || projected.FulfilledUnits != 80 {
+		t.Fatalf("unexpected carried demand: %#v", projected)
 	}
 }
 
@@ -58,7 +82,7 @@ func TestShardEpochMetricsRejectsInconsistentAccounting(t *testing.T) {
 	badDemand := base
 	badDemand.ComputeBacklog = 41
 	if err := badDemand.Validate(); err != ErrEpochMetrics {
-		t.Fatalf("overlapping backlog/fulfilled demand accepted: %v", err)
+		t.Fatalf("broken compute flow accepted: %v", err)
 	}
 }
 
