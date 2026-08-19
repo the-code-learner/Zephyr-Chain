@@ -16,11 +16,11 @@ import (
 )
 
 var (
-	ErrRuntimeConfig    = errors.New("invalid v2 runtime configuration")
-	ErrCandidateHeight  = errors.New("invalid v2 candidate height")
-	ErrCandidateState   = errors.New("v2 candidate does not match committed state")
-	ErrCandidateCert    = errors.New("v2 candidate certificate mismatch")
-	ErrStateSimulation  = errors.New("v2 backend does not support state simulation")
+	ErrRuntimeConfig   = errors.New("invalid v2 runtime configuration")
+	ErrCandidateHeight = errors.New("invalid v2 candidate height")
+	ErrCandidateState  = errors.New("v2 candidate does not match committed state")
+	ErrCandidateCert   = errors.New("v2 candidate certificate mismatch")
+	ErrStateSimulation = errors.New("v2 backend does not support state simulation")
 )
 
 type ShardBatch struct {
