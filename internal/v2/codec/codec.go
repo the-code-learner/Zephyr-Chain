@@ -162,9 +162,22 @@ func (r *Reader) Done() error {
 	return nil
 }
 
+// DomainHash preserves the exact canonical framing used by Writer.String +
+// Writer.Bytes, but streams it directly into SHA-256 instead of allocating a
+// temporary buffer and then copying that buffer before hashing. Consensus bytes
+// and hash outputs therefore remain bit-for-bit compatible while hot Merkle
+// paths avoid two transient allocations per hash.
 func DomainHash(domain string, payload []byte) [32]byte {
-	var w Writer
-	w.String(domain)
-	w.Bytes(payload)
-	return sha256.Sum256(w.BytesCopy())
+	h := sha256.New()
+	var length [4]byte
+	binary.BigEndian.PutUint32(length[:], uint32(len(domain)))
+	_, _ = h.Write(length[:])
+	_, _ = h.Write([]byte(domain))
+	binary.BigEndian.PutUint32(length[:], uint32(len(payload)))
+	_, _ = h.Write(length[:])
+	_, _ = h.Write(payload)
+	var out [32]byte
+	sum := h.Sum(out[:0])
+	copy(out[:], sum)
+	return out
 }
