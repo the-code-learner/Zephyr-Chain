@@ -7,7 +7,9 @@ import (
 
 // EnableShadowEconomics attaches finalized economic telemetry to the v2 runtime.
 // It is intentionally genesis-only for now: attaching a collector after blocks
-// have finalized would require authenticated historical replay first.
+// have finalized would require authenticated historical replay first. The node
+// owns an independent deep copy so callers cannot mutate telemetry outside the
+// runtime synchronization boundary.
 func (r *Runtime) EnableShadowEconomics(collector *economics.EpochCollector) error {
 	if r == nil || collector == nil {
 		return ErrRuntimeConfig
@@ -17,7 +19,11 @@ func (r *Runtime) EnableShadowEconomics(collector *economics.EpochCollector) err
 	if r.Height != 0 || r.economicCollector != nil || collector.ShardCount() != r.ShardCount || collector.NativeTokenID() != r.NativeToken {
 		return ErrRuntimeConfig
 	}
-	r.economicCollector = collector
+	owned := collector.Clone()
+	if owned == nil {
+		return ErrRuntimeConfig
+	}
+	r.economicCollector = owned
 	return nil
 }
 
