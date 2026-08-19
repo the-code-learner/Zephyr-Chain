@@ -46,6 +46,8 @@ The target matrix is:
 
 The first checked-in gate focuses on 4 and 7 validators. The harness is intentionally parameterized so 1 and 16 validator scenarios can use the same machinery as the suite grows.
 
+The 7-validator reference configuration currently uses equal voting power: `10,000` per validator, `70,000` total, with Zephyr's normal quorum calculation producing a `46,667` voting-power threshold.
+
 ## Required metrics
 
 Every publishable Zephyr performance result should report at least:
@@ -74,6 +76,22 @@ The in-repository benchmark currently emits:
 
 CPU, heap, mutex and block profiles come from the standard Go benchmark profiler so we can inspect flame graphs before choosing an optimization.
 
+## First CI baseline
+
+The first successful 7-validator measurement on a GitHub-hosted Ubuntu runner is a **development baseline only**, not a Zephyr performance claim and not a controlled hardware result.
+
+With 32 finalized transfers per block, one observed run on an AMD EPYC 7763 hosted runner reported approximately:
+
+- `42.92 finalized-tx/s`;
+- `628 ms` p50 finality;
+- `1.128 s` p95/p99 finality;
+- `23,045 B` finalized block size;
+- `17,468 B` of measured protocol payload per finalized transaction;
+- `162,138 B` persisted state per node after the sample;
+- approximately `88.8 us/op` for the separate P-256 transaction-validation baseline.
+
+A separate verification run was in the same rough range at about `44.3 finalized-tx/s`. Shared-runner variance is expected. These numbers exist to establish a measurable starting point and to identify bottlenecks; they must not be presented as production capacity.
+
 ## Running the lab
 
 Run the protocol conformance gate:
@@ -82,7 +100,7 @@ Run the protocol conformance gate:
 go test ./internal/api -run '^TestLab' -count=1 -timeout=90s
 ```
 
-Run the 7-validator finalized-throughput benchmark with several independent samples:
+Run the 7-validator finalized-throughput benchmark with several consecutive finalized blocks:
 
 ```bash
 go test ./internal/api \
@@ -131,9 +149,22 @@ The lab transport wraps Zephyr's existing `peerTransport`; it does not replace c
 The initial gate covers:
 
 - 7-validator certified happy-path finality;
-- a 4/3 partition where neither side has quorum: no block may commit, and finality must recover after heal;
-- a 5/2 partition where the quorum side commits and the minority later catches up through the normal peer recovery path;
+- a 4/3 partition where neither side has quorum: no block may commit while partitioned; after heal, quorum finality must resume and lagging validators must catch up;
+- a 5/2 partition where the quorum side commits and the minority later catches up through the normal peer-recovery path;
 - delayed, duplicated and deliberately vote-before-proposal delivery: all nodes must still converge on one committed tip.
+
+The first 4/3 recovery test exposed a real integration gap: after heal, enough validators could vote to finalize the block while some voters still had not received the committed block. Snapshot recovery alone could not solve that state because fewer than 2/3 of validators had materialized the new snapshot.
+
+Zephyr therefore now has a certified block catch-up path:
+
+1. peers expose retained signed proposal/vote evidence for an already committed block through an authenticated internal endpoint;
+2. the receiving node validates the block against its local committed state;
+3. it validates every proposal/vote signature and validator identity against the local validator set;
+4. it independently recomputes voting power and requires the normal quorum before state mutation;
+5. only then does it import the block atomically and derive its local commit certificate;
+6. quorum-validated snapshot recovery remains the fallback for deeper repair.
+
+The transport capability is optional, so the future libp2p/QUIC implementation can implement the same evidence contract while HTTP remains the reference transport.
 
 The matrix will expand to cover:
 
