@@ -8,8 +8,13 @@ import (
 func (a EpochAggregate) CanonicalBytes() ([]byte, error) {
 	if a.Epoch == 0 || a.ShardCount == 0 || a.ResourceCapacity == 0 || a.ResourceUsed > a.ResourceCapacity ||
 		a.ResourceUtilizationBps > BasisPoints || a.ComputeUtilizationBps > BasisPoints || a.AgeWeightedVelocityBps > 10*BasisPoints ||
-		a.ComputeFulfilled > a.VerifiedComputeSupply || a.ComputeFulfilled > a.EscrowBackedComputeDemand ||
-		a.ComputeBacklog > a.EscrowBackedComputeDemand-a.ComputeFulfilled {
+		a.ComputeFulfilled > a.VerifiedComputeSupply || !validComputeFlow(
+			a.OpeningComputeBacklog,
+			a.EscrowBackedComputeDemand,
+			a.ComputeFulfilled,
+			a.ComputeExpired,
+			a.ComputeBacklog,
+		) {
 		return nil, ErrEpochMetrics
 	}
 	if a.BurnedFees > a.ChargedFees || a.ValidatorFees > a.ChargedFees-a.BurnedFees ||
@@ -31,8 +36,10 @@ func (a EpochAggregate) CanonicalBytes() ([]byte, error) {
 	w.U32(a.AgeWeightedVelocityBps)
 	w.U64(a.EscrowBackedComputeDemand)
 	w.U64(a.VerifiedComputeSupply)
-	w.U64(a.ComputeBacklog)
+	w.U64(a.OpeningComputeBacklog)
 	w.U64(a.ComputeFulfilled)
+	w.U64(a.ComputeExpired)
+	w.U64(a.ComputeBacklog)
 	w.U32(a.ComputeUtilizationBps)
 	return w.BytesCopy(), nil
 }
