@@ -9,6 +9,24 @@ on:
       - internal/v2/provider/service.go
       - internal/v2/provider/service_test.go
       - internal/v2/tx/transaction.go
+      - internal/v2/node/runtime.go
+      - internal/v2/node/commit_preflight.go
+      - internal/v2/node/commit_preflight_test.go
+      - internal/v2/node/recovery_state.go
+      - internal/v2/node/recovery_state_test.go
+      - internal/v2/node/global_commit_journal.go
+      - internal/v2/node/global_commit_journal_test.go
+      - internal/v2/node/global_commit_recovery.go
+      - internal/v2/node/global_commit_recovery_test.go
+      - internal/v2/economics/finalized_collector_checkpoint.go
+      - internal/v2/economics/finalized_collector_checkpoint_test.go
+      - internal/v2/economics/shadow_epoch_engine_checkpoint.go
+      - internal/v2/economics/shadow_epoch_engine_checkpoint_test.go
+      - internal/v2/economics/epoch_parse.go
+      - internal/v2/economics/shadow_epoch_pending_checkpoint.go
+      - internal/v2/economics/shadow_epoch_pending_checkpoint_test.go
+      - internal/v2/compute/work.go
+      - internal/v2/compute/work_test.go
       - .github/workflows/v2-format-write.yml
 
 permissions:
@@ -30,7 +48,7 @@ jobs:
           go-version-file: go.mod
           cache: false
       - name: Format exact files
-        run: gofmt -w internal/v2/compute/messages.go internal/v2/provider/service.go internal/v2/provider/service_test.go internal/v2/tx/transaction.go
+        run: gofmt -w internal/v2/compute/messages.go internal/v2/provider/service.go internal/v2/provider/service_test.go internal/v2/tx/transaction.go internal/v2/node/runtime.go internal/v2/node/commit_preflight.go internal/v2/node/commit_preflight_test.go internal/v2/node/recovery_state.go internal/v2/node/recovery_state_test.go internal/v2/node/global_commit_journal.go internal/v2/node/global_commit_journal_test.go internal/v2/node/global_commit_recovery.go internal/v2/node/global_commit_recovery_test.go internal/v2/economics/finalized_collector_checkpoint.go internal/v2/economics/finalized_collector_checkpoint_test.go internal/v2/economics/shadow_epoch_engine_checkpoint.go internal/v2/economics/shadow_epoch_engine_checkpoint_test.go internal/v2/economics/epoch_parse.go internal/v2/economics/shadow_epoch_pending_checkpoint.go internal/v2/economics/shadow_epoch_pending_checkpoint_test.go internal/v2/compute/work.go internal/v2/compute/work_test.go
       - name: Commit formatting if needed
         run: |
           if git diff --quiet; then
@@ -39,6 +57,6 @@ jobs:
           fi
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add internal/v2/compute/messages.go internal/v2/provider/service.go internal/v2/provider/service_test.go internal/v2/tx/transaction.go
-          git commit -m 'gofmt Zephyr v2 compute and provider files'
+          git add internal/v2/compute/messages.go internal/v2/provider/service.go internal/v2/provider/service_test.go internal/v2/tx/transaction.go internal/v2/node/runtime.go internal/v2/node/commit_preflight.go internal/v2/node/commit_preflight_test.go internal/v2/node/recovery_state.go internal/v2/node/recovery_state_test.go internal/v2/node/global_commit_journal.go internal/v2/node/global_commit_journal_test.go internal/v2/node/global_commit_recovery.go internal/v2/node/global_commit_recovery_test.go internal/v2/economics/finalized_collector_checkpoint.go internal/v2/economics/finalized_collector_checkpoint_test.go internal/v2/economics/shadow_epoch_engine_checkpoint.go internal/v2/economics/shadow_epoch_engine_checkpoint_test.go internal/v2/economics/epoch_parse.go internal/v2/economics/shadow_epoch_pending_checkpoint.go internal/v2/economics/shadow_epoch_pending_checkpoint_test.go internal/v2/compute/work.go internal/v2/compute/work_test.go
+          git commit -m 'gofmt Zephyr v2 recovery and journal tranche'
           git push origin HEAD:chatgpt/protocol-v2-foundation
