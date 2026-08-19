@@ -8,7 +8,7 @@ import (
 func (a EpochAggregate) CanonicalBytes() ([]byte, error) {
 	if a.Epoch == 0 || a.ShardCount == 0 || a.ResourceCapacity == 0 || a.ResourceUsed > a.ResourceCapacity ||
 		a.ResourceUtilizationBps > BasisPoints || a.ComputeUtilizationBps > BasisPoints || a.AgeWeightedVelocityBps > 10*BasisPoints ||
-		a.ComputeFulfilled > a.VerifiedComputeSupply || !validComputeFlow(
+		(a.ComputeSupplyReliable && a.ComputeFulfilled > a.VerifiedComputeSupply) || !validComputeFlow(
 			a.OpeningComputeBacklog,
 			a.EscrowBackedComputeDemand,
 			a.ComputeFulfilled,
@@ -36,6 +36,7 @@ func (a EpochAggregate) CanonicalBytes() ([]byte, error) {
 	w.U32(a.AgeWeightedVelocityBps)
 	w.U64(a.EscrowBackedComputeDemand)
 	w.U64(a.VerifiedComputeSupply)
+	w.Bool(a.ComputeSupplyReliable)
 	w.U64(a.OpeningComputeBacklog)
 	w.U64(a.ComputeFulfilled)
 	w.U64(a.ComputeExpired)
