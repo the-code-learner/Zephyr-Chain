@@ -2,6 +2,7 @@ package codec
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"testing"
 )
 
@@ -47,5 +48,25 @@ func TestDomainHashSeparatesDomains(t *testing.T) {
 	b := DomainHash("b", []byte("same"))
 	if a == b {
 		t.Fatal("domain-separated hashes collided")
+	}
+}
+
+func TestDomainHashMatchesCanonicalWriterFraming(t *testing.T) {
+	cases := []struct {
+		domain  string
+		payload []byte
+	}{
+		{domain: "zephyr/smt/branch/v2", payload: bytes.Repeat([]byte{0x42}, 64)},
+		{domain: "zephyr/transaction/v2", payload: []byte("proof-carrying")},
+		{domain: "", payload: nil},
+	}
+	for _, tc := range cases {
+		var legacy Writer
+		legacy.String(tc.domain)
+		legacy.Bytes(tc.payload)
+		expected := sha256.Sum256(legacy.BytesCopy())
+		if got := DomainHash(tc.domain, tc.payload); got != expected {
+			t.Fatalf("domain hash framing changed for %q", tc.domain)
+		}
 	}
 }
