@@ -45,7 +45,7 @@ func TestParallelBatchAppliesIndependentTransfers(t *testing.T) {
 		h := proofObject.Hash()
 		transaction := tx.Transaction{
 			Version: tx.Version, Network: network, ShardID: 0, StateRoot: root,
-			Inputs: []tx.InputRef{{ObjectID: input.ID, Version: input.Version, ObjectHash: h}},
+			Inputs:  []tx.InputRef{{ObjectID: input.ID, Version: input.Version, ObjectHash: h}},
 			Outputs: []object.OutputSpec{toRecipient, toChange}, Operations: []tx.Operation{{Kind: tx.OpTransfer}},
 			Fee: 1, Witnesses: []tx.Witness{{Object: proofObject, Proof: proof}},
 		}
