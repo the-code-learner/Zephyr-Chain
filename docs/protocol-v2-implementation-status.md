@@ -8,7 +8,7 @@ Status legend:
 - **Integrated foundation** — the protocol boundary and correctness rules exist, but a production backend/network/runtime is still to be selected or connected.
 - **Not production-complete** — must not be presented as a shipped network capability yet.
 
-## Core identity and wire protocol
+## Core identity, trust and wire protocol
 
 **Implemented**
 
@@ -18,9 +18,14 @@ Status legend:
 - independent account, node and validator identities;
 - canonical low-S P-256 signing for proof-carrying transactions and validator consensus messages;
 - binary proposal, vote and quorum-certificate wire formats;
-- binary global-header, shard-commitment, cross-shard-receipt and Merkle-proof decoders.
+- binary global-header, shard-commitment, cross-shard-receipt and Merkle-proof decoders;
+- canonical Merkle commitment over validator ID, P-256 public key and integer voting power;
+- every accepted proposal must commit the exact validator-set root used to authorize it;
+- runtime commit and cross-shard import reject validator sets that do not match the header's committed `ValidatorRoot`;
+- v2 genesis can derive a `TrustAnchor { NetworkID, ValidatorRoot }` for Citizen wallets;
+- genesis trust-anchor derivation rejects validator keys that do not satisfy the consensus P-256 validator-set rules.
 
-The browser/RPC surface may use JSON, but consensus does not depend on JSON canonicalization.
+The browser/RPC surface may use JSON, but consensus does not depend on JSON canonicalization. A valid self-signed quorum from an arbitrary validator set is not sufficient: the set itself must be committed by the trusted header/genesis chain.
 
 ## Object state and persistence
 
@@ -40,7 +45,8 @@ The browser/RPC surface may use JSON, but consensus does not depend on JSON cano
 - long-duration database growth/compaction benchmarks;
 - large-state migration/repair tooling;
 - production structured-KV/LSM backend comparison;
-- archive/history indexing.
+- archive/history indexing;
+- proof/state allocation reduction under large batches.
 
 The WAL/checkpoint backend removes the v1 requirement to serialize the complete node state for every mutation, but it is still a first durable backend rather than the final storage engine selection.
 
@@ -57,7 +63,8 @@ The WAL/checkpoint backend removes the v1 requirement to serialize the complete 
 - deterministic parallel batch executor;
 - rejection of batches with shared consumed objects, duplicate transactions or different pre-state roots;
 - atomic merge of independent transaction results;
-- state-root simulation before consensus finality.
+- state-root simulation before consensus finality;
+- permanent shard placement encoded into object IDs for multi-shard state.
 
 The key invariant is enforced in code: candidate execution may calculate a future state root, but committed state is not mutated before a valid quorum certificate exists.
 
@@ -71,6 +78,7 @@ The key invariant is enforced in code: candidate execution may calculate a futur
 - locally reconstructed `2/3+` voting-power quorum;
 - duplicate-voter rejection;
 - canonical quorum-certificate hash;
+- validator-set Merkle root as a proposal validity invariant;
 - `GlobalHeader` consensus hash that avoids certificate/hash circularity;
 - runtime path:
 
@@ -88,29 +96,44 @@ proof-carrying transactions
 
 The existing v1 Consensus & Performance Lab remains a regression gate while v2-specific multi-node fault transport integration is expanded.
 
+**Not production-complete**
+
+- consensus-state-backed validator-set rotation and governance activation;
+- trusted header/checkpoint chain for Citizen verification across validator-set rotations;
+- v2-specific restart/partition/conflicting-proposal scenarios over the production transport.
+
 ## Sharding
 
 **Implemented foundation**
 
-- deterministic shard router;
+- deterministic account shard routing;
+- permanent shard placement encoded in every object ID so changing active shard count cannot silently relocate existing objects;
 - per-shard state/data/receipt commitments;
 - global shard-commitment root;
 - `GlobalHeader` committing all active shard roots;
-- cross-shard receipt format;
+- local outputs remain in the source shard only when their owner routes there;
+- remote outputs become cross-shard receipts rather than being written into the wrong shard;
 - receipt Merkle batches and inclusion proofs;
 - proof that a source receipt belongs to a shard commitment that belongs to a finalized global header;
-- destination-shard validation and in-memory anti-replay tracker;
-- runtime capable of simulating/committing multiple shard state backends.
+- cross-shard import verifies the source quorum certificate, committed validator root, shard proof and receipt proof;
+- destination object IDs are deterministic;
+- receipt consumption creates a consensus-critical Merkle-state marker, making anti-replay survive restart/checkpoint/snapshot recovery;
+- imported receipts cannot be spent in the same block because transactions are anchored to the block pre-state root;
+- two-shard end-to-end test: source payment -> finalized receipt -> destination import -> finalized destination coin -> durable replay rejection;
+- hostile self-signed foreign validator-set receipts are explicitly rejected;
+- runtime can simulate and commit multiple shard state backends without pre-QC mutation.
+
+The old in-memory `ReceiptTracker` is only an optional transport duplicate-suppression helper; it is not the consensus anti-replay source of truth.
 
 **Not production-complete**
 
-- output/object placement rules for active multi-shard execution need final clean-break encoding before `shardCount > 1` is enabled;
-- receipt-consumption anti-replay must move from the in-memory tracker into consensus-critical durable state;
 - shard-aware gossip/recovery is not connected to production transport;
-- reshard/split/merge rules are not activated;
-- 4/16-shard conformance and throughput evidence is still required.
+- validator-set history/checkpoint proofs must support cross-shard imports across committee rotations;
+- reshard/split/merge rules and object migration are not activated;
+- receipt-marker pruning/history-retention policy needs proof-safe design;
+- 4/16-shard conformance, recovery and throughput evidence is still required.
 
-`shardCount = 1` remains the safe activation value until these conditions pass. Sharding is an optimization, not a prerequisite for correctness.
+`shardCount = 1` remains the safe public activation value until those gates pass. Sharding is an optimization, not a prerequisite for correctness.
 
 ## Citizen Node and smartphone wallet
 
@@ -122,6 +145,7 @@ The existing v1 Consensus & Performance Lab remains a regression gate while v2-s
   - `/v2/light/status`;
   - `/v2/light/object`;
 - proof bundle contains canonical global header, quorum certificate, validator set, shard commitment and Merkle proof, object bytes and Sparse-Merkle proof;
+- light snapshots reject a supplied validator set unless its Merkle root equals the `ValidatorRoot` committed by the finalized header;
 - validator voting power is encoded as decimal text at the JSON boundary to preserve full `uint64` precision in JavaScript;
 - `apps/wallet/src/lib/v2Citizen.ts` independently reconstructs:
   - v2 domain hashes;
@@ -131,17 +155,20 @@ The existing v1 Consensus & Performance Lab remains a regression gate while v2-s
   - certificate hash;
   - shard-commitment inclusion;
   - object Sparse-Merkle inclusion/absence proof;
+- `apps/wallet/src/lib/v2CitizenTrust.ts` is the wallet-facing trust layer and requires a genesis/checkpoint trust anchor before accepting a proof bundle;
+- the trusted wallet path independently recomputes the validator-set Merkle root and requires it to match both the trusted anchor and the header;
 - wallet resource mode selection for header-only, relay, DA sampling/cache and opportunistic recent execution modes.
 
 **Not production-complete**
 
+- validator-set rotation needs a verified header/checkpoint transition chain rather than a static trusted root;
 - the Vue UI does not yet expose the Citizen status/control panel;
 - current v1 node process does not yet mount a live v2 runtime/provider;
 - iOS/Android native lifecycle/background adapters are not present;
 - multi-peer proof comparison, resumable cache and peer relay are not connected yet;
 - real-device RAM/battery/bandwidth measurements are still required.
 
-No correctness claim may depend on an RPC response that the Citizen verifier cannot authenticate against finalized state.
+No correctness claim may depend on an RPC response that the Citizen verifier cannot authenticate back to a genesis/checkpoint trust anchor.
 
 ## Smart contracts
 
@@ -217,7 +244,7 @@ Heavy compute is provider-executed; validators verify settlement evidence and do
 
 **Not production-complete**
 
-- production erasure code selection;
+- production erasure-code selection;
 - reconstruction;
 - sampling confidence parameters;
 - withholding attacks in the fault lab;
@@ -249,7 +276,7 @@ Heavy compute is provider-executed; validators verify settlement evidence and do
 - the timed v2 path includes witness/signature verification, execution/state-root simulation, proposal/votes, quorum certificate and committed state transition;
 - client workload setup/key generation/signing stays outside the timed consensus path, matching the Lab's canonical workload policy.
 
-No numerical v2 TPS result from a shared CI runner is a production capacity claim.
+The first shared-runner v2 samples show only modest worker scaling and very high allocation pressure, so the next optimization target is proof/state allocation and incremental simulation rather than simply increasing goroutine count. No numerical result from a shared CI runner is a production-capacity claim.
 
 ## Activation gates
 
@@ -257,12 +284,12 @@ The clean break lets v2 replace prototype boundaries, but it does not remove the
 
 1. v2 multi-validator consensus must run through the fault-injection Lab, including partitions/restarts/conflicting evidence;
 2. durable v2 state must survive crash/restart and longer stress runs;
-3. Citizen verification must be exercised against a live v2 node from real Android/iOS reference devices;
+3. Citizen verification must be exercised against a live v2 node from real Android/iOS reference devices and a genesis/checkpoint trust anchor;
 4. one-shard finalized performance must be characterized on controlled hardware;
-5. multi-shard mode must remain disabled until object placement, durable receipt anti-replay, recovery and 4/16-shard conformance pass;
+5. multi-shard mode must remain disabled until validator-history proofs, shard-aware recovery and 4/16-shard conformance pass;
 6. contract execution must have a deterministic metered production runtime;
 7. compute settlement must be consensus-state-backed before real value is escrowed;
-8. genesis/checkpoint/operator upgrade procedures must be explicit.
+8. genesis/checkpoint/operator upgrade and validator-rotation procedures must be explicit.
 
 The engineering rule remains:
 
