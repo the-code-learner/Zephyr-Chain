@@ -47,25 +47,30 @@ type shardDelta struct {
 }
 
 type Candidate struct {
-	Header               sharding.GlobalHeader
-	Commitments          []sharding.Commitment
-	Results              map[uint32][]execution.Result
-	Receipts             map[uint32][]sharding.CrossShardReceipt
-	deltas               map[uint32]shardDelta
-	economicObservations map[uint32]economics.FinalizedShardObservation
+	Header                   sharding.GlobalHeader
+	Commitments              []sharding.Commitment
+	Results                  map[uint32][]execution.Result
+	Receipts                 map[uint32][]sharding.CrossShardReceipt
+	deltas                   map[uint32]shardDelta
+	economicObservations     map[uint32]economics.FinalizedShardObservation
+	economicPendingStateHash types.Hash
 }
 
 type Runtime struct {
-	mu                sync.Mutex
-	Network           types.NetworkID
-	NativeToken       types.TokenID
-	ValidatorRoot     types.Hash
-	ShardCount        uint32
-	States            map[uint32]worldstate.Backend
-	Workers           int
-	Height            uint64
-	ParentHash        types.Hash
-	economicCollector *economics.EpochCollector
+	mu                  sync.Mutex
+	Network             types.NetworkID
+	NativeToken         types.TokenID
+	ValidatorRoot       types.Hash
+	ShardCount          uint32
+	States              map[uint32]worldstate.Backend
+	Workers             int
+	Height              uint64
+	ParentHash          types.Hash
+	economicCollector   *economics.EpochCollector
+	economicEngine      *economics.ShadowEpochEngine
+	economicEpochLength uint64
+	economicBalances    economics.MonetaryBalanceSnapshot
+	pendingEconomic     *economics.ShadowEpochPreview
 }
 
 func NewRuntime(network types.NetworkID, nativeToken types.TokenID, validatorRoot types.Hash, states map[uint32]worldstate.Backend, workers int) (*Runtime, error) {
@@ -139,6 +144,18 @@ func (r *Runtime) BuildCandidate(height uint64, batches map[uint32]ShardBatch) (
 			}
 			delta.Created = append(delta.Created, destinationObject, marker)
 		}
+
+		if shard == 0 && r.pendingEconomic != nil {
+			stateHash, err := r.pendingEconomic.State.Hash()
+			if err != nil {
+				return Candidate{}, err
+			}
+			if err := appendEconomicStateDelta(&delta, *r.pendingEconomic); err != nil {
+				return Candidate{}, err
+			}
+			candidate.economicPendingStateHash = stateHash
+		}
+
 		newRoot := currentRoot
 		if len(delta.Consumed) > 0 || len(delta.Created) > 0 {
 			simulator, ok := store.(worldstate.Simulator)
@@ -191,6 +208,26 @@ func (r *Runtime) BuildCandidate(height uint64, batches map[uint32]ShardBatch) (
 	return candidate, nil
 }
 
+func appendEconomicStateDelta(delta *shardDelta, preview economics.ShadowEpochPreview) error {
+	if delta == nil || len(preview.Created) != 1 || preview.Created[0].ID != economics.MonetaryStateObjectID(preview.State.Network) {
+		return ErrCandidateState
+	}
+	monetaryID := preview.Created[0].ID
+	for _, id := range delta.Consumed {
+		if id == monetaryID {
+			return ErrCandidateState
+		}
+	}
+	for _, created := range delta.Created {
+		if created.ID == monetaryID {
+			return ErrCandidateState
+		}
+	}
+	delta.Consumed = append(delta.Consumed, preview.Consumed...)
+	delta.Created = append(delta.Created, preview.Created...)
+	return nil
+}
+
 func (r *Runtime) validateReceiptImport(destinationShard uint32, receiptImport ReceiptImport) error {
 	if receiptImport.Header.Network != r.Network || receiptImport.Validators.Network != r.Network || receiptImport.Certificate.Network != r.Network || receiptImport.Receipt.DestinationShard != destinationShard || receiptImport.Header.Height > r.Height || receiptImport.Header.Height != receiptImport.Receipt.SourceHeight {
 		return ErrReceiptImport
@@ -228,6 +265,16 @@ func (r *Runtime) Commit(candidate Candidate, certificate v2consensus.Certificat
 		return sharding.GlobalHeader{}, err
 	}
 
+	pendingApplied := r.pendingEconomic != nil
+	if pendingApplied {
+		expected, err := r.pendingEconomic.State.Hash()
+		if err != nil || candidate.economicPendingStateHash != expected {
+			return sharding.GlobalHeader{}, ErrCandidateState
+		}
+	} else if !types.IsZero32([32]byte(candidate.economicPendingStateHash)) {
+		return sharding.GlobalHeader{}, ErrCandidateState
+	}
+
 	var economicPreview *economics.EpochCollector
 	if r.economicCollector != nil {
 		if len(candidate.economicObservations) != int(r.ShardCount) {
@@ -237,6 +284,46 @@ func (r *Runtime) Commit(candidate Candidate, certificate v2consensus.Certificat
 		if err != nil {
 			return sharding.GlobalHeader{}, err
 		}
+	}
+
+	var enginePreview *economics.ShadowEpochEngine
+	if r.economicEngine != nil {
+		enginePreview = r.economicEngine.Clone()
+		if enginePreview == nil {
+			return sharding.GlobalHeader{}, ErrRuntimeConfig
+		}
+		if pendingApplied {
+			if err := enginePreview.Accept(*r.pendingEconomic); err != nil {
+				return sharding.GlobalHeader{}, err
+			}
+		}
+	} else if pendingApplied {
+		return sharding.GlobalHeader{}, ErrRuntimeConfig
+	}
+
+	var nextPending *economics.ShadowEpochPreview
+	nextBalances := r.economicBalances
+	if r.economicEngine != nil && r.economicEpochLength > 0 && candidate.Header.Height%r.economicEpochLength == 0 {
+		if economicPreview == nil {
+			return sharding.GlobalHeader{}, ErrRuntimeConfig
+		}
+		metrics, verifiedWork, err := economicPreview.FinalizeEpoch()
+		if err != nil {
+			return sharding.GlobalHeader{}, err
+		}
+		aggregate, err := economics.AggregateEpochMetrics(metrics)
+		if err != nil || nextBalances.TotalSupply < aggregate.BurnedFees {
+			return sharding.GlobalHeader{}, ErrRuntimeConfig
+		}
+		nextBalances.TotalSupply -= aggregate.BurnedFees
+		preview, err := enginePreview.PreviewCloseEpoch(metrics, verifiedWork, nextBalances)
+		if err != nil {
+			return sharding.GlobalHeader{}, err
+		}
+		if err := economicPreview.AdvanceEpoch(preview.State.Epoch + 1); err != nil {
+			return sharding.GlobalHeader{}, err
+		}
+		nextPending = &preview
 	}
 
 	commitments := make(map[uint32]sharding.Commitment, len(candidate.Commitments))
@@ -259,9 +346,20 @@ func (r *Runtime) Commit(candidate Candidate, certificate v2consensus.Certificat
 			return sharding.GlobalHeader{}, ErrCandidateState
 		}
 	}
+
 	if economicPreview != nil {
 		r.economicCollector = economicPreview
 	}
+	if enginePreview != nil {
+		r.economicEngine = enginePreview
+	}
+	if nextPending != nil {
+		r.pendingEconomic = nextPending
+		r.economicBalances = nextBalances
+	} else if pendingApplied {
+		r.pendingEconomic = nil
+	}
+
 	finalized := candidate.Header
 	finalized.CertificateHash = certificate.Hash()
 	r.Height = finalized.Height
