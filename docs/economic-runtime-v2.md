@@ -21,7 +21,7 @@ measure first -> simulate second -> activate last
 
 Economic telemetry is not allowed to advance from mempool admission, proposal construction, unfinalized votes, provider advertisements or RPC summaries.
 
-The intended runtime path is:
+The runtime path is now executable as:
 
 ```text
 proof-carrying transactions
@@ -36,10 +36,15 @@ proof-carrying transactions
         -> ZCSI
         -> ZAMP shadow decision
         -> pending MonetaryEpochState
-        -> normal Merkle state transition in a later finalized candidate
+        -> first candidate of next epoch
+        -> Merkle state root
+        -> proposal / votes / QC
+        -> finalized MonetaryEpochState
 ```
 
 `EpochCollector` has an explicit preview boundary so a node can evaluate telemetry before durable state apply and promote the preview only when the corresponding finalized transition succeeds.
+
+The node owns independent clones of the collector and shadow epoch engine. External configuration objects cannot mutate economic history behind the runtime lock.
 
 ## 2. Native-supply attribution across shards
 
@@ -74,7 +79,7 @@ The existing minimum-age/full-weight policy therefore continues to make rapid fr
 
 Long AI/scientific/rendering jobs may be posted in one epoch and settle in another. Zephyr therefore does not require `fulfilled <= new demand` inside a single epoch.
 
-The v2 economic wire now uses the exact conservation rule:
+The v2 economic wire uses the exact conservation rule:
 
 ```text
 OpeningComputeBacklog
@@ -202,7 +207,27 @@ It does **not** advance controller history.
 
 `Accept` advances the controller only after the caller has finalized the exact monetary object through normal consensus/state finality.
 
-## 10. Monetary state chaining
+## 10. Automatic epoch scheduling and consensus inclusion
+
+When automatic shadow epochs are enabled, the runtime requires an epoch length of at least two blocks.
+
+At a configured epoch-boundary height:
+
+1. normal v2 consensus finalizes the boundary block;
+2. the finalized collector preview closes the epoch;
+3. ZCPI, ZCSI and ZAMP are evaluated;
+4. the collector advances to the next economic epoch;
+5. the resulting `MonetaryEpochState` becomes **pending**, not finalized.
+
+The next `BuildCandidate` automatically adds the pending monetary system-object delta to shard 0 before state-root simulation.
+
+Therefore the next proposal commits the exact monetary-state bytes through the shard `StateRoot` and global commitment root. The shadow epoch engine is advanced only if that candidate receives a valid QC and the state apply succeeds.
+
+If the certificate is rejected, neither the economic collector nor the monetary-history engine advances.
+
+The scheduler does not mint ZPH. `ShadowGrossMintTarget` and compute-incentive amounts remain recorded simulation outputs only.
+
+## 11. Monetary state chaining
 
 Each accepted shadow monetary object commits the prior accepted state through:
 
@@ -220,7 +245,7 @@ The engine rejects:
 
 This is designed so a Citizen Node can eventually verify the complete economic-controller history from Merkle proofs rather than trusting a dashboard or validator RPC.
 
-## 11. Feedback modes remain shadow
+## 12. Feedback modes remain shadow
 
 The three compute-feedback modes remain:
 
@@ -236,7 +261,7 @@ A reliable ZCSI is mandatory before modes B/C can alter even the simulated rewar
 
 Mode B remains the preferred first activation candidate if long-run testing eventually supports it.
 
-## 12. Runtime resource utilization
+## 13. Runtime resource utilization
 
 The finalized collector includes a deterministic shadow resource-unit counter so chain utilization can be replayed without wall-clock measurements.
 
@@ -250,12 +275,15 @@ The current reference units account for bounded protocol work such as:
 
 This is **not** the final production gas schedule. It exists so simulations can test controller stability using a deterministic load signal while the final resource-pricing schedule remains an activation decision.
 
-## 13. What is implemented now
+## 14. What is implemented now
 
 Executable foundations now include:
 
 - finalized-block economic collector;
 - atomic collector preview/apply semantics;
+- runtime-owned collector/engine clones;
+- successful `Runtime.Commit` wiring into finalized economic telemetry;
+- rejected-QC protection: failed commits cannot advance economic history;
 - native supply attribution across shard receipt imports;
 - compatibility full-fee-burn accounting;
 - age-weighted finalized-spend velocity;
@@ -266,27 +294,31 @@ Executable foundations now include:
 - independent authenticated-supply reliability bit;
 - canonical v2 shard/aggregate economic metrics;
 - previewable ZCPI/ZCSI/ZAMP shadow epoch engine;
+- automatic configured epoch-boundary closure;
 - pending Merkle monetary-object delta generation;
-- tests for atomic rejection, cross-shard supply conservation, multi-epoch compute backlog, verified settlement pricing and shadow-state chaining.
+- automatic pending-state insertion into the first candidate of the next epoch;
+- QC/state-finality acceptance of the monetary object;
+- explicit proof that shadow issuance suggestions do not mutate live supply;
+- tests for atomic rejection, cross-shard supply conservation, multi-epoch compute backlog, verified settlement pricing, shadow-state chaining and three-block epoch scheduling.
 
-## 14. What is still required
+## 15. What is still required
 
 Before monetary activation, Zephyr still needs:
 
-1. node-runtime wiring from successful `Runtime.Commit` into the finalized collector;
-2. automatic epoch-boundary scheduling;
-3. insertion of the pending `MonetaryEpochState` into a normal candidate **before** its state root/QC is finalized;
-4. authenticated total-supply, staking and protocol-reserve system objects rather than operator-supplied shadow inputs;
-5. production benchmarked/collateralized compute-capacity registry;
-6. governance-delayed workload-registry and economic-parameter changes;
-7. final gas/resource pricing and active burn/validator/reserve distribution;
-8. replay/oscillation/manipulation datasets over long devnet runs;
-9. Citizen wallet economic-state decoder/history UI;
-10. an explicit protocol version/height gate before any live issuance or reward redistribution.
+1. authenticated total-supply, staking and protocol-reserve system objects rather than genesis/operator-supplied shadow balance inputs;
+2. production benchmarked/collateralized compute-capacity registry;
+3. governance-delayed workload-registry and economic-parameter changes;
+4. final gas/resource pricing and active burn/validator/reserve distribution;
+5. replay/oscillation/manipulation datasets over long devnet runs;
+6. Citizen wallet economic-state decoder/history UI;
+7. durable recovery/replay of scheduler controller metadata across full node restarts;
+8. transactional global multi-shard state-commit coordination so a backend error cannot leave an earlier shard applied while a later shard fails;
+9. explicit protocol version/height gates before any live issuance or reward redistribution.
 
 The current invariant is therefore:
 
 ```text
 finalized data -> reproducible shadow decision
+shadow decision -> consensus-finalized telemetry object
 shadow decision != permission to mint
 ```
