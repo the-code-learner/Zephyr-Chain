@@ -11,7 +11,7 @@ import (
 )
 
 type simulationInput struct {
-	PriorTargetBps uint32                     `json:"priorTargetBps"`
+	PriorTargetBps uint32                    `json:"priorTargetBps"`
 	Metrics        economics.MonetaryMetrics `json:"metrics"`
 	Policy         *economics.MonetaryPolicy `json:"policy,omitempty"`
 }
