@@ -39,12 +39,12 @@ func (m ShardEpochMetrics) Validate() error {
 	if m.Version != EpochMetricsVersion || m.Epoch == 0 || m.ResourceCapacity == 0 ||
 		m.ResourceUsed > m.ResourceCapacity || m.AgeWeightedVelocityBps > 10*BasisPoints ||
 		(m.ComputeSupplyReliable && m.ComputeFulfilled > m.VerifiedComputeSupply) || !validComputeFlow(
-			m.OpeningComputeBacklog,
-			m.EscrowBackedComputeDemand,
-			m.ComputeFulfilled,
-			m.ComputeExpired,
-			m.ComputeBacklog,
-		) {
+		m.OpeningComputeBacklog,
+		m.EscrowBackedComputeDemand,
+		m.ComputeFulfilled,
+		m.ComputeExpired,
+		m.ComputeBacklog,
+	) {
 		return ErrEpochMetrics
 	}
 	feeTotal := new(big.Int).SetUint64(m.BurnedFees)
