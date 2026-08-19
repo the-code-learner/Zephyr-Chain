@@ -10,7 +10,7 @@ type fakeRuntime struct {
 	result Result
 }
 
-func (f fakeRuntime) ValidateModule(code []byte) error { return nil }
+func (f fakeRuntime) ValidateModule(code []byte) error        { return nil }
 func (f fakeRuntime) Execute(request Request) (Result, error) { return f.result, nil }
 
 func TestMeteredRuntimeEnforcesFuelAndAccess(t *testing.T) {
