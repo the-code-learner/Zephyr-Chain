@@ -6,6 +6,7 @@ import (
 	"sync"
 
 	v2consensus "github.com/zephyr-chain/zephyr-chain/internal/v2/consensus"
+	"github.com/zephyr-chain/zephyr-chain/internal/v2/economics"
 	"github.com/zephyr-chain/zephyr-chain/internal/v2/execution"
 	"github.com/zephyr-chain/zephyr-chain/internal/v2/merkle"
 	"github.com/zephyr-chain/zephyr-chain/internal/v2/object"
@@ -46,23 +47,25 @@ type shardDelta struct {
 }
 
 type Candidate struct {
-	Header      sharding.GlobalHeader
-	Commitments []sharding.Commitment
-	Results     map[uint32][]execution.Result
-	Receipts    map[uint32][]sharding.CrossShardReceipt
-	deltas      map[uint32]shardDelta
+	Header               sharding.GlobalHeader
+	Commitments          []sharding.Commitment
+	Results              map[uint32][]execution.Result
+	Receipts             map[uint32][]sharding.CrossShardReceipt
+	deltas               map[uint32]shardDelta
+	economicObservations map[uint32]economics.FinalizedShardObservation
 }
 
 type Runtime struct {
-	mu            sync.Mutex
-	Network       types.NetworkID
-	NativeToken   types.TokenID
-	ValidatorRoot types.Hash
-	ShardCount    uint32
-	States        map[uint32]worldstate.Backend
-	Workers       int
-	Height        uint64
-	ParentHash    types.Hash
+	mu                sync.Mutex
+	Network           types.NetworkID
+	NativeToken       types.TokenID
+	ValidatorRoot     types.Hash
+	ShardCount        uint32
+	States            map[uint32]worldstate.Backend
+	Workers           int
+	Height            uint64
+	ParentHash        types.Hash
+	economicCollector *economics.EpochCollector
 }
 
 func NewRuntime(network types.NetworkID, nativeToken types.TokenID, validatorRoot types.Hash, states map[uint32]worldstate.Backend, workers int) (*Runtime, error) {
@@ -84,7 +87,12 @@ func (r *Runtime) BuildCandidate(height uint64, batches map[uint32]ShardBatch) (
 	if height != r.Height+1 || height == 0 {
 		return Candidate{}, ErrCandidateHeight
 	}
-	candidate := Candidate{Results: make(map[uint32][]execution.Result), Receipts: make(map[uint32][]sharding.CrossShardReceipt), deltas: make(map[uint32]shardDelta)}
+	candidate := Candidate{
+		Results:              make(map[uint32][]execution.Result),
+		Receipts:             make(map[uint32][]sharding.CrossShardReceipt),
+		deltas:               make(map[uint32]shardDelta),
+		economicObservations: make(map[uint32]economics.FinalizedShardObservation),
+	}
 	commitments := make([]sharding.Commitment, 0, r.ShardCount)
 	dataLeaves := make([]types.Hash, 0, r.ShardCount)
 	for shard := uint32(0); shard < r.ShardCount; shard++ {
@@ -161,6 +169,18 @@ func (r *Runtime) BuildCandidate(height uint64, batches map[uint32]ShardBatch) (
 		}
 		commitments = append(commitments, sharding.Commitment{ShardID: shard, StateRoot: newRoot, ReceiptRoot: receiptRoot, DataRoot: dataRoot})
 		dataLeaves = append(dataLeaves, merkle.Leaf("shard-data-root", dataRoot[:]))
+
+		if r.economicCollector != nil {
+			imports := make([]sharding.CrossShardReceipt, 0, len(batch.Imports))
+			for _, receiptImport := range batch.Imports {
+				imports = append(imports, receiptImport.Receipt)
+			}
+			candidate.economicObservations[shard] = economics.FinalizedShardObservation{
+				Transactions: append([]tx.Transaction(nil), batch.Transactions...),
+				Results:      append([]execution.Result(nil), results...),
+				Imports:      imports,
+			}
+		}
 	}
 	commitmentRoot, err := sharding.CommitmentRoot(commitments)
 	if err != nil {
@@ -207,6 +227,18 @@ func (r *Runtime) Commit(candidate Candidate, certificate v2consensus.Certificat
 	if err := validators.VerifyCertificate(certificate); err != nil {
 		return sharding.GlobalHeader{}, err
 	}
+
+	var economicPreview *economics.EpochCollector
+	if r.economicCollector != nil {
+		if len(candidate.economicObservations) != int(r.ShardCount) {
+			return sharding.GlobalHeader{}, ErrCandidateState
+		}
+		economicPreview, err = r.economicCollector.PreviewFinalizedBlock(candidate.Header.Height, candidate.economicObservations)
+		if err != nil {
+			return sharding.GlobalHeader{}, err
+		}
+	}
+
 	commitments := make(map[uint32]sharding.Commitment, len(candidate.Commitments))
 	for _, commitment := range candidate.Commitments {
 		commitments[commitment.ShardID] = commitment
@@ -226,6 +258,9 @@ func (r *Runtime) Commit(candidate Candidate, certificate v2consensus.Certificat
 		if root != commitments[shard].StateRoot {
 			return sharding.GlobalHeader{}, ErrCandidateState
 		}
+	}
+	if economicPreview != nil {
+		r.economicCollector = economicPreview
 	}
 	finalized := candidate.Header
 	finalized.CertificateHash = certificate.Hash()
