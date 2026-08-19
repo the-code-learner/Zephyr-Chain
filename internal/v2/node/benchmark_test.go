@@ -36,8 +36,11 @@ func benchmarkFinalizedBatch(b *testing.B, workers int) {
 
 	network := types.NetworkID(types.HashBytes("network", []byte("benchmark-v2")))
 	native := types.TokenID(types.HashBytes("token", []byte("ZPH")))
-	validatorRoot := types.HashBytes("validators", []byte("benchmark-set"))
 	validators, validatorKeys := benchmarkValidators(b, network, 7)
+	validatorRoot, err := validators.Root()
+	if err != nil {
+		b.Fatal(err)
+	}
 	signers := make([]benchmarkSigner, benchmarkBatchSize)
 	for i := range signers {
 		key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
