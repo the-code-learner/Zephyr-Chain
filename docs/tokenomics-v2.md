@@ -4,6 +4,11 @@ Status: **design contract + shadow-mode implementation target**.
 
 This document defines the economic direction for ZPH in Protocol v2. It deliberately separates mechanisms that are already executable in the branch from mechanisms that must remain in shadow/simulation mode until devnet evidence demonstrates stability and manipulation resistance.
 
+Detailed companion specifications:
+
+- `docs/compute-economics-v2.md` — normalized compute work, ZCPI, ZCSI and A/B/C feedback experiments;
+- `docs/economic-state-v2.md` — consensus-stamped coin age, velocity, per-shard epoch accounting and authenticated shadow monetary state.
+
 ## Goals
 
 Zephyr does not use a fixed maximum ZPH supply as its long-term monetary rule. The target is a deterministic, oracle-free adaptive policy with a long-run **net supply growth center near 2% per year**.
@@ -17,7 +22,7 @@ The policy must:
 - use integer/fixed-point arithmetic only;
 - rate-limit monetary changes;
 - resist wash activity, fake offers and short-lived transaction spam;
-- remain observable in shadow mode before it is allowed to mint or burn protocol supply.
+- remain observable in shadow mode before it is allowed to mint protocol supply.
 
 A 2% target refers to **ZPH monetary supply growth**, not real-world purchasing-power inflation. Without an external price oracle Zephyr cannot claim to track CPI or any fiat purchasing-power index.
 
@@ -33,10 +38,10 @@ Conceptually:
 resource use
   -> block/shard utilization
   -> dynamic base fee
-  -> fee burn + validator/reward component
+  -> fee burn + validator/reward + reserve components
 ```
 
-Future resource pricing should account for:
+The reference fee engine can price:
 
 - transaction base work;
 - signature verification;
@@ -44,8 +49,9 @@ Future resource pricing should account for:
 - state reads/writes;
 - contract fuel;
 - data-availability bytes;
-- cross-shard receipts;
-- other consensus-critical resource units.
+- cross-shard receipts.
+
+It also supports deterministic burn/validator/reserve splitting with exact value conservation. The current compatibility policy remains full fee burn until authenticated reward/reserve distribution is activated.
 
 The fast loop may react to congestion quickly. It does **not** directly change the long-term monetary target.
 
@@ -55,14 +61,14 @@ The slow loop is the **Zephyr Adaptive Monetary Policy (ZAMP)**.
 
 It observes smoothed on-chain economic/security metrics and calculates the gross mint that would be required to hit the epoch net-issuance target after burn.
 
-The branch currently implements this controller in **shadow mode only**.
+The branch implements this controller in **shadow mode only**.
 
 ```text
 supply
 burn
 stake ratio
 protocol reserve ratio
-resource utilization
+blockchain resource utilization
 age-weighted velocity
 finalized operations
 compute-market telemetry
@@ -78,7 +84,7 @@ gross mint target
 net supply target near 2% annualized
 ```
 
-Shadow mode computes the decision but does not mutate supply.
+Shadow mode computes and can authenticate the decision but does not mutate live ZPH supply.
 
 ## 2. Net inflation target
 
@@ -125,12 +131,12 @@ ZAMP can use only values committed by Zephyr consensus.
 
 ### Supply and burn
 
-Directly known:
+Directly knowable from protocol state/accounting:
 
 - total ZPH supply;
 - circulating supply;
 - ZPH burned by the fee mechanism;
-- protocol-minted ZPH;
+- protocol-minted ZPH after future activation;
 - protocol reserve.
 
 ### Security
@@ -141,13 +147,11 @@ Directly known:
 - validator voting power;
 - collateral/slashing state.
 
-The controller may gently increase incentives when staking/security coverage is below target and reduce them when coverage is comfortably above target.
-
 ### Network utilization
 
 Do not use raw HTTP requests or mempool ingress. Use finalized consensus resource consumption.
 
-A future resource-usage index should be derived from signed/finalized work such as state writes, proof bytes, fuel, DA bytes and receipt processing.
+Blockchain resource utilization and compute-market utilization are separate signals and must not be conflated.
 
 ### Finalized operations
 
@@ -155,11 +159,21 @@ Operation counts are secondary signals only. They are not sufficient alone becau
 
 ### Age-weighted monetary velocity
 
-Simple transfer volume is wash-tradeable. The intended Zephyr velocity metric is based on native object history and gives more weight to value that remained unspent for meaningful time before moving.
+Simple transfer volume is wash-tradeable. Zephyr v2 coin objects now carry a consensus-stamped `CreatedHeight`.
 
-Repeatedly cycling the same fresh coin object should therefore contribute far less than genuinely circulating older liquidity.
+New coin outputs are rewritten by deterministic execution with the candidate block height, so the wallet cannot choose an old timestamp to create fake monetary age.
 
-Velocity must be smoothed over long windows (for example EWMA/rolling epochs) before it can influence monetary policy.
+The reference velocity accumulator uses:
+
+```text
+age = spendHeight - CreatedHeight
+```
+
+with configurable minimum age, full-weight age and maximum velocity bounds.
+
+Rapidly recreating and cycling fresh coin objects therefore resets their age and can contribute zero below `MinAgeBlocks`.
+
+Unknown/genesis age (`CreatedHeight = 0`) is tracked separately and excluded by the current reference policy.
 
 ## 5. Zephyr normalized compute work
 
@@ -167,7 +181,7 @@ There is no honest universal scalar that makes every CPU, GPU, AI training job, 
 
 Zephyr therefore uses a **resource vector**, not a fake universal FLOP count.
 
-The current v2 model defines normalized dimensions including:
+The current model includes:
 
 ```text
 CPUUnits
@@ -180,20 +194,13 @@ StorageBytes
 NetworkBytes
 ```
 
-A standardized workload definition also carries:
+A standardized workload definition carries protocol version, workload class, normalized units, workload hash, benchmark/specification hash and resource vector.
 
-- protocol work-spec version;
-- workload class;
-- normalized logical work units;
-- workload hash;
-- benchmark/specification hash;
-- resource vector.
-
-The benchmark hash anchors the meaning of the units. A provider cannot make its GPU appear more valuable merely by self-reporting a larger number.
+The benchmark hash anchors the meaning of the units. A provider cannot make its hardware appear more valuable merely by self-reporting a larger number.
 
 ## 6. Compute workload registry
 
-Only protocol-approved work specifications are eligible for monetary telemetry.
+Only standardized work specifications are eligible for monetary telemetry.
 
 A registry entry binds:
 
@@ -207,17 +214,17 @@ WorkloadHash
 
 Conflicting definitions for the same workload hash are rejected.
 
-The initial implementation is an executable reference registry. Before monetary activation the registry must become an authenticated protocol/governance state transition with explicit versioning and activation heights.
+The current registry is a reference implementation. Before monetary activation it must become authenticated/governance-controlled state with delayed versioned activation.
 
 ## 7. ZCPI — Zephyr Compute Price Index
 
 ZCPI is an internal Zephyr compute-market price index. It is **not** a CPI and is not a claim about real-world inflation.
 
-It answers a narrower question:
+It answers:
 
 > how many atomic ZPH units were actually paid for standardized, verified compute work on Zephyr?
 
-ZCPI deliberately excludes:
+ZCPI excludes:
 
 - advertised provider prices;
 - unfilled offers;
@@ -225,7 +232,7 @@ ZCPI deliberately excludes:
 - failed/unverified jobs;
 - arbitrary unregistered workload units.
 
-An eligible observation is generated only from:
+Eligible observations derive from:
 
 ```text
 registered workload spec
@@ -234,85 +241,98 @@ registered workload spec
 + actual on-chain provider payments
 ```
 
-For each workload class:
+The reference implementation uses fixed-point Q9 arithmetic, per-class medians, EWMA smoothing, basket coverage and an explicit reliability flag.
+
+## 8. ZCSI — Zephyr Compute Scarcity Index
+
+ZCPI alone cannot safely drive inflation. A price increase can reflect scarcity, demand growth, ZPH purchasing-power movement or workload-mix changes.
+
+Zephyr therefore separately computes **ZCSI**, a bounded scarcity score based on:
 
 ```text
-price = paid ZPH / normalized verified work units
+escrow-backed standardized demand
+verified standardized supply
+funded backlog
+fulfilled work
+compute utilization
+reliable ZCPI price trend
 ```
 
-The reference implementation uses fixed-point Q9 arithmetic, per-class medians and EWMA smoothing.
+Only real escrow-backed standardized work counts as demand. Provider-advertised capacity does not become verified supply merely because it is claimed.
 
-## 8. ZCPI basket, coverage and reliability
+If ZCPI is unreliable, the price component is removed. If demand/supply coverage is too thin, ZCSI itself becomes unreliable.
 
-Different resource classes retain different prices. ZCPI may combine them into a weighted basket for telemetry, but it also reports each class separately.
+An unreliable ZCSI is prohibited from changing either compute reward routing or the monetary target in the shadow evaluator.
 
-A class enters an epoch index only when it has at least the configured minimum number of verified observations.
+## 9. Compute feedback experiments A/B/C
 
-The index reports:
+The branch implements three **shadow-only** modes.
 
-- price per class;
-- sample count per class;
-- weighted basket price;
-- basket coverage in basis points;
-- a `Reliable` flag;
-- total accepted observations.
+### A — observe only
 
-If too little of the configured basket has adequate data, the index remains unreliable and must not be used by monetary policy.
+```text
+ZCSI -> telemetry only
+compute reward share -> unchanged
+inflation target -> unchanged
+```
 
-This prevents the chain from manufacturing a compute-price signal during thin markets.
+### B — reward routing
 
-## 9. Compute prices are telemetry-only in ZAMP v0
+```text
+ZCSI -> suggested compute reward share
+inflation target -> unchanged
+```
 
-The branch deliberately records `ComputeIndexQ9`, compute-price trend and reliability in the shadow monetary decision **without allowing them to change the inflation target yet**.
+This is the preferred first candidate if devnet evidence eventually justifies activation. Scarce verified compute can receive a larger share of an already-defined issuance budget without changing total issuance.
 
-This is intentional.
+### C — reward routing + narrow monetary band
 
-A rising ZPH price for compute can mean several different things:
+```text
+ZCSI -> suggested compute reward share
+ZCSI -> small bounded shadow inflation correction
+```
 
-- compute resources became scarce;
-- demand for compute increased;
-- ZPH purchasing power against compute fell;
-- workload mix changed.
+The total-inflation sensitivity is deliberately much smaller than the reward-routing sensitivity.
 
-Without sufficient history it is unsafe to infer which cause dominates.
+Mode C must demonstrate a material stability/capacity benefit over Mode B before it is considered for activation.
 
-Activation requires simulation showing that a compute-price feedback term improves stability rather than creating a manipulable reflexive loop.
+The current active economic boundary remains equivalent to Mode A: **no compute signal changes live supply**.
 
 ## 10. Native ZPH fee accounting
 
-Current v2 transaction execution already requires native ZPH inputs to cover `outputs + Fee`.
+V2 execution requires native ZPH inputs to cover outputs plus the signed fee.
 
-Before public economic activation this must evolve into an explicit fee-accounting engine rather than an implicit 100% fee disappearance.
-
-The intended structure is:
+The reference fee engine now supports:
 
 ```text
-transaction resource charge
+resource charge
        |
-       +-- base-fee component -> burn
-       |
-       +-- execution/priority component -> validator/reward pool
-       |
-       +-- optional protocol component -> protocol reserve
+       +-- burn
+       +-- validator/reward pool
+       +-- protocol reserve
 ```
 
-Percentages and fee parameters must be integer basis points and simulation-backed.
+with integer basis-point splits and deterministic rounding that conserves every atomic unit.
+
+Until state-backed distribution is activated, the compatibility policy preserves the current effective 100% fee burn.
 
 ## 11. Smart-contract gas
 
-Contract execution already reports deterministic `FuelUsed` and enforces `FuelLimit`.
+Contract execution reports deterministic `FuelUsed` and enforces `FuelLimit`.
 
-The economic fee engine should convert deterministic execution/resource consumption into ZPH cost, for example conceptually:
+The reference resource fee model can include:
 
 ```text
-contract fee =
-    base transaction resource charge
-  + FuelUsed * FuelPrice
-  + state read/write charges
-  + proof/data-availability charges
+base transaction charge
++ signature work
++ witness bytes
++ state reads/writes
++ FuelUsed * FuelPrice
++ DA bytes
++ cross-shard receipts
 ```
 
-The wallet should sign a maximum acceptable resource/fee envelope. Validators must not be able to raise it after signing.
+Final production prices and the active base-fee controller remain simulation/benchmark decisions.
 
 ## 12. Compute payment is not blockchain gas
 
@@ -327,9 +347,7 @@ A 100 ZPH AI job does not imply 100 ZPH of gas. Validators settle commitments/pr
 
 ## 13. Native custom-token policy
 
-Protocol-native custom assets retain independent supply policies.
-
-The desired explicit policies are:
+Protocol-native custom assets now have explicit supply policies:
 
 ```text
 FIXED
@@ -337,81 +355,98 @@ CAPPED
 MINTABLE
 ```
 
-Native mint/burn operations must update both coin objects and the authenticated `TokenDefinition.CurrentSupply` so Citizen Nodes can prove supply correctness.
+The v2 executor implements:
 
-Before public activation the executor must add explicit `MintToken` and `BurnToken` operations and enforce:
+- custom-token creation;
+- `MintToken` with mint-authority and cap enforcement;
+- `BurnToken` with burn-permission enforcement;
+- authenticated `TokenDefinition.CurrentSupply` updates;
+- `Transferable` enforcement;
+- read-only token-definition policy witnesses for parallel normal transfers.
 
-- mint authority;
-- cap where applicable;
-- irreversible fixed-supply policy;
-- burn permission;
-- transferability policy.
+ZPH itself is excluded from user-authority mint/burn paths. Future ZPH issuance can occur only through an explicitly activated protocol monetary transition.
 
-ZPH itself must not have a human mint authority. ZPH issuance is controlled only by the protocol monetary state machine after activation.
+Custom-token cross-shard transfer/mint is deliberately gated until a globally verifiable token-policy proof/registry is available.
 
-## 14. Testing strategy
+## 14. Economic epoch state
 
-### Unit/conformance tests
+Zephyr must not create one global monetary object touched by every transaction; that would serialize execution.
+
+The current foundation therefore uses:
+
+```text
+finalized execution
+ -> per-shard epoch metrics
+ -> deterministic epoch aggregate
+ -> shadow MonetaryEpochState
+```
+
+Per-shard metrics cover:
+
+- charged/burned/validator/reserve fees;
+- finalized operations;
+- chain resource used/capacity;
+- shard circulating ZPH;
+- age-weighted velocity;
+- escrow-backed compute demand;
+- verified compute supply;
+- compute backlog/fulfillment.
+
+Exact fee conservation is validated.
+
+Global velocity is weighted by per-shard circulating ZPH rather than giving every shard equal influence.
+
+Chain resource utilization and compute utilization are calculated separately.
+
+The canonical aggregate hash is committed by a deterministic shadow `MonetaryEpochState` system object. Consecutive states bind `PreviousStateHash`.
+
+The object can enter the normal Sparse-Merkle state root through consume/recreate semantics, so a future epoch-boundary runtime transition does not require another special consensus root.
+
+The current transition builder returns a state delta for pre-QC simulation; it does not commit a store itself.
+
+## 15. Testing and replay
 
 The branch includes deterministic tests for:
 
-- normalized work-spec serialization;
-- conflicting compute-registry definitions;
-- deriving a compute observation only from a settled verified job;
-- class medians and basket coverage;
-- ZCPI reliability thresholds;
-- compute price trend bounds;
-- burn offset in the shadow monetary controller;
-- bounded/rate-limited adaptive inflation target;
-- compute telemetry having zero monetary influence in ZAMP v0.
+- normalized work-spec serialization and registry conflicts;
+- verified settlement observations;
+- ZCPI medians, coverage, reliability and trend bounds;
+- ZCSI demand/supply scarcity and reliability fail-closed behavior;
+- A/B/C feedback separation;
+- burn offset and rate-limited ZAMP target;
+- fee split/resource quotation conservation;
+- consensus override of wallet-provided coin creation height;
+- old versus fresh age-weighted velocity;
+- rapid self-cycling suppression;
+- per-shard economic accounting and multi-shard aggregation;
+- separation of chain and compute utilization;
+- canonical shadow monetary state and previous-epoch binding;
+- suggested Mode-C mint remaining shadow while `TotalSupply` is unchanged.
 
-### Monetary replay simulator
+`cmd/zephyr-econ-sim` supports base ZAMP replay and optional compute-market/ZCSI A/B/C inputs. See `docs/examples/zephyr-econ-sim-compute.json`.
 
-`cmd/zephyr-econ-sim` accepts a JSON epoch snapshot and prints the shadow decision.
-
-Example shape:
-
-```json
-{
-  "priorTargetBps": 200,
-  "metrics": {
-    "Supply": 1000000000,
-    "CirculatingSupply": 900000000,
-    "StakedSupply": 450000000,
-    "ProtocolReserve": 100000000,
-    "BurnedThisEpoch": 12000,
-    "FinalizedOperations": 1000000,
-    "ResourceUtilizationBps": 5000,
-    "AgeWeightedVelocityBps": 5000,
-    "ComputeIndexQ9": 7500000000,
-    "ComputePriceTrendBps": 250,
-    "ComputeIndexReliable": true
-  }
-}
-```
-
-This enables historical replay, synthetic shocks and sensitivity analysis without changing consensus supply.
-
-## 15. Activation gates
+## 16. Activation gates
 
 ZAMP remains shadow-only until all of the following are true:
 
-1. explicit ZPH supply/burn/mint accounting exists in authenticated protocol state;
-2. fee distribution is explicit and conserves supply exactly;
-3. velocity is demonstrably resistant to cheap self-cycling;
-4. all monetary metrics are reproducible from finalized state;
-5. long simulations cover low/high usage, partitions, validator churn, spam and compute-market shocks;
-6. parameter sensitivity does not create oscillation or runaway mint/burn behavior;
-7. governance can change parameters only through bounded, delayed transitions;
-8. Citizen Nodes can independently verify monetary state and epoch decisions;
-9. ZCPI has sufficient real-market coverage before any non-zero monetary weight is considered;
-10. an emergency safety rule can freeze adaptive corrections while preserving deterministic base issuance if metrics become unavailable or invalid.
+1. per-shard economic metrics are derived automatically from finalized runtime execution rather than caller-provided summaries;
+2. fee distribution is state-backed and conserves supply exactly;
+3. verified compute supply comes from authenticated benchmark/availability state;
+4. velocity is stress-tested against long-horizon self-cycling and capital-lock attacks;
+5. all monetary metrics are reproducible from finalized state;
+6. long simulations cover usage shocks, partitions, validator churn, spam, compute booms/busts and oscillating adversarial inputs;
+7. parameter sensitivity does not create runaway or oscillatory issuance;
+8. governance can change parameters only through bounded delayed transitions;
+9. Citizen Nodes can decode and independently verify monetary state/history;
+10. ZCPI/ZCSI have sufficient real-market coverage before Mode B or C is considered;
+11. an emergency deterministic fallback can zero adaptive corrections when required metrics are unavailable/invalid;
+12. live mint/reward/fee distribution has an explicit protocol-version/activation-height transition.
 
-## 16. Current policy boundary
+## 17. Current policy boundary
 
-The current branch implements **measurement and shadow decisions**, not live monetary issuance.
+The branch implements **measurement, authenticated shadow state and shadow decisions**, not live monetary issuance.
 
-The design principle is:
+The design principle remains:
 
 ```text
 measure first
@@ -419,4 +454,4 @@ simulate second
 activate last
 ```
 
-This lets Zephyr use an adaptive oracle-free economy without turning monetary policy into an untested consensus experiment.
+This lets Zephyr develop an adaptive oracle-free economy without turning monetary policy into an untested consensus experiment.
