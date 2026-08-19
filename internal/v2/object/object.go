@@ -158,14 +158,16 @@ func (o OutputSpec) Hash() types.Hash {
 }
 
 type Coin struct {
-	Token  types.TokenID
-	Amount uint64
+	Token         types.TokenID
+	Amount        uint64
+	CreatedHeight uint64
 }
 
 func (c Coin) MarshalBinary() []byte {
 	var w codec.Writer
 	w.Fixed(c.Token[:])
 	w.U64(c.Amount)
+	w.U64(c.CreatedHeight)
 	return w.BytesCopy()
 }
 
@@ -179,6 +181,10 @@ func ParseCoin(data []byte) (Coin, error) {
 	if err != nil || amount == 0 {
 		return Coin{}, ErrInvalidCoin
 	}
+	createdHeight, err := r.U64()
+	if err != nil {
+		return Coin{}, ErrInvalidCoin
+	}
 	if err := r.Done(); err != nil {
 		return Coin{}, ErrInvalidCoin
 	}
@@ -187,13 +193,21 @@ func ParseCoin(data []byte) (Coin, error) {
 	if types.IsZero32([32]byte(token)) {
 		return Coin{}, ErrInvalidCoin
 	}
-	return Coin{Token: token, Amount: amount}, nil
+	return Coin{Token: token, Amount: amount, CreatedHeight: createdHeight}, nil
 }
 
 func NewCoinOutput(owner types.AccountID, token types.TokenID, amount uint64) (OutputSpec, error) {
+	return NewCoinOutputAtHeight(owner, token, amount, 0)
+}
+
+func NewCoinOutputAtHeight(owner types.AccountID, token types.TokenID, amount, createdHeight uint64) (OutputSpec, error) {
 	if types.IsZero32([32]byte(owner)) || types.IsZero32([32]byte(token)) || amount == 0 {
 		return OutputSpec{}, ErrInvalidCoin
 	}
-	out := OutputSpec{Owner: owner, Kind: KindCoin, Data: Coin{Token: token, Amount: amount}.MarshalBinary()}
+	out := OutputSpec{
+		Owner: owner,
+		Kind:  KindCoin,
+		Data:  Coin{Token: token, Amount: amount, CreatedHeight: createdHeight}.MarshalBinary(),
+	}
 	return out, out.Validate()
 }
