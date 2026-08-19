@@ -42,8 +42,14 @@ func (m MeteredRuntime) Execute(request Request) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
-	if err := m.Inner.ValidateModule(request.Code); err != nil {
-		return Result{}, err
+	// Code is optional at this generic guard boundary so deterministic runtimes
+	// backed by pre-registered/native modules can still use the same consensus
+	// invariants. Runtimes that require code (Zephyr Script/WASM) reject an empty
+	// module inside Execute/ValidateModule themselves.
+	if len(request.Code) > 0 {
+		if err := m.Inner.ValidateModule(request.Code); err != nil {
+			return Result{}, err
+		}
 	}
 	result, err := m.Inner.Execute(request)
 	if err != nil {
@@ -71,7 +77,7 @@ func (m MeteredRuntime) Execute(request Request) (Result, error) {
 
 func validateRequest(request Request) (map[types.ObjectID]bool, error) {
 	if types.IsZero32([32]byte(request.ContractID)) || strings.TrimSpace(request.Entrypoint) == "" || len(request.Entrypoint) > 128 ||
-		len(request.Code) == 0 || len(request.Code) > MaxModuleBytes || len(request.Arguments) > MaxArgumentsBytes || request.FuelLimit == 0 || len(request.Accesses) > MaxAccesses {
+		len(request.Code) > MaxModuleBytes || len(request.Arguments) > MaxArgumentsBytes || request.FuelLimit == 0 || len(request.Accesses) > MaxAccesses {
 		return nil, ErrInvalidRequest
 	}
 	allowed := make(map[types.ObjectID]bool, len(request.Accesses))
