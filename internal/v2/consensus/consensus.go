@@ -15,10 +15,10 @@ import (
 )
 
 var (
-	ErrValidatorSet     = errors.New("invalid v2 validator set")
-	ErrProposal         = errors.New("invalid v2 consensus proposal")
-	ErrVote             = errors.New("invalid v2 consensus vote")
-	ErrCertificate      = errors.New("invalid v2 quorum certificate")
+	ErrValidatorSet      = errors.New("invalid v2 validator set")
+	ErrProposal          = errors.New("invalid v2 consensus proposal")
+	ErrVote              = errors.New("invalid v2 consensus vote")
+	ErrCertificate       = errors.New("invalid v2 quorum certificate")
 	ErrInsufficientPower = errors.New("insufficient v2 voting power")
 )
 
@@ -130,7 +130,8 @@ func HeaderConsensusHash(header sharding.GlobalHeader) types.Hash {
 
 func (p Proposal) SigningDigest() types.Hash {
 	var w codec.Writer
-	w.Fixed(HeaderConsensusHash(p.Header)[:])
+	headerHash := HeaderConsensusHash(p.Header)
+	w.Fixed(headerHash[:])
 	w.U64(p.Round)
 	w.Fixed(p.Proposer[:])
 	return types.Hash(codec.DomainHash("zephyr/consensus/proposal/v2", w.BytesCopy()))
@@ -195,10 +196,7 @@ func (s ValidatorSet) BuildCertificate(proposal Proposal, votes []Vote) (Certifi
 	if err := s.VerifyProposal(proposal); err != nil {
 		return Certificate{}, err
 	}
-	certificate := Certificate{
-		Network: s.Network, Height: proposal.Header.Height, Round: proposal.Round,
-		HeaderHash: HeaderConsensusHash(proposal.Header), Votes: append([]Vote(nil), votes...),
-	}
+	certificate := Certificate{Network: s.Network, Height: proposal.Header.Height, Round: proposal.Round, HeaderHash: HeaderConsensusHash(proposal.Header), Votes: append([]Vote(nil), votes...)}
 	if err := s.VerifyCertificate(certificate); err != nil {
 		return Certificate{}, err
 	}
