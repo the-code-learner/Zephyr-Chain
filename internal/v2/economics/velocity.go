@@ -24,12 +24,12 @@ type VelocitySnapshot struct {
 }
 
 type VelocityAccumulator struct {
-	policy             VelocityPolicy
-	weightedValueBps   big.Int
-	observedSpends     uint64
-	eligibleSpends     uint64
-	unknownAgeSpends   uint64
-	freshSpends        uint64
+	policy           VelocityPolicy
+	weightedValueBps big.Int
+	observedSpends   uint64
+	eligibleSpends   uint64
+	unknownAgeSpends uint64
+	freshSpends      uint64
 }
 
 func NewVelocityAccumulator(policy VelocityPolicy) (*VelocityAccumulator, error) {
