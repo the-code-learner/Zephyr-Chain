@@ -171,6 +171,10 @@ func (s ValidatorSet) VerifyProposal(proposal Proposal) error {
 	if err := s.Validate(); err != nil || proposal.Header.Network != s.Network || proposal.Header.Height == 0 || proposal.Header.CertificateHash != (types.Hash{}) {
 		return ErrProposal
 	}
+	validatorRoot, err := s.Root()
+	if err != nil || validatorRoot != proposal.Header.ValidatorRoot {
+		return ErrProposal
+	}
 	expected, err := s.Proposer(proposal.Header.Height, proposal.Round)
 	if err != nil || expected.ID != proposal.Proposer || !bytes.Equal(expected.PublicKey, proposal.PublicKey) {
 		return ErrProposal
