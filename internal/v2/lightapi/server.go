@@ -28,6 +28,10 @@ func (s Snapshot) Validate() error {
 		s.Header.CertificateHash != s.Certificate.Hash() {
 		return ErrSnapshot
 	}
+	validatorRoot, err := s.Validators.Root()
+	if err != nil || validatorRoot != s.Header.ValidatorRoot {
+		return ErrSnapshot
+	}
 	if err := s.Validators.VerifyCertificate(s.Certificate); err != nil {
 		return ErrSnapshot
 	}
