@@ -22,6 +22,7 @@ type ComputeScarcityConfig struct {
 type ComputeMarketMetrics struct {
 	EscrowBackedDemandUnits uint64
 	VerifiedSupplyUnits     uint64
+	VerifiedSupplyReliable  bool
 	BacklogUnits            uint64
 	FulfilledUnits          uint64
 	UtilizationBps          uint32
@@ -57,7 +58,8 @@ func DefaultComputeScarcityConfig() ComputeScarcityConfig {
 // BuildComputeScarcity calculates the Zephyr Compute Scarcity Index (ZCSI).
 // Demand must represent standardized, escrow-backed work. Supply must represent
 // standardized, benchmarked and collateralized capacity. Advertised prices or
-// self-reported peak FLOPS are not valid inputs.
+// self-reported peak FLOPS are not valid inputs. An unauthenticated supply can
+// still be observed as telemetry, but it can never make ZCSI reliable.
 func BuildComputeScarcity(epoch uint64, metrics ComputeMarketMetrics, cfg ComputeScarcityConfig) (ComputeScarcitySnapshot, error) {
 	if epoch == 0 || cfg.UtilizationTargetBps > BasisPoints || cfg.MaxAbsScoreBps == 0 || cfg.MaxAbsScoreBps > BasisPoints ||
 		metrics.UtilizationBps > BasisPoints || metrics.BacklogUnits > metrics.EscrowBackedDemandUnits ||
@@ -109,7 +111,9 @@ func BuildComputeScarcity(epoch uint64, metrics ComputeMarketMetrics, cfg Comput
 		return ComputeScarcitySnapshot{}, ErrComputeScarcity
 	}
 	out.ScoreBps = clampSigned(int64(weighted)/int64(effectiveWeight), int32(cfg.MaxAbsScoreBps))
-	out.Reliable = metrics.EscrowBackedDemandUnits >= cfg.MinDemandUnits && metrics.VerifiedSupplyUnits >= cfg.MinSupplyUnits
+	out.Reliable = metrics.VerifiedSupplyReliable &&
+		metrics.EscrowBackedDemandUnits >= cfg.MinDemandUnits &&
+		metrics.VerifiedSupplyUnits >= cfg.MinSupplyUnits
 	return out, nil
 }
 
