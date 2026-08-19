@@ -62,17 +62,17 @@ type statusResponse struct {
 }
 
 type objectProofResponse struct {
-	Network         string `json:"network"`
-	Height          uint64 `json:"height"`
-	ShardID         uint32 `json:"shardId"`
-	Header          []byte `json:"header"`
-	Certificate     []byte `json:"certificate"`
-	Commitment      []byte `json:"commitment"`
-	CommitmentProof []byte `json:"commitmentProof"`
-	ObjectID        string `json:"objectId"`
-	ObjectPresent   bool   `json:"objectPresent"`
-	Object          []byte `json:"object,omitempty"`
-	StateProof      []byte `json:"stateProof"`
+	Network         string         `json:"network"`
+	Height          uint64         `json:"height"`
+	ShardID         uint32         `json:"shardId"`
+	Header          []byte         `json:"header"`
+	Certificate     []byte         `json:"certificate"`
+	Commitment      []byte         `json:"commitment"`
+	CommitmentProof []byte         `json:"commitmentProof"`
+	ObjectID        string         `json:"objectId"`
+	ObjectPresent   bool           `json:"objectPresent"`
+	Object          []byte         `json:"object,omitempty"`
+	StateProof      []byte         `json:"stateProof"`
 	Validators      []validatorDTO `json:"validators"`
 }
 
