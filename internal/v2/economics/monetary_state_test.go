@@ -14,7 +14,7 @@ func TestShadowMonetaryEpochStateRoundTripAndNoLiveMint(t *testing.T) {
 		ResourceUsed: 50, ResourceCapacity: 100, ResourceUtilizationBps: 5_000,
 		CirculatingNativeSupply: 900_000_000, AgeWeightedVelocityBps: 5_000,
 		EscrowBackedComputeDemand: 2_000, VerifiedComputeSupply: 1_000,
-		ComputeBacklog: 500, ComputeFulfilled: 1_000, ComputeUtilizationBps: 10_000,
+		ComputeBacklog: 500, ComputeFulfilled: 1_000, ComputeExpired: 500, ComputeUtilizationBps: 10_000,
 	}
 	scarcity, err := BuildComputeScarcity(1, aggregate.ComputeMarketMetrics(1_000, true), DefaultComputeScarcityConfig())
 	if err != nil {
@@ -65,7 +65,7 @@ func TestShadowMonetaryEpochStateChainsPreviousEpoch(t *testing.T) {
 			FinalizedOperations: 100, ResourceUsed: 50, ResourceCapacity: 100, ResourceUtilizationBps: 5_000,
 			CirculatingNativeSupply: 900_000_000, AgeWeightedVelocityBps: 5_000,
 			EscrowBackedComputeDemand: 1_000, VerifiedComputeSupply: 1_000,
-			ComputeFulfilled: 700, ComputeUtilizationBps: 7_000,
+			ComputeFulfilled: 700, ComputeBacklog: 300, ComputeUtilizationBps: 7_000,
 		}
 	}
 	firstAggregate := makeAggregate(1)
