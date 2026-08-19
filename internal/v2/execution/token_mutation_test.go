@@ -1,6 +1,7 @@
 package execution
 
 import (
+	"crypto/ecdsa"
 	"crypto/elliptic"
 	"testing"
 
@@ -114,12 +115,8 @@ func TestFixedTokenCannotMint(t *testing.T) {
 	}
 }
 
-func transactionWithProofs(t *testing.T, store worldstate.Backend, key interface{ Public() any }, network types.NetworkID, ids []types.ObjectID, outputs []object.OutputSpec, operation tx.Operation, fee uint64) tx.Transaction {
+func transactionWithProofs(t *testing.T, store worldstate.Backend, key *ecdsa.PrivateKey, network types.NetworkID, ids []types.ObjectID, outputs []object.OutputSpec, operation tx.Operation, fee uint64) tx.Transaction {
 	t.Helper()
-	privateKey, ok := key.(*ecdsa.PrivateKey)
-	if !ok {
-		t.Fatal("unexpected signing key")
-	}
 	transaction := tx.Transaction{Version: tx.Version, Network: network, ShardID: 0, StateRoot: store.Root(), Outputs: outputs, Operations: []tx.Operation{operation}, Fee: fee}
 	for _, id := range ids {
 		obj, proof, present := store.Proof(id)
@@ -130,7 +127,7 @@ func transactionWithProofs(t *testing.T, store worldstate.Backend, key interface
 		transaction.Witnesses = append(transaction.Witnesses, tx.Witness{Object: obj, Proof: proof})
 	}
 	transaction.Salt[0] = byte(len(ids) + int(operation.Kind))
-	if err := transaction.Sign(privateKey); err != nil {
+	if err := transaction.Sign(key); err != nil {
 		t.Fatal(err)
 	}
 	return transaction
