@@ -26,17 +26,17 @@ type MonetaryPolicy struct {
 }
 
 type MonetaryMetrics struct {
-	Supply                uint64
-	CirculatingSupply     uint64
-	StakedSupply          uint64
-	ProtocolReserve       uint64
-	BurnedThisEpoch       uint64
-	FinalizedOperations   uint64
+	Supply                 uint64
+	CirculatingSupply      uint64
+	StakedSupply           uint64
+	ProtocolReserve        uint64
+	BurnedThisEpoch        uint64
+	FinalizedOperations    uint64
 	ResourceUtilizationBps uint32
 	AgeWeightedVelocityBps uint32
-	ComputeIndexQ9        uint64
-	ComputePriceTrendBps  int32
-	ComputeIndexReliable  bool
+	ComputeIndexQ9         uint64
+	ComputePriceTrendBps   int32
+	ComputeIndexReliable   bool
 }
 
 type MonetaryDecision struct {
@@ -56,21 +56,21 @@ type MonetaryDecision struct {
 
 func DefaultShadowPolicy() MonetaryPolicy {
 	return MonetaryPolicy{
-		TargetInflationBps: 200,
-		MinInflationBps: 150,
-		MaxInflationBps: 250,
-		MaxEpochStepBps: 1,
-		EpochsPerYear: 365,
-		ReserveTargetBps: 1_000,
-		StakeTargetBps: 5_000,
+		TargetInflationBps:   200,
+		MinInflationBps:      150,
+		MaxInflationBps:      250,
+		MaxEpochStepBps:      1,
+		EpochsPerYear:        365,
+		ReserveTargetBps:     1_000,
+		StakeTargetBps:       5_000,
 		UtilizationTargetBps: 5_000,
-		VelocityTargetBps: 5_000,
-		OperationsTarget: 1_000_000,
-		ReserveWeightBps: 500,
-		StakeWeightBps: 500,
+		VelocityTargetBps:    5_000,
+		OperationsTarget:     1_000_000,
+		ReserveWeightBps:     500,
+		StakeWeightBps:       500,
 		UtilizationWeightBps: 250,
-		VelocityWeightBps: 250,
-		OperationsWeightBps: 100,
+		VelocityWeightBps:    250,
+		OperationsWeightBps:  100,
 	}
 }
 
@@ -105,18 +105,18 @@ func EvaluateShadow(priorTargetBps uint32, metrics MonetaryMetrics, policy Monet
 		return MonetaryDecision{}, err
 	}
 	return MonetaryDecision{
-		Shadow: true,
-		TargetInflationBps: target,
-		NetIssuanceTarget: netTarget,
-		BurnOffset: metrics.BurnedThisEpoch,
-		GrossMintTarget: gross,
-		ProjectedNetChange: netTarget,
-		ReserveRatioBps: reserveRatio,
-		StakeRatioBps: stakeRatio,
+		Shadow:                true,
+		TargetInflationBps:    target,
+		NetIssuanceTarget:     netTarget,
+		BurnOffset:            metrics.BurnedThisEpoch,
+		GrossMintTarget:       gross,
+		ProjectedNetChange:    netTarget,
+		ReserveRatioBps:       reserveRatio,
+		StakeRatioBps:         stakeRatio,
 		OperationsActivityBps: operationsActivity,
-		ComputeIndexQ9: metrics.ComputeIndexQ9,
-		ComputePriceTrendBps: metrics.ComputePriceTrendBps,
-		ComputeIndexReliable: metrics.ComputeIndexReliable,
+		ComputeIndexQ9:        metrics.ComputeIndexQ9,
+		ComputePriceTrendBps:  metrics.ComputePriceTrendBps,
+		ComputeIndexReliable:  metrics.ComputeIndexReliable,
 	}, nil
 }
 
