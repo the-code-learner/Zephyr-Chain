@@ -135,26 +135,42 @@ func transactionAccesses(transaction tx.Transaction) (map[types.ObjectID]accessM
 	for _, input := range transaction.Inputs {
 		accesses[input.ObjectID] = accessWrite
 	}
-	if len(transaction.Operations) != 1 || transaction.Operations[0].Kind != tx.OpContractCall {
+	if len(transaction.Operations) != 1 {
 		return accesses, nil
 	}
-	call, err := contracts.ParseCall(transaction.Operations[0].Payload)
-	if err != nil {
-		return nil, err
-	}
-	if _, present := accesses[call.ContractObject]; !present {
-		return nil, ErrBatchConflict
-	}
-	accesses[call.ContractObject] = accessRead
-	for _, access := range call.Accesses {
-		if _, present := accesses[access.ObjectID]; !present {
+	switch transaction.Operations[0].Kind {
+	case tx.OpTransfer:
+		for _, witness := range transaction.Witnesses {
+			if witness.Object.Kind != object.KindTokenDefinition {
+				continue
+			}
+			if _, present := accesses[witness.Object.ID]; !present {
+				return nil, ErrBatchConflict
+			}
+			accesses[witness.Object.ID] = accessRead
+		}
+		return accesses, nil
+	case tx.OpContractCall:
+		call, err := contracts.ParseCall(transaction.Operations[0].Payload)
+		if err != nil {
+			return nil, err
+		}
+		if _, present := accesses[call.ContractObject]; !present {
 			return nil, ErrBatchConflict
 		}
-		if access.Write {
-			accesses[access.ObjectID] = accessWrite
-		} else {
-			accesses[access.ObjectID] = accessRead
+		accesses[call.ContractObject] = accessRead
+		for _, access := range call.Accesses {
+			if _, present := accesses[access.ObjectID]; !present {
+				return nil, ErrBatchConflict
+			}
+			if access.Write {
+				accesses[access.ObjectID] = accessWrite
+			} else {
+				accesses[access.ObjectID] = accessRead
+			}
 		}
+		return accesses, nil
+	default:
+		return accesses, nil
 	}
-	return accesses, nil
 }
