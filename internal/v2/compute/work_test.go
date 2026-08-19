@@ -81,3 +81,49 @@ func TestWorkRegistryRejectsConflictingDefinition(t *testing.T) {
 		t.Fatalf("expected conflicting registry definition rejection, got %v", err)
 	}
 }
+
+func TestWorkRegistryHashIsInsertionOrderIndependent(t *testing.T) {
+	specA := WorkSpec{
+		Version: WorkSpecVersion, Class: WorkCPUGeneral, Units: 10,
+		WorkloadHash: types.Hash{1}, BenchmarkHash: types.Hash{11},
+		Vector: WorkVector{CPUUnits: 10},
+	}
+	specB := WorkSpec{
+		Version: WorkSpecVersion, Class: WorkRendering, Units: 20,
+		WorkloadHash: types.Hash{2}, BenchmarkHash: types.Hash{12},
+		Vector: WorkVector{GPUFP32Units: 20},
+	}
+	first, err := NewWorkRegistry([]WorkSpec{specA, specB})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := NewWorkRegistry([]WorkSpec{specB, specA})
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstHash, err := first.Hash()
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondHash, err := second.Hash()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if firstHash != secondHash {
+		t.Fatalf("registry insertion order changed commitment: %x != %x", firstHash, secondHash)
+	}
+
+	changed := specB
+	changed.Units++
+	third, err := NewWorkRegistry([]WorkSpec{specA, changed})
+	if err != nil {
+		t.Fatal(err)
+	}
+	thirdHash, err := third.Hash()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if thirdHash == firstHash {
+		t.Fatal("changed workload definition did not change registry commitment")
+	}
+}
