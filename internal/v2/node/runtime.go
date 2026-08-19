@@ -2,7 +2,6 @@ package node
 
 import (
 	"errors"
-	"sort"
 	"sync"
 
 	v2consensus "github.com/zephyr-chain/zephyr-chain/internal/v2/consensus"
@@ -275,6 +274,11 @@ func (r *Runtime) Commit(candidate Candidate, certificate v2consensus.Certificat
 		return sharding.GlobalHeader{}, ErrCandidateState
 	}
 
+	commitments, shards, err := r.preflightCandidateState(candidate)
+	if err != nil {
+		return sharding.GlobalHeader{}, err
+	}
+
 	var economicPreview *economics.EpochCollector
 	if r.economicCollector != nil {
 		if len(candidate.economicObservations) != int(r.ShardCount) {
@@ -326,15 +330,6 @@ func (r *Runtime) Commit(candidate Candidate, certificate v2consensus.Certificat
 		nextPending = &preview
 	}
 
-	commitments := make(map[uint32]sharding.Commitment, len(candidate.Commitments))
-	for _, commitment := range candidate.Commitments {
-		commitments[commitment.ShardID] = commitment
-	}
-	shards := make([]int, 0, len(candidate.deltas))
-	for shard := range candidate.deltas {
-		shards = append(shards, int(shard))
-	}
-	sort.Ints(shards)
 	for _, shardValue := range shards {
 		shard := uint32(shardValue)
 		delta := candidate.deltas[shard]
