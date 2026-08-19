@@ -18,6 +18,7 @@ var (
 	ErrConservation         = errors.New("token conservation failed")
 	ErrOverflow             = errors.New("token amount overflow")
 	ErrShard                = errors.New("transaction routed to wrong shard")
+	ErrTokenPolicy          = errors.New("native token policy rejected operation")
 )
 
 type OutboundOutput struct {
@@ -77,16 +78,33 @@ func (e Engine) Execute(t tx.Transaction) (Result, error) {
 
 func (e Engine) executeTransfer(t tx.Transaction) (Result, error) {
 	inputTotals := map[types.TokenID]uint64{}
+	definitions := map[types.TokenID]assets.Definition{}
+	consumed := make([]types.ObjectID, 0, len(t.Inputs))
 	for _, w := range t.Witnesses {
-		if w.Object.Owner != t.Sender || w.Object.Kind != object.KindCoin {
+		switch w.Object.Kind {
+		case object.KindCoin:
+			if w.Object.Owner != t.Sender {
+				return Result{}, ErrOwnership
+			}
+			coin, err := object.ParseCoin(w.Object.Data)
+			if err != nil {
+				return Result{}, err
+			}
+			if err := add(inputTotals, coin.Token, coin.Amount); err != nil {
+				return Result{}, err
+			}
+			consumed = append(consumed, w.Object.ID)
+		case object.KindTokenDefinition:
+			definition, err := assets.ParseDefinition(w.Object.Data)
+			if err != nil || definition.TokenID == e.NativeToken {
+				return Result{}, ErrTokenPolicy
+			}
+			if _, duplicate := definitions[definition.TokenID]; duplicate {
+				return Result{}, ErrTokenPolicy
+			}
+			definitions[definition.TokenID] = definition
+		default:
 			return Result{}, ErrOwnership
-		}
-		coin, err := object.ParseCoin(w.Object.Data)
-		if err != nil {
-			return Result{}, err
-		}
-		if err := add(inputTotals, coin.Token, coin.Amount); err != nil {
-			return Result{}, err
 		}
 	}
 
@@ -102,6 +120,12 @@ func (e Engine) executeTransfer(t tx.Transaction) (Result, error) {
 		coin, err := object.ParseCoin(spec.Data)
 		if err != nil {
 			return Result{}, err
+		}
+		if coin.Token != e.NativeToken {
+			definition, ok := definitions[coin.Token]
+			if !ok || !definition.Transferable {
+				return Result{}, ErrTokenPolicy
+			}
 		}
 		if err := add(outputTotals, coin.Token, coin.Amount); err != nil {
 			return Result{}, err
@@ -127,6 +151,11 @@ func (e Engine) executeTransfer(t tx.Transaction) (Result, error) {
 				return Result{}, ErrOverflow
 			}
 			required += t.Fee
+		} else {
+			definition, ok := definitions[token]
+			if !ok || !definition.Transferable {
+				return Result{}, ErrTokenPolicy
+			}
 		}
 		if inAmount != required {
 			return Result{}, ErrConservation
@@ -137,10 +166,6 @@ func (e Engine) executeTransfer(t tx.Transaction) (Result, error) {
 		return Result{}, ErrConservation
 	}
 
-	consumed := make([]types.ObjectID, len(t.Inputs))
-	for i, in := range t.Inputs {
-		consumed[i] = in.ObjectID
-	}
 	return Result{Consumed: consumed, Created: created, Outbound: outbound, TxID: txID}, nil
 }
 
@@ -202,7 +227,7 @@ func (e Engine) executeCreateToken(t tx.Transaction, payload []byte) (Result, er
 
 	tokenID := types.TokenIDFromTransaction(txID, 0)
 	definition := assets.Definition{
-		TokenID: tokenID, Name: create.Name, Symbol: create.Symbol, Decimals: create.Decimals,
+		TokenID: tokenID, Name: create.Name, Symbol: create.Symbol, Decimals: create.Decimals, SupplyPolicy: create.SupplyPolicy,
 		MaxSupply: create.MaxSupply, CurrentSupply: create.InitialSupply,
 		MintAuthority: create.MintAuthority, Burnable: create.Burnable, Transferable: create.Transferable,
 	}
