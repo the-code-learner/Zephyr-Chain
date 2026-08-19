@@ -146,17 +146,13 @@ func TestReceiptImportRejectsSelfSignedForeignValidatorSet(t *testing.T) {
 	fakeHeader := candidate.Header
 	fakeHeader.Height = 1
 	fakeHeader.CertificateHash = types.Hash{}
-	fakeProposal, err := v2consensus.SignProposal(attackerKey, fakeHeader, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
 	fakeHash := v2consensus.HeaderConsensusHash(fakeHeader)
 	fakeVote, err := v2consensus.SignVote(attackerKey, network, 1, 0, fakeHash)
 	if err != nil {
 		t.Fatal(err)
 	}
-	fakeCert, err := attackerValidators.BuildCertificate(fakeProposal, []v2consensus.Vote{fakeVote})
-	if err != nil {
+	fakeCert := v2consensus.Certificate{Network: network, Height: 1, Round: 0, HeaderHash: fakeHash, Votes: []v2consensus.Vote{fakeVote}}
+	if err := attackerValidators.VerifyCertificate(fakeCert); err != nil {
 		t.Fatal(err)
 	}
 	fakeHeader.CertificateHash = fakeCert.Hash()
@@ -167,7 +163,7 @@ func TestReceiptImportRejectsSelfSignedForeignValidatorSet(t *testing.T) {
 	receipt := sharding.CrossShardReceipt{
 		SourceShard: 0, DestinationShard: 1, SourceHeight: 1,
 		TransactionID: types.HashBytes("tx", []byte("fake")), OutputIndex: 0,
-		Output: object.OutputSpec{Owner: types.AccountIDFromPublicKey([]byte("recipient")), Kind: object.KindSystem},
+		Output:           object.OutputSpec{Owner: types.AccountIDFromPublicKey([]byte("recipient")), Kind: object.KindSystem},
 		SourceStateRoot: candidate.Commitments[0].StateRoot,
 	}
 	if err := runtime.validateReceiptImport(1, ReceiptImport{Header: fakeHeader, Certificate: fakeCert, Validators: attackerValidators, Receipt: receipt}); err != ErrReceiptImport {
