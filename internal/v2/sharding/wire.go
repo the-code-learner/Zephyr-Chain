@@ -55,6 +55,10 @@ func ParseGlobalHeader(data []byte) (GlobalHeader, error) {
 	if err != nil {
 		return GlobalHeader{}, ErrShardCount
 	}
+	nextValidatorRoot, err := readHash(r)
+	if err != nil {
+		return GlobalHeader{}, ErrShardCount
+	}
 	dataRoot, err := readHash(r)
 	if err != nil {
 		return GlobalHeader{}, ErrShardCount
@@ -65,8 +69,8 @@ func ParseGlobalHeader(data []byte) (GlobalHeader, error) {
 	}
 	return GlobalHeader{
 		Version: version, Network: network, Height: height, ParentHash: parentHash,
-		ShardCommitmentRoot: shardRoot, ValidatorRoot: validatorRoot, DataRoot: dataRoot,
-		CertificateHash: certificateHash,
+		ShardCommitmentRoot: shardRoot, ValidatorRoot: validatorRoot, NextValidatorRoot: nextValidatorRoot,
+		DataRoot: dataRoot, CertificateHash: certificateHash,
 	}, nil
 }
 
