@@ -23,13 +23,13 @@ type ComputeIndexConfig struct {
 }
 
 type ComputeIndexSnapshot struct {
-	Epoch          uint64
-	ClassPriceQ9   [compute.WorkClassCount]uint64
-	ClassSamples   [compute.WorkClassCount]uint64
-	BasketPriceQ9  uint64
-	CoverageBps    uint32
-	Reliable       bool
-	TotalSamples   uint64
+	Epoch         uint64
+	ClassPriceQ9  [compute.WorkClassCount]uint64
+	ClassSamples  [compute.WorkClassCount]uint64
+	BasketPriceQ9 uint64
+	CoverageBps   uint32
+	Reliable      bool
+	TotalSamples  uint64
 }
 
 func BuildComputeIndex(epoch uint64, observations []compute.VerifiedWork, prior ComputeIndexSnapshot, cfg ComputeIndexConfig) (ComputeIndexSnapshot, error) {
