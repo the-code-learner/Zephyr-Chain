@@ -11,7 +11,7 @@ type OnChainSettlement struct {
 	Settlement
 	CollateralReturns map[types.AccountID]uint64
 	SlashedCollateral map[types.AccountID]uint64
-	SlashReward        uint64
+	SlashReward       uint64
 }
 
 func AssignOnChain(record OnChainJob, offerID types.Hash, offer Offer, height uint64) (OnChainJob, Assignment, uint64, error) {
@@ -111,7 +111,7 @@ func FinalizeOnChain(record OnChainJob, evidence VerificationEvidence) (OnChainJ
 	updated := cloneOnChainJob(record)
 	updated.Status = JobSettled
 	return updated, OnChainSettlement{
-		Settlement: Settlement{JobID: record.ID, ResultRoot: root, Payments: payments, Refund: record.Escrow - paid},
+		Settlement:        Settlement{JobID: record.ID, ResultRoot: root, Payments: payments, Refund: record.Escrow - paid},
 		CollateralReturns: collateral,
 		SlashedCollateral: make(map[types.AccountID]uint64),
 	}, nil
@@ -169,10 +169,10 @@ func ResolveReplicatedMajority(record OnChainJob) (OnChainJob, OnChainSettlement
 	updated := cloneOnChainJob(record)
 	updated.Status = JobSettled
 	return updated, OnChainSettlement{
-		Settlement: Settlement{JobID: record.ID, ResultRoot: majority, Payments: payments, Refund: record.Escrow - paid},
+		Settlement:        Settlement{JobID: record.ID, ResultRoot: majority, Payments: payments, Refund: record.Escrow - paid},
 		CollateralReturns: collateralReturns,
 		SlashedCollateral: slashed,
-		SlashReward: slashReward,
+		SlashReward:       slashReward,
 	}, nil
 }
 
