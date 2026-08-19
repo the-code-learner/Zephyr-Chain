@@ -137,13 +137,17 @@ func (e Engine) executeTransfer(t tx.Transaction) (Result, error) {
 		if coin.Token != e.NativeToken && destination != t.ShardID {
 			return Result{}, ErrTokenPolicy
 		}
+		stamped, err := stampCoinOutput(spec, e.Height)
+		if err != nil {
+			return Result{}, err
+		}
 		if destination == t.ShardID {
 			created = append(created, object.Object{
 				ID: types.ObjectIDForShard(txID, uint32(i), destination), Version: 1,
-				Owner: spec.Owner, Kind: spec.Kind, Data: append([]byte(nil), spec.Data...),
+				Owner: stamped.Owner, Kind: stamped.Kind, Data: append([]byte(nil), stamped.Data...),
 			})
 		} else {
-			outbound = append(outbound, OutboundOutput{DestinationShard: destination, OutputIndex: uint32(i), Output: spec})
+			outbound = append(outbound, OutboundOutput{DestinationShard: destination, OutputIndex: uint32(i), Output: stamped})
 		}
 	}
 
@@ -215,13 +219,17 @@ func (e Engine) executeCreateToken(t tx.Transaction, payload []byte) (Result, er
 		if err != nil {
 			return Result{}, ErrShard
 		}
+		stamped, err := stampCoinOutput(spec, e.Height)
+		if err != nil {
+			return Result{}, err
+		}
 		if destination == t.ShardID {
 			created = append(created, object.Object{
 				ID: types.ObjectIDForShard(txID, uint32(i), destination), Version: 1,
-				Owner: spec.Owner, Kind: spec.Kind, Data: append([]byte(nil), spec.Data...),
+				Owner: stamped.Owner, Kind: stamped.Kind, Data: append([]byte(nil), stamped.Data...),
 			})
 		} else {
-			outbound = append(outbound, OutboundOutput{DestinationShard: destination, OutputIndex: uint32(i), Output: spec})
+			outbound = append(outbound, OutboundOutput{DestinationShard: destination, OutputIndex: uint32(i), Output: stamped})
 		}
 	}
 	if math.MaxUint64-nativeOut < t.Fee || nativeIn != nativeOut+t.Fee {
@@ -242,7 +250,7 @@ func (e Engine) executeCreateToken(t tx.Transaction, payload []byte) (Result, er
 	created = append(created, object.Object{
 		ID: defID, Version: 1, Owner: t.Sender, Kind: object.KindTokenDefinition, Data: defData,
 	})
-	initialCoin, err := object.NewCoinOutput(t.Sender, tokenID, create.InitialSupply)
+	initialCoin, err := object.NewCoinOutputAtHeight(t.Sender, tokenID, create.InitialSupply, e.Height)
 	if err != nil {
 		return Result{}, err
 	}
