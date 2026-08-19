@@ -49,7 +49,7 @@ func (m *Memory) Simulate(consumed []types.ObjectID, created []object.Object) (t
 		hash := item.Hash()
 		updates[types.Hash(item.ID)] = hash[:]
 	}
-	return m.tree.Clone().Apply(updates), nil
+	return m.tree.Preview(updates), nil
 }
 
 func (d *Disk) Simulate(consumed []types.ObjectID, created []object.Object) (types.Hash, error) {
