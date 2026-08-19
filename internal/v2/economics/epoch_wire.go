@@ -9,12 +9,12 @@ func (a EpochAggregate) CanonicalBytes() ([]byte, error) {
 	if a.Epoch == 0 || a.ShardCount == 0 || a.ResourceCapacity == 0 || a.ResourceUsed > a.ResourceCapacity ||
 		a.ResourceUtilizationBps > BasisPoints || a.ComputeUtilizationBps > BasisPoints || a.AgeWeightedVelocityBps > 10*BasisPoints ||
 		(a.ComputeSupplyReliable && a.ComputeFulfilled > a.VerifiedComputeSupply) || !validComputeFlow(
-			a.OpeningComputeBacklog,
-			a.EscrowBackedComputeDemand,
-			a.ComputeFulfilled,
-			a.ComputeExpired,
-			a.ComputeBacklog,
-		) {
+		a.OpeningComputeBacklog,
+		a.EscrowBackedComputeDemand,
+		a.ComputeFulfilled,
+		a.ComputeExpired,
+		a.ComputeBacklog,
+	) {
 		return nil, ErrEpochMetrics
 	}
 	if a.BurnedFees > a.ChargedFees || a.ValidatorFees > a.ChargedFees-a.BurnedFees ||
