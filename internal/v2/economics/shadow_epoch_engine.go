@@ -25,29 +25,27 @@ type MonetaryBalanceSnapshot struct {
 }
 
 type ShadowEpochPreview struct {
-	Aggregate        EpochAggregate
-	ComputeIndex     ComputeIndexSnapshot
+	Aggregate            EpochAggregate
+	ComputeIndex         ComputeIndexSnapshot
 	ComputePriceTrendBps int32
-	ComputeScarcity  ComputeScarcitySnapshot
-	MonetaryDecision MonetaryDecision
-	ComputeFeedback ComputeFeedbackDecision
-	State            MonetaryEpochState
-	Consumed         []types.ObjectID
-	Created          []object.Object
+	ComputeScarcity      ComputeScarcitySnapshot
+	MonetaryDecision     MonetaryDecision
+	ComputeFeedback      ComputeFeedbackDecision
+	State                MonetaryEpochState
+	Consumed             []types.ObjectID
+	Created              []object.Object
 }
 
 type ShadowEpochEngine struct {
-	Network      types.NetworkID
-	config       ShadowEpochEngineConfig
-	priorIndex   ComputeIndexSnapshot
-	previous     *MonetaryEpochState
+	Network    types.NetworkID
+	config     ShadowEpochEngineConfig
+	priorIndex ComputeIndexSnapshot
+	previous   *MonetaryEpochState
 }
 
 func NewShadowEpochEngine(network types.NetworkID, config ShadowEpochEngineConfig) (*ShadowEpochEngine, error) {
-	if types.IsZero32([32]byte(network)) {
-		return nil, ErrShadowEpochEngine
-	}
-	if config.Monetary.Validate() != nil || config.ComputeScarcity.MaxAbsScoreBps == 0 || config.ComputeFeedback.Validate() != nil {
+	if types.IsZero32([32]byte(network)) || config.Monetary.EpochsPerYear == 0 || config.Monetary.OperationsTarget == 0 ||
+		config.ComputeScarcity.MaxAbsScoreBps == 0 || config.ComputeFeedback.Mode > ComputeFeedbackMonetaryBand {
 		return nil, ErrShadowEpochEngine
 	}
 	return &ShadowEpochEngine{Network: network, config: config}, nil
