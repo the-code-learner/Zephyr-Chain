@@ -1,5 +1,7 @@
 package state
 
+import "github.com/zephyr-chain/zephyr-chain/internal/v2/types"
+
 // Clone returns an independent copy of the sparse Merkle tree. It is used by
 // proposal simulation so validators can calculate a candidate state root
 // without mutating committed state before a quorum certificate exists.
