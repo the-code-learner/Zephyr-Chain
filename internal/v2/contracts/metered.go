@@ -20,15 +20,15 @@ var (
 	ErrInvalidResult  = errors.New("invalid deterministic contract result")
 )
 
-// MeteredRuntime is the consensus guard around a concrete WASM engine. A
-// concrete runtime may change for performance, but this boundary makes fuel,
-// declared state access and bounded output consensus invariants.
+// MeteredRuntime is the consensus guard around a concrete deterministic
+// contract engine. The engine may change, but fuel, declared state access and
+// bounded output remain consensus invariants outside the interpreter.
 type MeteredRuntime struct {
 	Inner Runtime
 }
 
 func (m MeteredRuntime) ValidateModule(code []byte) error {
-	if m.Inner == nil || !ValidateWASMModule(code) {
+	if m.Inner == nil {
 		return ErrInvalidModule
 	}
 	return m.Inner.ValidateModule(code)
@@ -40,6 +40,9 @@ func (m MeteredRuntime) Execute(request Request) (Result, error) {
 	}
 	allowed, err := validateRequest(request)
 	if err != nil {
+		return Result{}, err
+	}
+	if err := m.Inner.ValidateModule(request.Code); err != nil {
 		return Result{}, err
 	}
 	result, err := m.Inner.Execute(request)
@@ -68,7 +71,7 @@ func (m MeteredRuntime) Execute(request Request) (Result, error) {
 
 func validateRequest(request Request) (map[types.ObjectID]bool, error) {
 	if types.IsZero32([32]byte(request.ContractID)) || strings.TrimSpace(request.Entrypoint) == "" || len(request.Entrypoint) > 128 ||
-		len(request.Arguments) > MaxArgumentsBytes || request.FuelLimit == 0 || len(request.Accesses) > MaxAccesses {
+		len(request.Code) == 0 || len(request.Code) > MaxModuleBytes || len(request.Arguments) > MaxArgumentsBytes || request.FuelLimit == 0 || len(request.Accesses) > MaxAccesses {
 		return nil, ErrInvalidRequest
 	}
 	allowed := make(map[types.ObjectID]bool, len(request.Accesses))
@@ -80,6 +83,11 @@ func validateRequest(request Request) (map[types.ObjectID]bool, error) {
 			return nil, ErrInvalidRequest
 		}
 		allowed[access.ObjectID] = access.Write
+	}
+	for id := range request.ReadValues {
+		if _, declared := allowed[id]; !declared {
+			return nil, ErrUndeclaredAccess
+		}
 	}
 	return allowed, nil
 }

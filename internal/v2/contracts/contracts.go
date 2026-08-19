@@ -3,19 +3,21 @@ package contracts
 import (
 	"bytes"
 	"errors"
+	"unicode/utf8"
 
 	"github.com/zephyr-chain/zephyr-chain/internal/v2/codec"
 	"github.com/zephyr-chain/zephyr-chain/internal/v2/types"
 )
 
 const (
-	RuntimeWASMv1        = "wasm-v1"
-	MaxModuleBytes       = 4 << 20
-	MaxInitialStateBytes = 1 << 20
+	RuntimeWASMv1         = "wasm-v1"
+	RuntimeZephyrScriptV1 = "zephyr-script-v1"
+	MaxModuleBytes        = 4 << 20
+	MaxInitialStateBytes  = 1 << 20
 )
 
 var (
-	ErrInvalidModule     = errors.New("invalid deterministic wasm module")
+	ErrInvalidModule     = errors.New("invalid deterministic contract module")
 	ErrInvalidDeployment = errors.New("invalid contract deployment")
 	ErrFuelExhausted     = errors.New("contract fuel exhausted")
 	ErrUndeclaredAccess  = errors.New("contract attempted undeclared state access")
@@ -31,13 +33,22 @@ type Deployment struct {
 }
 
 func (d Deployment) Validate() error {
-	if d.Runtime != RuntimeWASMv1 || d.ABI == 0 || len(d.Code) == 0 || len(d.Code) > MaxModuleBytes ||
+	if d.ABI == 0 || len(d.Code) == 0 || len(d.Code) > MaxModuleBytes ||
 		len(d.InitialState) > MaxInitialStateBytes || d.MaxMemoryPages == 0 ||
 		types.IsZero32([32]byte(d.UpgradeAuthority)) {
 		return ErrInvalidDeployment
 	}
-	if !ValidateWASMModule(d.Code) {
-		return ErrInvalidModule
+	switch d.Runtime {
+	case RuntimeWASMv1:
+		if !ValidateWASMModule(d.Code) {
+			return ErrInvalidModule
+		}
+	case RuntimeZephyrScriptV1:
+		if !ValidateScriptModule(d.Code) {
+			return ErrInvalidModule
+		}
+	default:
+		return ErrInvalidDeployment
 	}
 	return nil
 }
@@ -64,6 +75,10 @@ func ValidateWASMModule(code []byte) bool {
 		bytes.Equal(code[4:8], []byte{0x01, 0x00, 0x00, 0x00})
 }
 
+func ValidateScriptModule(code []byte) bool {
+	return len(code) > 0 && len(code) <= MaxModuleBytes && utf8.Valid(code) && !bytes.ContainsRune(code, 0)
+}
+
 type Access struct {
 	ObjectID types.ObjectID
 	Write    bool
@@ -71,9 +86,12 @@ type Access struct {
 
 type Request struct {
 	ContractID types.ContractID
+	Runtime    string
+	Code       []byte
 	Entrypoint string
 	Arguments  []byte
 	Accesses   []Access
+	ReadValues map[types.ObjectID][]byte
 	FuelLimit  uint64
 }
 
