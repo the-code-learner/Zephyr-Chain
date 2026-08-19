@@ -26,3 +26,10 @@ func (c *EpochCollector) Epoch() uint64 {
 	}
 	return c.config.Epoch
 }
+
+func (c *EpochCollector) LastHeight() uint64 {
+	if c == nil {
+		return 0
+	}
+	return c.lastHeight
+}
