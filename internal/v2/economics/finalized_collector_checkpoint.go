@@ -9,9 +9,9 @@ import (
 )
 
 const (
-	collectorCheckpointVersion uint16 = 1
-	maxCheckpointVerifiedWork         = 1_000_000
-	maxVelocityAccumulatorBytes       = 128
+	collectorCheckpointVersion  uint16 = 1
+	maxCheckpointVerifiedWork          = 1_000_000
+	maxVelocityAccumulatorBytes        = 128
 )
 
 // CheckpointBytes serializes the exact mid-epoch collector state. The workload

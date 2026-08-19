@@ -91,8 +91,8 @@ func TestEpochCollectorCheckpointRejectsDifferentWorkRegistry(t *testing.T) {
 		Epoch: 1, ShardCount: 1, NativeToken: types.TokenID{3},
 		InitialCirculatingSupply: map[uint32]uint64{0: 1_000},
 		ResourceCapacityPerBlock: map[uint32]uint64{0: 100},
-		VelocityPolicy: VelocityPolicy{MinAgeBlocks: 1, FullWeightAgeBlocks: 10, MaxVelocityBps: 10_000},
-		FeePolicy: CompatibilityFeePolicy(), WorkRegistry: original,
+		VelocityPolicy:           VelocityPolicy{MinAgeBlocks: 1, FullWeightAgeBlocks: 10, MaxVelocityBps: 10_000},
+		FeePolicy:                CompatibilityFeePolicy(), WorkRegistry: original,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -126,8 +126,8 @@ func TestRuntimeCollectorCloneOwnsRegistryAndCapacityConfig(t *testing.T) {
 		Epoch: 1, ShardCount: 1, NativeToken: types.TokenID{3},
 		InitialCirculatingSupply: map[uint32]uint64{0: 1_000},
 		ResourceCapacityPerBlock: capacity,
-		VelocityPolicy: VelocityPolicy{MinAgeBlocks: 1, FullWeightAgeBlocks: 10, MaxVelocityBps: 10_000},
-		FeePolicy: CompatibilityFeePolicy(), WorkRegistry: registry,
+		VelocityPolicy:           VelocityPolicy{MinAgeBlocks: 1, FullWeightAgeBlocks: 10, MaxVelocityBps: 10_000},
+		FeePolicy:                CompatibilityFeePolicy(), WorkRegistry: registry,
 	})
 	if err != nil {
 		t.Fatal(err)
