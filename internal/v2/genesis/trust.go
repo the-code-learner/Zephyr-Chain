@@ -24,7 +24,7 @@ func (g Config) ValidatorSet() (v2consensus.ValidatorSet, error) {
 		}
 	}
 	if err := set.Validate(); err != nil {
-		return v2consensus.ValidatorSet{}, ErrInvalidGenesis
+		return v2consensus.ValidatorSet{}, ErrValidator
 	}
 	return set, nil
 }
@@ -38,7 +38,7 @@ func (g Config) TrustAnchor() (TrustAnchor, error) {
 	}
 	root, err := set.Root()
 	if err != nil {
-		return TrustAnchor{}, ErrInvalidGenesis
+		return TrustAnchor{}, ErrValidator
 	}
 	return TrustAnchor{Network: set.Network, ValidatorRoot: root}, nil
 }
