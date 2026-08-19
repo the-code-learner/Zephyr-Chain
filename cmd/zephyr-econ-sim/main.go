@@ -11,18 +11,18 @@ import (
 )
 
 type simulationInput struct {
-	Epoch           uint64                           `json:"epoch,omitempty"`
-	PriorTargetBps  uint32                           `json:"priorTargetBps"`
-	Metrics         economics.MonetaryMetrics        `json:"metrics"`
-	Policy          *economics.MonetaryPolicy        `json:"policy,omitempty"`
-	ComputeMarket   *economics.ComputeMarketMetrics  `json:"computeMarket,omitempty"`
-	ScarcityConfig  *economics.ComputeScarcityConfig `json:"scarcityConfig,omitempty"`
-	FeedbackPolicy  *economics.ComputeFeedbackPolicy `json:"feedbackPolicy,omitempty"`
+	Epoch          uint64                           `json:"epoch,omitempty"`
+	PriorTargetBps uint32                           `json:"priorTargetBps"`
+	Metrics        economics.MonetaryMetrics        `json:"metrics"`
+	Policy         *economics.MonetaryPolicy        `json:"policy,omitempty"`
+	ComputeMarket  *economics.ComputeMarketMetrics  `json:"computeMarket,omitempty"`
+	ScarcityConfig *economics.ComputeScarcityConfig `json:"scarcityConfig,omitempty"`
+	FeedbackPolicy *economics.ComputeFeedbackPolicy `json:"feedbackPolicy,omitempty"`
 }
 
 type simulationOutput struct {
 	Monetary economics.MonetaryDecision         `json:"monetary"`
-	Scarcity *economics.ComputeScarcitySnapshot  `json:"scarcity,omitempty"`
+	Scarcity *economics.ComputeScarcitySnapshot `json:"scarcity,omitempty"`
 	Feedback *economics.ComputeFeedbackDecision `json:"feedback,omitempty"`
 }
 
