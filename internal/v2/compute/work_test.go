@@ -17,12 +17,12 @@ func TestWorkSpecRoundTripAndVerifiedSettlementObservation(t *testing.T) {
 	provider[0] = 5
 
 	spec := WorkSpec{
-		Version: WorkSpecVersion,
-		Class: WorkTensorAI,
-		Units: 250,
-		WorkloadHash: workload,
+		Version:       WorkSpecVersion,
+		Class:         WorkTensorAI,
+		Units:         250,
+		WorkloadHash:  workload,
 		BenchmarkHash: benchmark,
-		Vector: WorkVector{TensorUnits: 250, VRAMByteSeconds: 8 << 30},
+		Vector:        WorkVector{TensorUnits: 250, VRAMByteSeconds: 8 << 30},
 	}
 	raw, err := spec.MarshalBinary()
 	if err != nil {
@@ -40,14 +40,14 @@ func TestWorkSpecRoundTripAndVerifiedSettlementObservation(t *testing.T) {
 		t.Fatal(err)
 	}
 	record := OnChainJob{
-		ID: jobID,
-		Job: Job{WorkloadHash: workload, Verification: VerificationReplicated},
+		ID:     jobID,
+		Job:    Job{WorkloadHash: workload, Verification: VerificationReplicated},
 		Status: JobSettled,
 	}
 	settlement := OnChainSettlement{Settlement: Settlement{
-		JobID: jobID,
+		JobID:      jobID,
 		ResultRoot: resultRoot,
-		Payments: map[types.AccountID]uint64{provider: 5000},
+		Payments:   map[types.AccountID]uint64{provider: 5000},
 	}}
 	observation, err := ObserveVerifiedWork(record, settlement, registry)
 	if err != nil {
@@ -64,12 +64,12 @@ func TestWorkRegistryRejectsConflictingDefinition(t *testing.T) {
 	benchmarkA[0] = 2
 	benchmarkB[0] = 3
 	base := WorkSpec{
-		Version: WorkSpecVersion,
-		Class: WorkCPUGeneral,
-		Units: 1,
-		WorkloadHash: workload,
+		Version:       WorkSpecVersion,
+		Class:         WorkCPUGeneral,
+		Units:         1,
+		WorkloadHash:  workload,
 		BenchmarkHash: benchmarkA,
-		Vector: WorkVector{CPUUnits: 1},
+		Vector:        WorkVector{CPUUnits: 1},
 	}
 	registry, err := NewWorkRegistry([]WorkSpec{base})
 	if err != nil {
