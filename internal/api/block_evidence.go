@@ -9,7 +9,7 @@ import (
 )
 
 type BlockEvidenceResponse struct {
-	Evidence ledger.CertifiedBlockEvidence `json:"evidence"`
+	Evidence []ledger.CertifiedBlockEvidence `json:"evidence"`
 }
 
 func (s *Server) handleBlockEvidence(w http.ResponseWriter, r *http.Request) {
@@ -28,10 +28,10 @@ func (s *Server) handleBlockEvidence(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid block evidence height"})
 		return
 	}
-	evidence, ok := s.ledger.CertifiedBlockEvidenceAt(height)
-	if !ok {
+	fragments := s.ledger.CertifiedBlockEvidenceFragments(height)
+	if len(fragments) == 0 {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "certified block evidence not found"})
 		return
 	}
-	writeJSON(w, http.StatusOK, BlockEvidenceResponse{Evidence: evidence})
+	writeJSON(w, http.StatusOK, BlockEvidenceResponse{Evidence: fragments})
 }
