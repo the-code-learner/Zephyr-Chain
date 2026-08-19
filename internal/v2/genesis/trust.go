@@ -19,8 +19,8 @@ func (g Config) ValidatorSet() (v2consensus.ValidatorSet, error) {
 	for i, validator := range g.Validators {
 		set.Validators[i] = v2consensus.Validator{
 			ID:        validator.ID,
-			PublicKey: append([]byte(nil), validator.PublicKey...),
-			Power:     validator.Power,
+			PublicKey: append([]byte(nil), validator.ConsensusPublicKey...),
+			Power:     validator.VotingPower,
 		}
 	}
 	if err := set.Validate(); err != nil {
