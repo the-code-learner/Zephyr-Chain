@@ -95,8 +95,19 @@ type GlobalHeader struct {
 	ParentHash          types.Hash
 	ShardCommitmentRoot types.Hash
 	ValidatorRoot       types.Hash
+	NextValidatorRoot   types.Hash
 	DataRoot            types.Hash
 	CertificateHash     types.Hash
+}
+
+// EffectiveNextValidatorRoot returns the committee root authorized for the
+// following height. A zero next-root means "no rotation" and therefore keeps
+// the current committee active.
+func (h GlobalHeader) EffectiveNextValidatorRoot() types.Hash {
+	if types.IsZero32([32]byte(h.NextValidatorRoot)) {
+		return h.ValidatorRoot
+	}
+	return h.NextValidatorRoot
 }
 
 func (h GlobalHeader) CanonicalBytes() []byte {
@@ -107,6 +118,7 @@ func (h GlobalHeader) CanonicalBytes() []byte {
 	w.Fixed(h.ParentHash[:])
 	w.Fixed(h.ShardCommitmentRoot[:])
 	w.Fixed(h.ValidatorRoot[:])
+	w.Fixed(h.NextValidatorRoot[:])
 	w.Fixed(h.DataRoot[:])
 	w.Fixed(h.CertificateHash[:])
 	return w.BytesCopy()
