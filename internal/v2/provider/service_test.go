@@ -15,9 +15,9 @@ func TestProviderExecutesRegisteredCapabilityAndCommitsResult(t *testing.T) {
 	}
 	input := []byte("scientific-work-unit")
 	request := Request{
-		JobID: types.JobID(types.HashBytes("job", []byte("provider"))),
+		JobID:        types.JobID(types.HashBytes("job", []byte("provider"))),
 		WorkloadHash: types.HashBytes("workload", []byte("sha256")),
-		InputRoot: InputRoot(input), Capability: "sha256", Input: input,
+		InputRoot:    InputRoot(input), Capability: "sha256", Input: input,
 	}
 	wire, err := request.MarshalBinary()
 	if err != nil {

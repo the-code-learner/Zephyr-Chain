@@ -13,9 +13,9 @@ import (
 
 const (
 	MaxCapabilityBytes = 64
-	MaxInlineInput      = 1 << 20
-	MaxParameters       = 1 << 20
-	MaxInlineOutput     = 1 << 20
+	MaxInlineInput     = 1 << 20
+	MaxParameters      = 1 << 20
+	MaxInlineOutput    = 1 << 20
 )
 
 var (

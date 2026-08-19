@@ -16,19 +16,19 @@ import (
 const (
 	Version uint16 = 2
 
-	OpTransfer                uint16 = 1
-	OpCreateToken             uint16 = 2
-	OpDeployContract          uint16 = 3
-	OpContractCall            uint16 = 4
-	OpComputeOffer            uint16 = 5
-	OpComputeJob              uint16 = 6
-	OpComputeResult           uint16 = 7
-	OpComputeAccept           uint16 = 8
-	OpComputeIngestAssignment uint16 = 9
-	OpComputeIngestResult     uint16 = 10
-	OpComputeFinalize         uint16 = 11
+	OpTransfer                 uint16 = 1
+	OpCreateToken              uint16 = 2
+	OpDeployContract           uint16 = 3
+	OpContractCall             uint16 = 4
+	OpComputeOffer             uint16 = 5
+	OpComputeJob               uint16 = 6
+	OpComputeResult            uint16 = 7
+	OpComputeAccept            uint16 = 8
+	OpComputeIngestAssignment  uint16 = 9
+	OpComputeIngestResult      uint16 = 10
+	OpComputeFinalize          uint16 = 11
 	OpComputeResolveReplicated uint16 = 12
-	OpComputeExpire           uint16 = 13
+	OpComputeExpire            uint16 = 13
 
 	MaxInputs      = 4096
 	MaxOutputs     = 4096

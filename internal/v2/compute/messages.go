@@ -232,13 +232,13 @@ func ParseJobRef(data []byte) (JobRef, error) {
 }
 
 type SettlementReceipt struct {
-	JobID      types.JobID
-	ResultRoot types.Hash
-	Payments   map[types.AccountID]uint64
-	Refund     uint64
-	Slashed    map[types.AccountID]uint64
+	JobID       types.JobID
+	ResultRoot  types.Hash
+	Payments    map[types.AccountID]uint64
+	Refund      uint64
+	Slashed     map[types.AccountID]uint64
 	SlashReward uint64
-	Expired    bool
+	Expired     bool
 }
 
 func (r SettlementReceipt) MarshalBinary() []byte {
