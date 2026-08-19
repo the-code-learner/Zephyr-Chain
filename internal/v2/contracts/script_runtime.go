@@ -107,7 +107,7 @@ func (ScriptRuntime) Execute(request Request) (Result, error) {
 		if thread.ExecutionSteps() >= request.FuelLimit {
 			return Result{}, ErrFuelExhausted
 		}
-		return Result{}, fmt.Errorf("%w: %v", ErrScriptRuntime, err)
+		return Result{}, fmt.Errorf("%w: %w", ErrScriptRuntime, err)
 	}
 	entry, ok := globals[request.Entrypoint]
 	if !ok {
@@ -122,7 +122,7 @@ func (ScriptRuntime) Execute(request Request) (Result, error) {
 		if thread.ExecutionSteps() >= request.FuelLimit {
 			return Result{}, ErrFuelExhausted
 		}
-		return Result{}, fmt.Errorf("%w: %v", ErrScriptRuntime, err)
+		return Result{}, fmt.Errorf("%w: %w", ErrScriptRuntime, err)
 	}
 	returned, err := valueBytes(value)
 	if value == starlark.None {
