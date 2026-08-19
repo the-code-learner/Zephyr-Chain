@@ -6,6 +6,7 @@ import (
 	"sync"
 
 	"github.com/zephyr-chain/zephyr-chain/internal/v2/merkle"
+	"github.com/zephyr-chain/zephyr-chain/internal/v2/object"
 	"github.com/zephyr-chain/zephyr-chain/internal/v2/types"
 )
 
@@ -89,6 +90,26 @@ func VerifyFinalizedReceipt(header GlobalHeader, commitment Commitment, commitme
 	return nil
 }
 
+// ReceiptMarker is a consensus-state object proving that a finalized receipt
+// has already been consumed on its destination shard. Keeping this marker in
+// the same Merkle state as balances makes anti-replay survive restart,
+// checkpoint and snapshot recovery.
+func ReceiptMarker(receipt CrossShardReceipt) (object.Object, error) {
+	hash, err := receipt.Hash()
+	if err != nil {
+		return object.Object{}, err
+	}
+	return object.Object{
+		ID:      types.ObjectIDForShard(hash, 0xfffffffe, receipt.DestinationShard),
+		Version: 1,
+		Kind:    object.KindSystem,
+		Data:    append([]byte(nil), hash[:]...),
+	}, nil
+}
+
+// ReceiptTracker is useful for transport/in-process duplicate suppression, but
+// it is not the consensus anti-replay source of truth. Consensus uses
+// ReceiptMarker in destination shard state.
 type ReceiptTracker struct {
 	mu       sync.Mutex
 	consumed map[types.Hash]uint64
