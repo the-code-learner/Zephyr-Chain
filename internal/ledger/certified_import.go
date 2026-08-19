@@ -14,24 +14,27 @@ var (
 )
 
 // CertifiedBlockEvidence carries signed consensus artifacts that can be used
-// to independently prove that a committed block reached validator quorum.
-//
-// A transport source may return only the valid proposal/vote fragment it has
-// retained for the committed block. The receiving node is the authority that
-// reconstructs voting power and requires quorum before importing the block.
-// CommitCertificate is deliberately not trusted as a transport proof because
-// it contains derived metadata rather than validator signatures.
+// to independently prove that a block reached validator quorum. Sources may
+// expose partial evidence; only the receiving node decides whether the merged
+// signatures reach quorum.
 type CertifiedBlockEvidence struct {
 	Proposal consensus.Proposal `json:"proposal"`
 	Votes    []consensus.Vote   `json:"votes"`
 }
 
-// CertifiedBlockEvidenceAt returns the signed proposal and every valid signed
-// vote this node retained for an already committed block. It intentionally
-// does not require a locally persisted derived CommitCertificate: a node that
-// received/imported a committed block may retain useful signed evidence even
-// when that derived artifact is absent. The receiving node still requires a
-// full quorum before ImportBlockWithEvidence can mutate state.
+// CertifiedBlockEvidenceFragments returns valid proposal/vote fragments the
+// node has retained for a height, even when it has not materialized the block
+// locally yet. This is important during partition recovery: a validator may
+// have cast a durable vote that contributed to finality without receiving the
+// eventual block commit before the network split/healed.
+func (s *Store) CertifiedBlockEvidenceFragments(height uint64) []CertifiedBlockEvidence {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return certifiedBlockEvidenceFragmentsFromState(s.snapshotLocked(), s.chainID, height)
+}
+
+// CertifiedBlockEvidenceAt keeps the committed-block-oriented collector used
+// by tests and callers that want the evidence matching a local committed block.
 func (s *Store) CertifiedBlockEvidenceAt(height uint64) (CertifiedBlockEvidence, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -41,43 +44,77 @@ func (s *Store) CertifiedBlockEvidenceAt(height uint64) (CertifiedBlockEvidence,
 	}
 	state := s.snapshotLocked()
 	block := state.Blocks[height-1]
-	proposal := matchProposalForBlock(proposalsForHeight(state.Proposals, height), block)
-	if proposal == nil || proposal.ValidateForChain(s.chainID) != nil {
-		return CertifiedBlockEvidence{}, false
+	for _, fragment := range certifiedBlockEvidenceFragmentsFromState(state, s.chainID, height) {
+		proposal := fragment.Proposal
+		if proposal.BlockHash != block.Hash || proposal.StateRoot != block.StateRoot {
+			continue
+		}
+		if matchProposalForBlock([]consensus.Proposal{proposal}, block) != nil {
+			return fragment, true
+		}
+	}
+	return CertifiedBlockEvidence{}, false
+}
+
+func certifiedBlockEvidenceFragmentsFromState(state persistedState, chainID string, height uint64) []CertifiedBlockEvidence {
+	state = normalizeState(state)
+	proposals := proposalsForHeight(state.Proposals, height)
+	fragments := make([]CertifiedBlockEvidence, 0, len(proposals))
+	for _, proposal := range proposals {
+		if proposal.ValidateForChain(chainID) != nil {
+			continue
+		}
+		if _, ok := validatorVotingPower(state.ValidatorSnapshot, proposal.Proposer); !ok {
+			continue
+		}
+
+		seen := make(map[string]struct{})
+		votes := make([]consensus.Vote, 0)
+		for _, record := range state.Votes {
+			vote := record.Vote
+			if vote.Height != proposal.Height || vote.Round != proposal.Round || vote.BlockHash != proposal.BlockHash {
+				continue
+			}
+			if _, duplicate := seen[vote.Voter]; duplicate {
+				continue
+			}
+			if _, ok := validatorVotingPower(state.ValidatorSnapshot, vote.Voter); !ok {
+				continue
+			}
+			if vote.ValidateForChain(chainID) != nil {
+				continue
+			}
+			seen[vote.Voter] = struct{}{}
+			votes = append(votes, vote)
+		}
+		if len(votes) == 0 {
+			continue
+		}
+		sort.Slice(votes, func(i, j int) bool { return votes[i].Voter < votes[j].Voter })
+		fragments = append(fragments, CertifiedBlockEvidence{
+			Proposal: cloneProposal(proposal),
+			Votes:    votes,
+		})
 	}
 
-	seen := make(map[string]struct{})
-	votes := make([]consensus.Vote, 0)
-	for _, record := range state.Votes {
-		vote := record.Vote
-		if vote.Height != height || vote.Round != proposal.Round || vote.BlockHash != block.Hash {
-			continue
+	sort.Slice(fragments, func(i, j int) bool {
+		left := fragments[i].Proposal
+		right := fragments[j].Proposal
+		if left.Round != right.Round {
+			return left.Round < right.Round
 		}
-		if _, duplicate := seen[vote.Voter]; duplicate {
-			continue
+		if left.BlockHash != right.BlockHash {
+			return left.BlockHash < right.BlockHash
 		}
-		if _, ok := validatorVotingPower(state.ValidatorSnapshot, vote.Voter); !ok {
-			continue
-		}
-		if vote.ValidateForChain(s.chainID) != nil {
-			continue
-		}
-		seen[vote.Voter] = struct{}{}
-		votes = append(votes, vote)
-	}
-	sort.Slice(votes, func(i, j int) bool { return votes[i].Voter < votes[j].Voter })
-	if len(votes) == 0 {
-		return CertifiedBlockEvidence{}, false
-	}
-	return CertifiedBlockEvidence{Proposal: cloneProposal(*proposal), Votes: votes}, true
+		return left.Proposer < right.Proposer
+	})
+	return fragments
 }
 
 // ImportBlockWithEvidence imports the next block after independently
 // validating a quorum of signed votes for its signed proposal. Matching valid
 // votes already retained by the recovering node are combined with incoming
-// signed evidence before quorum is evaluated. This lets a validator that
-// voted before a partition heal use its own durable vote rather than requiring
-// one remote peer to carry every quorum signature.
+// signed evidence before quorum is evaluated.
 func (s *Store) ImportBlockWithEvidence(block Block, evidence CertifiedBlockEvidence) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -87,9 +124,6 @@ func (s *Store) ImportBlockWithEvidence(block Block, evidence CertifiedBlockEvid
 		return ErrNoValidatorSet
 	}
 
-	// Execute and validate the block against local committed state first. This
-	// checks chain continuity, transactions, balances/nonces, state root and
-	// block hash without mutating the live store.
 	nextState, err := importBlockIntoState(state, block, s.chainID)
 	if err != nil {
 		return err
@@ -100,8 +134,6 @@ func (s *Store) ImportBlockWithEvidence(block Block, evidence CertifiedBlockEvid
 		return err
 	}
 
-	// Preserve the independently validated historical consensus evidence while
-	// taking the account/mempool/block transition from importBlockIntoState.
 	nextState.Proposals = cloneProposals(evidenceState.Proposals)
 	nextState.Votes = cloneVoteRecords(evidenceState.Votes)
 	nextState.CommitCertificates = cloneCommitCertificates(evidenceState.CommitCertificates)
@@ -152,9 +184,6 @@ func attachCertifiedBlockEvidence(state persistedState, block Block, evidence Ce
 	validatedVotes := make([]VoteRecord, 0, len(evidence.Votes))
 	var signedPower uint64
 
-	// Reuse only locally retained votes for the exact signed proposal. Votes
-	// from other rounds or competing block hashes remain in local history but
-	// do not contribute to this recovery certificate.
 	for _, record := range state.Votes {
 		vote := record.Vote
 		if vote.Height != proposal.Height || vote.Round != proposal.Round || vote.BlockHash != proposal.BlockHash {
@@ -194,10 +223,8 @@ func attachCertifiedBlockEvidence(state persistedState, block Block, evidence Ce
 		if !ok {
 			return state, ErrCertifiedEvidenceInvalid
 		}
-		if existingVote := findVoteByValidator(state.Votes, vote.Height, vote.Round, vote.Voter); existingVote != nil {
-			if existingVote.BlockHash != vote.BlockHash {
-				return state, ErrConflictingVote
-			}
+		if existingVote := findVoteByValidator(state.Votes, vote.Height, vote.Round, vote.Voter); existingVote != nil && existingVote.BlockHash != vote.BlockHash {
+			return state, ErrConflictingVote
 		}
 		if _, alreadyCounted := seen[vote.Voter]; alreadyCounted {
 			continue
@@ -228,11 +255,9 @@ func attachCertifiedBlockEvidence(state persistedState, block Block, evidence Ce
 	}
 
 	for _, record := range validatedVotes {
-		existingVote := findVoteByValidator(state.Votes, record.Vote.Height, record.Vote.Round, record.Vote.Voter)
-		if existingVote != nil {
-			continue
+		if findVoteByValidator(state.Votes, record.Vote.Height, record.Vote.Round, record.Vote.Voter) == nil {
+			state.Votes = append(state.Votes, record)
 		}
-		state.Votes = append(state.Votes, record)
 	}
 
 	if findCertificate(state.CommitCertificates, proposal.Height, proposal.Round, proposal.BlockHash) == nil {
