@@ -86,46 +86,6 @@ jobs:
       - name: P-256 verification baseline
         run: go test ./internal/api -run '^$' -bench '^BenchmarkLabP256TransactionVerification$' -benchtime=1s -count=1
 
-  profile-lab:
-    name: Temporary consensus profile
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Set up Go
-        uses: actions/setup-go@v7
-        with:
-          go-version-file: go.mod
-          cache: false
-
-      - name: Build benchmark binary
-        run: go test -c -o lab.test ./internal/api
-
-      - name: Capture canonical profiles
-        run: |
-          ./lab.test \
-            -test.run '^$' \
-            -test.bench '^BenchmarkLabConsensusFinality7Validators$' \
-            -test.benchtime=5x \
-            -test.cpuprofile=cpu.out \
-            -test.memprofile=mem.out \
-            -test.mutexprofile=mutex.out \
-            -test.blockprofile=block.out \
-            -test.timeout=120s
-
-      - name: CPU profile top cumulative
-        run: go tool pprof -top -cum -nodecount=40 lab.test cpu.out
-
-      - name: Allocation profile top cumulative
-        run: go tool pprof -top -cum -alloc_space -nodecount=40 lab.test mem.out
-
-      - name: Mutex profile top cumulative
-        run: go tool pprof -top -cum -nodecount=30 lab.test mutex.out
-
-      - name: Blocking profile top cumulative
-        run: go tool pprof -top -cum -nodecount=30 lab.test block.out
-
   wallet:
     name: Wallet build
     runs-on: ubuntu-latest
