@@ -6,3 +6,10 @@ package economics
 func (c *EpochCollector) Clone() *EpochCollector {
 	return c.clone()
 }
+
+func (c *EpochCollector) Epoch() uint64 {
+	if c == nil {
+		return 0
+	}
+	return c.config.Epoch
+}
