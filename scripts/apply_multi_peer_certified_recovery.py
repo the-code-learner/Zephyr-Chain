@@ -41,16 +41,45 @@ replace_once(
 ''',
 )
 
-certified_test = "internal/ledger/certified_import_test.go"
+lab = "internal/api/performance_lab_test.go"
 replace_once(
-    certified_test,
-    '''\tif height := insufficient.Status().Height; height != 0 {
+    lab,
+    '''func (t *labFaultTransport) FetchBlockEvidence(peerURL string, height uint64) (ledger.CertifiedBlockEvidence, error) {
+\tif err := t.before(peerURL); err != nil {
+\t\treturn ledger.CertifiedBlockEvidence{}, err
+\t}
+\tevidenceTransport, ok := t.base.(certifiedBlockEvidenceTransport)
+\tif !ok {
+\t\treturn ledger.CertifiedBlockEvidence{}, fmt.Errorf("lab base transport does not support certified block evidence")
+\t}
+\treturn evidenceTransport.FetchBlockEvidence(peerURL, height)
+}
+''',
+    '''func (t *labFaultTransport) FetchBlockEvidence(peerURL string, height uint64) ([]ledger.CertifiedBlockEvidence, error) {
+\tif err := t.before(peerURL); err != nil {
+\t\treturn nil, err
+\t}
+\tevidenceTransport, ok := t.base.(certifiedBlockEvidenceTransport)
+\tif !ok {
+\t\treturn nil, fmt.Errorf("lab base transport does not support certified block evidence")
+\t}
+\treturn evidenceTransport.FetchBlockEvidence(peerURL, height)
+}
+''',
+)
+
+certified_test = "internal/ledger/certified_import_test.go"
+source = Path(certified_test).read_text()
+needle = '''\tif height := insufficient.Status().Height; height != 0 {
 \t\tt.Fatalf("insufficient evidence mutated target height to %d", height)
 \t}
 
 \ttampered := newTarget()
-''',
-    '''\tif height := insufficient.Status().Height; height != 0 {
+'''
+if needle in source:
+    source = source.replace(
+        needle,
+        '''\tif height := insufficient.Status().Height; height != 0 {
 \t\tt.Fatalf("insufficient evidence mutated target height to %d", height)
 \t}
 
@@ -72,4 +101,8 @@ replace_once(
 
 \ttampered := newTarget()
 ''',
-)
+        1,
+    )
+elif "localPlusRemote := newTarget()" not in source:
+    raise SystemExit("internal/ledger/certified_import_test.go: expected insertion point not found")
+Path(certified_test).write_text(source)
