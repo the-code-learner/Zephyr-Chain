@@ -51,7 +51,10 @@ func TestTwoShardTransferFinalizesReceiptThenImportsOnce(t *testing.T) {
 	}
 
 	validatorKey, validators := singleValidatorSet(t, network)
-	validatorRoot := types.HashBytes("validators", []byte("single"))
+	validatorRoot, err := validators.Root()
+	if err != nil {
+		t.Fatal(err)
+	}
 	runtime, err := NewRuntime(network, native, validatorRoot, map[uint32]worldstate.Backend{0: shard0, 1: shard1}, 2)
 	if err != nil {
 		t.Fatal(err)
@@ -66,8 +69,7 @@ func TestTwoShardTransferFinalizesReceiptThenImportsOnce(t *testing.T) {
 	if shard1.Root() != candidate1.Commitments[1].StateRoot {
 		t.Fatal("destination state changed before receipt import")
 	}
-	proposal1, certificate1 := certifyCandidate(t, validators, validatorKey, candidate1)
-	_ = proposal1
+	_, certificate1 := certifyCandidate(t, validators, validatorKey, candidate1)
 	finalized1, err := runtime.Commit(candidate1, certificate1, validators)
 	if err != nil {
 		t.Fatal(err)
@@ -116,6 +118,60 @@ func TestTwoShardTransferFinalizesReceiptThenImportsOnce(t *testing.T) {
 	}
 	if _, err := runtime.BuildCandidate(3, map[uint32]ShardBatch{1: {Imports: []ReceiptImport{importReceipt}}}); err != sharding.ErrReceiptReplay {
 		t.Fatalf("expected durable receipt replay rejection, got %v", err)
+	}
+}
+
+func TestReceiptImportRejectsSelfSignedForeignValidatorSet(t *testing.T) {
+	network := types.NetworkID(types.HashBytes("network", []byte("receipt-validator-root")))
+	native := types.TokenID(types.HashBytes("token", []byte("ZPH")))
+	trustedKey, trustedValidators := singleValidatorSet(t, network)
+	trustedRoot, err := trustedValidators.Root()
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime, err := NewRuntime(network, native, trustedRoot, map[uint32]worldstate.Backend{0: worldstate.NewMemory(), 1: worldstate.NewMemory()}, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	candidate, err := runtime.BuildCandidate(1, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, cert := certifyCandidate(t, trustedValidators, trustedKey, candidate)
+	if _, err := runtime.Commit(candidate, cert, trustedValidators); err != nil {
+		t.Fatal(err)
+	}
+
+	attackerKey, attackerValidators := singleValidatorSet(t, network)
+	fakeHeader := candidate.Header
+	fakeHeader.Height = 1
+	fakeHeader.CertificateHash = types.Hash{}
+	fakeProposal, err := v2consensus.SignProposal(attackerKey, fakeHeader, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fakeHash := v2consensus.HeaderConsensusHash(fakeHeader)
+	fakeVote, err := v2consensus.SignVote(attackerKey, network, 1, 0, fakeHash)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fakeCert, err := attackerValidators.BuildCertificate(fakeProposal, []v2consensus.Vote{fakeVote})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fakeHeader.CertificateHash = fakeCert.Hash()
+	if root, _ := attackerValidators.Root(); root == fakeHeader.ValidatorRoot {
+		t.Fatal("test requires attacker validator root to differ")
+	}
+
+	receipt := sharding.CrossShardReceipt{
+		SourceShard: 0, DestinationShard: 1, SourceHeight: 1,
+		TransactionID: types.HashBytes("tx", []byte("fake")), OutputIndex: 0,
+		Output: object.OutputSpec{Owner: types.AccountIDFromPublicKey([]byte("recipient")), Kind: object.KindSystem},
+		SourceStateRoot: candidate.Commitments[0].StateRoot,
+	}
+	if err := runtime.validateReceiptImport(1, ReceiptImport{Header: fakeHeader, Certificate: fakeCert, Validators: attackerValidators, Receipt: receipt}); err != ErrReceiptImport {
+		t.Fatalf("expected uncommitted validator-set rejection, got %v", err)
 	}
 }
 
