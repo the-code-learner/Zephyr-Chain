@@ -24,7 +24,7 @@ type peerTransport interface {
 }
 
 type certifiedBlockEvidenceTransport interface {
-	FetchBlockEvidence(peerURL string, height uint64) (ledger.CertifiedBlockEvidence, error)
+	FetchBlockEvidence(peerURL string, height uint64) ([]ledger.CertifiedBlockEvidence, error)
 }
 
 type httpPeerTransport struct {
@@ -71,27 +71,27 @@ func (t *httpPeerTransport) FetchBlock(peerURL string, height uint64) (ledger.Bl
 	return payload.Block, nil
 }
 
-func (t *httpPeerTransport) FetchBlockEvidence(peerURL string, height uint64) (ledger.CertifiedBlockEvidence, error) {
+func (t *httpPeerTransport) FetchBlockEvidence(peerURL string, height uint64) ([]ledger.CertifiedBlockEvidence, error) {
 	request, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/v1/internal/block-evidence/%d", peerURL, height), nil)
 	if err != nil {
-		return ledger.CertifiedBlockEvidence{}, err
+		return nil, err
 	}
 	if err := t.applyPeerHeaders(request, nil); err != nil {
-		return ledger.CertifiedBlockEvidence{}, err
+		return nil, err
 	}
 
 	response, err := t.client.Do(request)
 	if err != nil {
-		return ledger.CertifiedBlockEvidence{}, err
+		return nil, err
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
-		return ledger.CertifiedBlockEvidence{}, fmt.Errorf("peer returned status %d", response.StatusCode)
+		return nil, fmt.Errorf("peer returned status %d", response.StatusCode)
 	}
 
 	var payload BlockEvidenceResponse
 	if err := json.NewDecoder(response.Body).Decode(&payload); err != nil {
-		return ledger.CertifiedBlockEvidence{}, err
+		return nil, err
 	}
 	return payload.Evidence, nil
 }
