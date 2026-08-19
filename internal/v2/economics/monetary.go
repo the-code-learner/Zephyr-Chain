@@ -176,7 +176,8 @@ func ratioBps(value, total uint64) uint32 {
 	}
 	ratio := new(big.Int).Mul(new(big.Int).SetUint64(value), new(big.Int).SetUint64(uint64(BasisPoints)))
 	ratio.Quo(ratio, new(big.Int).SetUint64(total))
-	if ratio.Uint64() > uint64(BasisPoints) {
+	limit := new(big.Int).SetUint64(uint64(BasisPoints))
+	if ratio.Cmp(limit) > 0 {
 		return BasisPoints
 	}
 	return uint32(ratio.Uint64())
@@ -188,9 +189,9 @@ func activityBps(value, target uint64) uint32 {
 	}
 	ratio := new(big.Int).Mul(new(big.Int).SetUint64(value), new(big.Int).SetUint64(uint64(BasisPoints)))
 	ratio.Quo(ratio, new(big.Int).SetUint64(target))
-	limit := uint64(2 * BasisPoints)
-	if ratio.Uint64() > limit {
-		return uint32(limit)
+	limit := new(big.Int).SetUint64(uint64(2 * BasisPoints))
+	if ratio.Cmp(limit) > 0 {
+		return 2 * BasisPoints
 	}
 	return uint32(ratio.Uint64())
 }
