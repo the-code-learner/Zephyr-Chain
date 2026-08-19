@@ -30,11 +30,11 @@ type EpochCollectorConfig struct {
 }
 
 type FinalizedShardObservation struct {
-	Transactions           []tx.Transaction
-	Results                []execution.Result
-	Imports                []sharding.CrossShardReceipt
-	DataBytes              uint64
-	ComputeCapacityUnits   uint64
+	Transactions            []tx.Transaction
+	Results                 []execution.Result
+	Imports                 []sharding.CrossShardReceipt
+	DataBytes               uint64
+	ComputeCapacityUnits    uint64
 	ComputeCapacityReliable bool
 }
 
@@ -95,10 +95,26 @@ func NewEpochCollector(config EpochCollectorConfig) (*EpochCollector, error) {
 	return collector, nil
 }
 
-// ObserveFinalizedBlock mutates telemetry only after the caller has normal
-// consensus finality. It deliberately does not mutate world state or mint ZPH.
+// ObserveFinalizedBlock applies a full global-block observation atomically.
+// Telemetry changes only after normal consensus finality and never mutates
+// world state or mints ZPH.
 func (c *EpochCollector) ObserveFinalizedBlock(height uint64, observations map[uint32]FinalizedShardObservation) error {
-	if c == nil || height == 0 || height <= c.lastHeight {
+	if c == nil {
+		return ErrFinalizedEconomics
+	}
+	preview := c.clone()
+	if preview == nil {
+		return ErrFinalizedEconomics
+	}
+	if err := preview.observeFinalizedBlock(height, observations); err != nil {
+		return err
+	}
+	*c = *preview
+	return nil
+}
+
+func (c *EpochCollector) observeFinalizedBlock(height uint64, observations map[uint32]FinalizedShardObservation) error {
+	if height == 0 || height <= c.lastHeight {
 		return ErrFinalizedEconomics
 	}
 	for shard := uint32(0); shard < c.config.ShardCount; shard++ {
@@ -107,7 +123,7 @@ func (c *EpochCollector) ObserveFinalizedBlock(height uint64, observations map[u
 			return ErrFinalizedEconomics
 		}
 		acc := c.shards[shard]
-		if err := c.addResourceCapacity(acc, c.config.ResourceCapacityPerBlock[shard]); err != nil {
+		if err := addTo(&acc.resourceCapacity, c.config.ResourceCapacityPerBlock[shard]); err != nil {
 			return err
 		}
 		if err := addTo(&acc.computeSupply, observation.ComputeCapacityUnits); err != nil {
@@ -140,10 +156,10 @@ func (c *EpochCollector) ObserveFinalizedBlock(height uint64, observations map[u
 			}
 		}
 		if observation.DataBytes > 0 {
-			dataUnits := (observation.DataBytes + 1023) / 1024
 			if observation.DataBytes > math.MaxUint64-1023 {
 				return ErrFinalizedEconomics
 			}
+			dataUnits := (observation.DataBytes + 1023) / 1024
 			if err := addTo(&acc.resourceUsed, dataUnits); err != nil {
 				return err
 			}
@@ -344,9 +360,13 @@ func (c *EpochCollector) FinalizeEpoch() ([]ShardEpochMetrics, []compute.Verifie
 	metrics := make([]ShardEpochMetrics, 0, c.config.ShardCount)
 	for shard := uint32(0); shard < c.config.ShardCount; shard++ {
 		acc := c.shards[shard]
-		velocity, err := acc.velocity.Finalize(c.supply[shard])
-		if err != nil {
-			return nil, nil, err
+		velocity := VelocitySnapshot{}
+		if c.supply[shard] > 0 {
+			var err error
+			velocity, err = acc.velocity.Finalize(c.supply[shard])
+			if err != nil {
+				return nil, nil, err
+			}
 		}
 		metric := ShardEpochMetrics{
 			Version: EpochMetricsVersion, Epoch: c.config.Epoch, ShardID: shard,
@@ -395,8 +415,30 @@ func (c *EpochCollector) CirculatingSupply(shard uint32) (uint64, bool) {
 	return c.supply[shard], true
 }
 
-func (c *EpochCollector) addResourceCapacity(acc *shardEpochAccumulator, value uint64) error {
-	return addTo(&acc.resourceCapacity, value)
+func (c *EpochCollector) clone() *EpochCollector {
+	if c == nil {
+		return nil
+	}
+	out := &EpochCollector{
+		config:       c.config,
+		shards:       make(map[uint32]*shardEpochAccumulator, len(c.shards)),
+		supply:       make(map[uint32]uint64, len(c.supply)),
+		verifiedWork: append([]compute.VerifiedWork(nil), c.verifiedWork...),
+		lastHeight:   c.lastHeight,
+	}
+	for shard, amount := range c.supply {
+		out.supply[shard] = amount
+	}
+	for shard, source := range c.shards {
+		copyAccumulator := *source
+		if source.velocity != nil {
+			velocityCopy := *source.velocity
+			velocityCopy.weightedValueBps.Set(&source.velocity.weightedValueBps)
+			copyAccumulator.velocity = &velocityCopy
+		}
+		out.shards[shard] = &copyAccumulator
+	}
+	return out
 }
 
 func addTo(target *uint64, value uint64) error {
