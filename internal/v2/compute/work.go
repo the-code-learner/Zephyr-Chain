@@ -29,8 +29,8 @@ const (
 )
 
 var (
-	ErrInvalidWorkSpec      = errors.New("invalid normalized compute work specification")
-	ErrInvalidWorkRegistry  = errors.New("invalid normalized compute work registry update")
+	ErrInvalidWorkSpec       = errors.New("invalid normalized compute work specification")
+	ErrInvalidWorkRegistry   = errors.New("invalid normalized compute work registry update")
 	ErrInvalidWorkSettlement = errors.New("invalid verified compute work settlement")
 )
 
@@ -127,10 +127,10 @@ func ParseWorkSpec(data []byte) (WorkSpec, error) {
 		return WorkSpec{}, ErrInvalidWorkSpec
 	}
 	out := WorkSpec{
-		Version: version,
-		Class:   WorkClass(class),
-		Units:   units,
-		WorkloadHash: workload,
+		Version:       version,
+		Class:         WorkClass(class),
+		Units:         units,
+		WorkloadHash:  workload,
 		BenchmarkHash: benchmark,
 		Vector: WorkVector{
 			CPUUnits: values[0], GPUFP32Units: values[1], GPUFP64Units: values[2], TensorUnits: values[3],
