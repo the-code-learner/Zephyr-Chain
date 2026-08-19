@@ -7,54 +7,13 @@ on:
   pull_request:
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  catchup-maintenance:
-    name: Verify certified catch-up
-    if: github.actor != 'github-actions[bot]' && github.head_ref == 'chatgpt/consensus-performance-lab'
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout branch
-        uses: actions/checkout@v6
-        with:
-          ref: chatgpt/consensus-performance-lab
-          fetch-depth: 0
-
-      - name: Set up Go
-        uses: actions/setup-go@v7
-        with:
-          go-version-file: go.mod
-          cache: false
-
-      - name: Apply integration and format
-        run: |
-          python scripts/apply_certified_catchup.py
-          gofmt -w internal/api internal/ledger
-
-      - name: Verify evidence unit test
-        run: go test ./internal/ledger -run '^TestImportBlockWithEvidenceRequiresSignedQuorum$' -count=1
-
-      - name: Verify multi-validator lab
-        run: go test ./internal/api -run '^TestLab' -count=1 -timeout=90s
-
-      - name: Verify complete Go suite
-        run: |
-          go vet ./...
-          go test ./...
-
-      - name: Commit verified integration
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add internal
-          git commit -m "recover lagging validators with certified block evidence"
-          git push origin HEAD:chatgpt/consensus-performance-lab
-
   go:
     name: Go checks
     runs-on: ubuntu-latest
@@ -63,22 +22,42 @@ jobs:
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
+
       - name: Set up Go
         uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
           cache: false
+
       - name: Check formatting of changed Go files
         shell: bash
         run: |
-          if [ "${{ github.event_name }}" = "pull_request" ]; then base="${{ github.event.pull_request.base.sha }}"; else base="${{ github.event.before }}"; fi
-          if [ -z "$base" ] || [[ "$base" =~ ^0+$ ]]; then base="$(git rev-list --max-parents=0 HEAD)"; fi
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            base="${{ github.event.pull_request.base.sha }}"
+          else
+            base="${{ github.event.before }}"
+          fi
+
+          if [ -z "$base" ] || [[ "$base" =~ ^0+$ ]]; then
+            base="$(git rev-list --max-parents=0 HEAD)"
+          fi
+
           mapfile -t files < <(git diff --name-only --diff-filter=ACMRT "$base" HEAD -- '*.go')
-          if [ "${#files[@]}" -eq 0 ]; then echo "No changed Go files to format-check."; exit 0; fi
+          if [ "${#files[@]}" -eq 0 ]; then
+            echo "No changed Go files to format-check."
+            exit 0
+          fi
+
           unformatted="$(gofmt -l "${files[@]}")"
-          if [ -n "$unformatted" ]; then echo "$unformatted"; exit 1; fi
+          if [ -n "$unformatted" ]; then
+            echo "The following changed Go files need gofmt:"
+            echo "$unformatted"
+            exit 1
+          fi
+
       - name: Vet
         run: go vet ./...
+
       - name: Test
         run: go test ./...
 
@@ -88,15 +67,19 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+
       - name: Set up Go
         uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
           cache: false
+
       - name: Multi-validator conformance gate
         run: go test ./internal/api -run '^TestLab' -count=1 -timeout=90s
+
       - name: Seven-validator finalized-throughput sample
         run: go test ./internal/api -run '^$' -bench '^BenchmarkLabConsensusFinality7Validators$' -benchtime=3x -count=1 -timeout=120s
+
       - name: P-256 verification baseline
         run: go test ./internal/api -run '^$' -bench '^BenchmarkLabP256TransactionVerification$' -benchtime=1s -count=1
 
@@ -109,15 +92,19 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+
       - name: Set up Node.js
         uses: actions/setup-node@v7
         with:
           node-version: 24
           cache: npm
           cache-dependency-path: apps/wallet/package-lock.json
+
       - name: Install dependencies
         run: npm ci
+
       - name: Audit production and build dependencies
         run: npm audit --audit-level=high
+
       - name: Type-check and build
         run: npm run build
