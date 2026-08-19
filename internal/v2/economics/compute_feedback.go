@@ -13,13 +13,13 @@ const (
 )
 
 type ComputeFeedbackPolicy struct {
-	Mode                       ComputeFeedbackMode
-	BaseComputeRewardShareBps  uint32
-	MinComputeRewardShareBps   uint32
-	MaxComputeRewardShareBps   uint32
-	RewardSensitivityBps       uint32
-	MonetarySensitivityBps     uint32
-	MaxInflationCorrectionBps  uint32
+	Mode                      ComputeFeedbackMode
+	BaseComputeRewardShareBps uint32
+	MinComputeRewardShareBps  uint32
+	MaxComputeRewardShareBps  uint32
+	RewardSensitivityBps      uint32
+	MonetarySensitivityBps    uint32
+	MaxInflationCorrectionBps uint32
 }
 
 type ComputeFeedbackDecision struct {
