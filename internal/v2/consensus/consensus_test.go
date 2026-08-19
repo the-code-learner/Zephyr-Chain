@@ -27,6 +27,10 @@ func TestV2QuorumCertificateRequiresTwoThirdsPlus(t *testing.T) {
 	if QuorumPower(40) != 27 {
 		t.Fatalf("unexpected quorum: %d", QuorumPower(40))
 	}
+	validatorRoot, err := set.Root()
+	if err != nil {
+		t.Fatal(err)
+	}
 	proposer, err := set.Proposer(1, 0)
 	if err != nil {
 		t.Fatal(err)
@@ -34,7 +38,7 @@ func TestV2QuorumCertificateRequiresTwoThirdsPlus(t *testing.T) {
 	header := sharding.GlobalHeader{
 		Version: 2, Network: network, Height: 1,
 		ShardCommitmentRoot: types.HashBytes("shards", []byte("root")),
-		ValidatorRoot:       types.HashBytes("validators", []byte("root")),
+		ValidatorRoot:       validatorRoot,
 		DataRoot:            types.HashBytes("data", []byte("root")),
 	}
 	proposal, err := SignProposal(keys[proposer.ID], header, 0)
@@ -66,6 +70,30 @@ func TestV2QuorumCertificateRequiresTwoThirdsPlus(t *testing.T) {
 	}
 	if err := set.VerifyCertificate(certificate); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestV2ProposalRejectsUncommittedValidatorRoot(t *testing.T) {
+	network := types.NetworkID(types.HashBytes("network", []byte("validator-root")))
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pub := elliptic.Marshal(elliptic.P256(), key.PublicKey.X, key.PublicKey.Y)
+	id := types.ValidatorIDFromPublicKey(pub)
+	set := ValidatorSet{Network: network, Validators: []Validator{{ID: id, PublicKey: pub, Power: 1}}}
+	header := sharding.GlobalHeader{
+		Version: 2, Network: network, Height: 1,
+		ShardCommitmentRoot: types.HashBytes("shards", []byte("root")),
+		ValidatorRoot:       types.HashBytes("validators", []byte("wrong")),
+		DataRoot:            types.HashBytes("data", []byte("root")),
+	}
+	proposal, err := SignProposal(key, header, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := set.VerifyProposal(proposal); err != ErrProposal {
+		t.Fatalf("expected validator-root mismatch rejection, got %v", err)
 	}
 }
 
