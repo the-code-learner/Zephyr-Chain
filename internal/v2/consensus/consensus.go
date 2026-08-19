@@ -111,7 +111,7 @@ func (s ValidatorSet) Proposer(height, round uint64) (Validator, error) {
 	}
 	validators := append([]Validator(nil), s.Validators...)
 	sort.Slice(validators, func(i, j int) bool { return bytes.Compare(validators[i].ID[:], validators[j].ID[:]) < 0 })
-	slot := ((height - 1) % total + (round % total)) % total
+	slot := ((height-1)%total + (round % total)) % total
 	var cumulative uint64
 	for _, validator := range validators {
 		cumulative += validator.Power
