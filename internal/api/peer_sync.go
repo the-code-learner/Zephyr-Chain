@@ -162,6 +162,24 @@ func (s *Server) syncFromPeer(peerURL string, localHeight uint64, remoteHeight u
 			result.ImportFailureHeight = block.Height
 			result.ImportFailureBlockHash = block.Hash
 			s.recordBlockImportFailure("peer_sync", block, err, peerURL)
+
+			var evidenceErr error
+			if s.config.RequireConsensusCertificates {
+				evidenceTransport, ok := s.transport.(certifiedBlockEvidenceTransport)
+				if !ok {
+					evidenceErr = fmt.Errorf("peer transport does not support certified block evidence")
+				} else {
+					evidence, fetchEvidenceErr := evidenceTransport.FetchBlockEvidence(peerURL, height)
+					if fetchEvidenceErr != nil {
+						evidenceErr = fetchEvidenceErr
+					} else if importEvidenceErr := s.ledger.ImportBlockWithEvidence(block, evidence); importEvidenceErr != nil {
+						evidenceErr = importEvidenceErr
+					} else {
+						continue
+					}
+				}
+			}
+
 			restore, restoreErr := s.restoreSnapshotFromPeer(peerURL, "import_repair")
 			if restore.Applied {
 				result.UsedSnapshot = true
@@ -171,9 +189,15 @@ func (s *Server) syncFromPeer(peerURL string, localHeight uint64, remoteHeight u
 				result.SnapshotRestoreReason = restore.Reason
 			}
 			if restoreErr != nil {
+				if evidenceErr != nil {
+					return result, fmt.Errorf("certified block recovery failed: %v; snapshot recovery failed: %w", evidenceErr, restoreErr)
+				}
 				return result, restoreErr
 			}
 			if !restore.Applied {
+				if evidenceErr != nil {
+					return result, fmt.Errorf("certified block recovery failed: %v; peer snapshot from %s is older than local state", evidenceErr, peerURL)
+				}
 				return result, fmt.Errorf("peer snapshot from %s is older than local state", peerURL)
 			}
 			return result, nil

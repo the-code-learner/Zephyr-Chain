@@ -15,13 +15,16 @@ import (
 type peerTransport interface {
 	FetchStatus(peerURL string) (StatusResponse, error)
 	FetchBlock(peerURL string, height uint64) (ledger.Block, error)
-	FetchBlockEvidence(peerURL string, height uint64) (ledger.CertifiedBlockEvidence, error)
 	FetchSnapshot(peerURL string) (ledger.Snapshot, error)
 	PostTransaction(peerURL string, envelope tx.Envelope) error
 	PostBlock(peerURL string, block ledger.Block) error
 	PostFaucet(peerURL string, request FaucetRequest) error
 	PostProposal(peerURL string, proposal consensus.Proposal) error
 	PostVote(peerURL string, vote consensus.Vote) error
+}
+
+type certifiedBlockEvidenceTransport interface {
+	FetchBlockEvidence(peerURL string, height uint64) (ledger.CertifiedBlockEvidence, error)
 }
 
 type httpPeerTransport struct {
