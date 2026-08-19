@@ -24,6 +24,8 @@ func (e Engine) executeExtended(t tx.Transaction, op tx.Operation) (Result, erro
 		return e.executeDeployContract(t, op.Payload)
 	case tx.OpContractCall:
 		return e.executeContractCall(t, op.Payload)
+	case tx.OpComputeOffer, tx.OpComputeJob, tx.OpComputeResult, tx.OpComputeAccept, tx.OpComputeIngestAssignment, tx.OpComputeIngestResult, tx.OpComputeFinalize, tx.OpComputeResolveReplicated, tx.OpComputeExpire:
+		return e.executeCompute(t, op)
 	default:
 		return Result{}, ErrUnsupportedOperation
 	}

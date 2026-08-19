@@ -78,38 +78,28 @@ func NewRuntime(network types.NetworkID, nativeToken types.TokenID, validatorRoo
 	return &Runtime{Network: network, NativeToken: nativeToken, ValidatorRoot: validatorRoot, ShardCount: count, States: states, Workers: workers}, nil
 }
 
-// BuildCandidate executes and simulates every shard against committed state.
-// It never mutates the backing state stores. Receipt imports become destination
-// objects plus durable anti-replay markers, but are not spendable until a later
-// block because all transactions in this candidate target the pre-state root.
 func (r *Runtime) BuildCandidate(height uint64, batches map[uint32]ShardBatch) (Candidate, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if height != r.Height+1 || height == 0 {
 		return Candidate{}, ErrCandidateHeight
 	}
-	candidate := Candidate{
-		Results:  make(map[uint32][]execution.Result),
-		Receipts: make(map[uint32][]sharding.CrossShardReceipt),
-		deltas:   make(map[uint32]shardDelta),
-	}
+	candidate := Candidate{Results: make(map[uint32][]execution.Result), Receipts: make(map[uint32][]sharding.CrossShardReceipt), deltas: make(map[uint32]shardDelta)}
 	commitments := make([]sharding.Commitment, 0, r.ShardCount)
 	dataLeaves := make([]types.Hash, 0, r.ShardCount)
-
 	for shard := uint32(0); shard < r.ShardCount; shard++ {
 		store := r.States[shard]
 		batch := batches[shard]
 		currentRoot := store.Root()
 		delta := shardDelta{}
 		results := make([]execution.Result, 0, len(batch.Transactions))
-
 		if len(batch.Transactions) > 0 {
 			for _, transaction := range batch.Transactions {
 				if transaction.ShardID != shard || transaction.StateRoot != currentRoot {
 					return Candidate{}, ErrCandidateState
 				}
 			}
-			executor := execution.BatchExecutor{Engine: execution.Engine{Network: r.Network, NativeToken: r.NativeToken, ShardCount: r.ShardCount}, Workers: r.Workers}
+			executor := execution.BatchExecutor{Engine: execution.Engine{Network: r.Network, NativeToken: r.NativeToken, ShardCount: r.ShardCount, Height: height}, Workers: r.Workers}
 			var err error
 			results, err = executor.ExecuteBatch(batch.Transactions)
 			if err != nil {
@@ -121,7 +111,6 @@ func (r *Runtime) BuildCandidate(height uint64, batches map[uint32]ShardBatch) (
 			}
 			candidate.Results[shard] = results
 		}
-
 		for _, receiptImport := range batch.Imports {
 			if err := r.validateReceiptImport(shard, receiptImport); err != nil {
 				return Candidate{}, err
@@ -142,7 +131,6 @@ func (r *Runtime) BuildCandidate(height uint64, batches map[uint32]ShardBatch) (
 			}
 			delta.Created = append(delta.Created, destinationObject, marker)
 		}
-
 		newRoot := currentRoot
 		if len(delta.Consumed) > 0 || len(delta.Created) > 0 {
 			simulator, ok := store.(worldstate.Simulator)
@@ -156,15 +144,10 @@ func (r *Runtime) BuildCandidate(height uint64, batches map[uint32]ShardBatch) (
 			}
 			candidate.deltas[shard] = delta
 		}
-
 		receipts := make([]sharding.CrossShardReceipt, 0)
 		for _, result := range results {
 			for _, outbound := range result.Outbound {
-				receipts = append(receipts, sharding.CrossShardReceipt{
-					SourceShard: shard, DestinationShard: outbound.DestinationShard,
-					SourceHeight: height, TransactionID: result.TxID, OutputIndex: outbound.OutputIndex,
-					Output: outbound.Output, SourceStateRoot: newRoot,
-				})
+				receipts = append(receipts, sharding.CrossShardReceipt{SourceShard: shard, DestinationShard: outbound.DestinationShard, SourceHeight: height, TransactionID: result.TxID, OutputIndex: outbound.OutputIndex, Output: outbound.Output, SourceStateRoot: newRoot})
 			}
 		}
 		receiptRoot, err := (sharding.ReceiptBatch{Receipts: receipts}).Root()
@@ -172,7 +155,6 @@ func (r *Runtime) BuildCandidate(height uint64, batches map[uint32]ShardBatch) (
 			return Candidate{}, err
 		}
 		candidate.Receipts[shard] = receipts
-
 		dataRoot := batch.DataRoot
 		if types.IsZero32([32]byte(dataRoot)) {
 			dataRoot = merkle.Root(nil)
@@ -185,27 +167,19 @@ func (r *Runtime) BuildCandidate(height uint64, batches map[uint32]ShardBatch) (
 		return Candidate{}, err
 	}
 	candidate.Commitments = commitments
-	candidate.Header = sharding.GlobalHeader{
-		Version: 2, Network: r.Network, Height: height, ParentHash: r.ParentHash,
-		ShardCommitmentRoot: commitmentRoot, ValidatorRoot: r.ValidatorRoot,
-		DataRoot: merkle.Root(dataLeaves),
-	}
+	candidate.Header = sharding.GlobalHeader{Version: 2, Network: r.Network, Height: height, ParentHash: r.ParentHash, ShardCommitmentRoot: commitmentRoot, ValidatorRoot: r.ValidatorRoot, NextValidatorRoot: r.ValidatorRoot, DataRoot: merkle.Root(dataLeaves)}
 	return candidate, nil
 }
 
 func (r *Runtime) validateReceiptImport(destinationShard uint32, receiptImport ReceiptImport) error {
-	if receiptImport.Header.Network != r.Network || receiptImport.Validators.Network != r.Network ||
-		receiptImport.Certificate.Network != r.Network || receiptImport.Receipt.DestinationShard != destinationShard ||
-		receiptImport.Header.Height > r.Height || receiptImport.Header.Height != receiptImport.Receipt.SourceHeight {
+	if receiptImport.Header.Network != r.Network || receiptImport.Validators.Network != r.Network || receiptImport.Certificate.Network != r.Network || receiptImport.Receipt.DestinationShard != destinationShard || receiptImport.Header.Height > r.Height || receiptImport.Header.Height != receiptImport.Receipt.SourceHeight {
 		return ErrReceiptImport
 	}
 	validatorRoot, err := receiptImport.Validators.Root()
 	if err != nil || validatorRoot != receiptImport.Header.ValidatorRoot {
 		return ErrReceiptImport
 	}
-	if receiptImport.Header.CertificateHash != receiptImport.Certificate.Hash() ||
-		receiptImport.Certificate.HeaderHash != v2consensus.HeaderConsensusHash(receiptImport.Header) ||
-		receiptImport.Certificate.Height != receiptImport.Header.Height {
+	if receiptImport.Header.CertificateHash != receiptImport.Certificate.Hash() || receiptImport.Certificate.HeaderHash != v2consensus.HeaderConsensusHash(receiptImport.Header) || receiptImport.Certificate.Height != receiptImport.Header.Height {
 		return ErrReceiptImport
 	}
 	if err := receiptImport.Validators.VerifyCertificate(receiptImport.Certificate); err != nil {
@@ -217,8 +191,6 @@ func (r *Runtime) validateReceiptImport(destinationShard uint32, receiptImport R
 	return nil
 }
 
-// Commit applies a previously simulated candidate only after a valid quorum
-// certificate for its consensus hash is supplied.
 func (r *Runtime) Commit(candidate Candidate, certificate v2consensus.Certificate, validators v2consensus.ValidatorSet) (sharding.GlobalHeader, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()

@@ -16,13 +16,19 @@ import (
 const (
 	Version uint16 = 2
 
-	OpTransfer       uint16 = 1
-	OpCreateToken    uint16 = 2
-	OpDeployContract uint16 = 3
-	OpContractCall   uint16 = 4
-	OpComputeOffer   uint16 = 5
-	OpComputeJob     uint16 = 6
-	OpComputeResult  uint16 = 7
+	OpTransfer                uint16 = 1
+	OpCreateToken             uint16 = 2
+	OpDeployContract          uint16 = 3
+	OpContractCall            uint16 = 4
+	OpComputeOffer            uint16 = 5
+	OpComputeJob              uint16 = 6
+	OpComputeResult           uint16 = 7
+	OpComputeAccept           uint16 = 8
+	OpComputeIngestAssignment uint16 = 9
+	OpComputeIngestResult     uint16 = 10
+	OpComputeFinalize         uint16 = 11
+	OpComputeResolveReplicated uint16 = 12
+	OpComputeExpire           uint16 = 13
 
 	MaxInputs      = 4096
 	MaxOutputs     = 4096
@@ -50,45 +56,68 @@ type InputRef struct {
 	ObjectHash types.Hash
 }
 
-type Witness struct {
-	Object object.Object
-	Proof  state.Proof
-}
-
 type Operation struct {
 	Kind    uint16
 	Payload []byte
 }
 
+type Witness struct {
+	Object object.Object
+	Proof  state.Proof
+}
+
 type Transaction struct {
 	Version          uint16
 	Network          types.NetworkID
+	ShardID          uint32
 	Sender           types.AccountID
 	SenderPublicKey  []byte
-	ShardID          uint32
 	StateRoot        types.Hash
-	Salt             [16]byte
 	Inputs           []InputRef
 	Outputs          []object.OutputSpec
 	Operations       []Operation
 	Fee              uint64
 	ValidUntilHeight uint64
+	Salt             [16]byte
 	Signature        []byte
 	Witnesses        []Witness
 }
 
 func (t Transaction) IntentBytes() []byte {
 	var w codec.Writer
-	writeIntent(&w, t)
+	w.U16(t.Version)
+	w.Fixed(t.Network[:])
+	w.U32(t.ShardID)
+	w.Fixed(t.Sender[:])
+	w.Bytes(t.SenderPublicKey)
+	w.Fixed(t.StateRoot[:])
+	w.U32(uint32(len(t.Inputs)))
+	for _, in := range t.Inputs {
+		w.Fixed(in.ObjectID[:])
+		w.U64(in.Version)
+		w.Fixed(in.ObjectHash[:])
+	}
+	w.U32(uint32(len(t.Outputs)))
+	for _, out := range t.Outputs {
+		w.Bytes(out.CanonicalBytes())
+	}
+	w.U32(uint32(len(t.Operations)))
+	for _, op := range t.Operations {
+		w.U16(op.Kind)
+		w.Bytes(op.Payload)
+	}
+	w.U64(t.Fee)
+	w.U64(t.ValidUntilHeight)
+	w.Fixed(t.Salt[:])
 	return w.BytesCopy()
 }
 
-func (t Transaction) SigningDigest() types.Hash {
-	return types.Hash(codec.DomainHash("zephyr/transaction-signing/v2", t.IntentBytes()))
+func (t Transaction) SigningDigest() [32]byte {
+	return codec.DomainHash("zephyr/transaction/signing/v2", t.IntentBytes())
 }
 
 func (t Transaction) ID() types.Hash {
-	return types.Hash(codec.DomainHash("zephyr/transaction-id/v2", t.IntentBytes()))
+	return types.Hash(codec.DomainHash("zephyr/transaction/id/v2", t.IntentBytes()))
 }
 
 func (t Transaction) MarshalBinary() ([]byte, error) {
@@ -199,8 +228,7 @@ func (t Transaction) ValidateStatic() error {
 		return ErrSender
 	}
 	var zeroSalt [16]byte
-	if t.Salt == zeroSalt || len(t.Inputs) > MaxInputs || len(t.Outputs) > MaxOutputs ||
-		len(t.Operations) == 0 || len(t.Operations) > MaxOperations {
+	if t.Salt == zeroSalt || len(t.Inputs) > MaxInputs || len(t.Outputs) > MaxOutputs || len(t.Operations) == 0 || len(t.Operations) > MaxOperations {
 		return ErrStructure
 	}
 	seenInputs := map[types.ObjectID]struct{}{}
@@ -230,7 +258,7 @@ func (t Transaction) ValidateAtHeight(height uint64) error {
 	if err := t.ValidateStatic(); err != nil {
 		return err
 	}
-	if t.ValidUntilHeight != 0 && height > t.ValidUntilHeight {
+	if t.ValidUntilHeight > 0 && height > t.ValidUntilHeight {
 		return ErrExpired
 	}
 	return nil
@@ -244,64 +272,23 @@ func (t Transaction) VerifyForNetwork(network types.NetworkID) error {
 }
 
 func (t Transaction) VerifyWitnesses() error {
-	if len(t.Inputs) != len(t.Witnesses) {
+	if len(t.Witnesses) != len(t.Inputs) {
 		return ErrWitness
 	}
-	witnesses := make(map[types.ObjectID]Witness, len(t.Witnesses))
-	for _, witness := range t.Witnesses {
-		if err := witness.Object.Validate(); err != nil {
+	for i, in := range t.Inputs {
+		witness := t.Witnesses[i]
+		if witness.Object.ID != in.ObjectID || witness.Object.Version != in.Version || witness.Object.Hash() != in.ObjectHash {
 			return ErrWitness
 		}
-		if _, exists := witnesses[witness.Object.ID]; exists {
-			return ErrWitness
-		}
-		witnesses[witness.Object.ID] = witness
-	}
-	for _, in := range t.Inputs {
-		witness, ok := witnesses[in.ObjectID]
-		if !ok || witness.Object.Version != in.Version || witness.Object.Hash() != in.ObjectHash || !witness.Proof.Exists {
-			return ErrWitness
-		}
-		key := types.Hash(in.ObjectID)
-		value := in.ObjectHash[:]
-		if !state.Verify(t.StateRoot, key, value, witness.Proof) {
+		hash := witness.Object.Hash()
+		if !state.Verify(t.StateRoot, types.Hash(in.ObjectID), hash[:], witness.Proof) {
 			return ErrWitness
 		}
 	}
 	return nil
 }
 
-func writeIntent(w *codec.Writer, t Transaction) {
-	w.U16(t.Version)
-	w.Fixed(t.Network[:])
-	w.Fixed(t.Sender[:])
-	w.Bytes(t.SenderPublicKey)
-	w.U32(t.ShardID)
-	w.Fixed(t.StateRoot[:])
-	w.Fixed(t.Salt[:])
-	w.U32(uint32(len(t.Inputs)))
-	for _, in := range t.Inputs {
-		w.Fixed(in.ObjectID[:])
-		w.U64(in.Version)
-		w.Fixed(in.ObjectHash[:])
-	}
-	w.U32(uint32(len(t.Outputs)))
-	for _, out := range t.Outputs {
-		w.Bytes(out.CanonicalBytes())
-	}
-	w.U32(uint32(len(t.Operations)))
-	for _, op := range t.Operations {
-		w.U16(op.Kind)
-		w.Bytes(op.Payload)
-	}
-	w.U64(t.Fee)
-	w.U64(t.ValidUntilHeight)
-}
-
 func parseIntent(data []byte) (Transaction, error) {
-	if len(data) == 0 || len(data) > MaxIntentBytes {
-		return Transaction{}, ErrWire
-	}
 	r := codec.NewReader(data)
 	version, err := r.U16()
 	if err != nil {
@@ -311,87 +298,78 @@ func parseIntent(data []byte) (Transaction, error) {
 	if err != nil {
 		return Transaction{}, ErrWire
 	}
-	senderBytes, err := r.Fixed(32)
-	if err != nil {
-		return Transaction{}, ErrWire
-	}
-	publicKey, err := r.Bytes(65)
-	if err != nil {
-		return Transaction{}, ErrWire
-	}
+	var network types.NetworkID
+	copy(network[:], networkBytes)
 	shardID, err := r.U32()
 	if err != nil {
 		return Transaction{}, ErrWire
 	}
-	rootBytes, err := r.Fixed(32)
+	senderBytes, err := r.Fixed(32)
 	if err != nil {
 		return Transaction{}, ErrWire
 	}
-	saltBytes, err := r.Fixed(16)
+	var sender types.AccountID
+	copy(sender[:], senderBytes)
+	publicKey, err := r.Bytes(65)
 	if err != nil {
 		return Transaction{}, ErrWire
 	}
+	stateRootBytes, err := r.Fixed(32)
+	if err != nil {
+		return Transaction{}, ErrWire
+	}
+	var stateRoot types.Hash
+	copy(stateRoot[:], stateRootBytes)
 	inputCount, err := r.U32()
 	if err != nil || inputCount > MaxInputs {
 		return Transaction{}, ErrWire
 	}
-	t := Transaction{
-		Version: version, SenderPublicKey: publicKey, ShardID: shardID,
-		Inputs: make([]InputRef, int(inputCount)),
-	}
-	copy(t.Network[:], networkBytes)
-	copy(t.Sender[:], senderBytes)
-	copy(t.StateRoot[:], rootBytes)
-	copy(t.Salt[:], saltBytes)
-
-	for i := range t.Inputs {
-		idBytes, err := r.Fixed(32)
+	inputs := make([]InputRef, int(inputCount))
+	for i := range inputs {
+		id, err := r.Fixed(32)
 		if err != nil {
 			return Transaction{}, ErrWire
 		}
-		version, err := r.U64()
+		copy(inputs[i].ObjectID[:], id)
+		inputs[i].Version, err = r.U64()
 		if err != nil {
 			return Transaction{}, ErrWire
 		}
-		hashBytes, err := r.Fixed(32)
+		h, err := r.Fixed(32)
 		if err != nil {
 			return Transaction{}, ErrWire
 		}
-		copy(t.Inputs[i].ObjectID[:], idBytes)
-		t.Inputs[i].Version = version
-		copy(t.Inputs[i].ObjectHash[:], hashBytes)
+		copy(inputs[i].ObjectHash[:], h)
 	}
 	outputCount, err := r.U32()
 	if err != nil || outputCount > MaxOutputs {
 		return Transaction{}, ErrWire
 	}
-	t.Outputs = make([]object.OutputSpec, int(outputCount))
-	for i := range t.Outputs {
-		outputBytes, err := r.Bytes(object.MaxObjectDataBytes + 64)
+	outputs := make([]object.OutputSpec, int(outputCount))
+	for i := range outputs {
+		raw, err := r.Bytes(object.MaxObjectDataBytes + 64)
 		if err != nil {
 			return Transaction{}, ErrWire
 		}
-		out, err := object.ParseOutputSpec(outputBytes)
+		outputs[i], err = object.ParseOutputSpec(raw)
 		if err != nil {
 			return Transaction{}, ErrWire
 		}
-		t.Outputs[i] = out
 	}
 	opCount, err := r.U32()
 	if err != nil || opCount == 0 || opCount > MaxOperations {
 		return Transaction{}, ErrWire
 	}
-	t.Operations = make([]Operation, int(opCount))
-	for i := range t.Operations {
-		kind, err := r.U16()
+	operations := make([]Operation, int(opCount))
+	for i := range operations {
+		operations[i].Kind, err = r.U16()
 		if err != nil {
 			return Transaction{}, ErrWire
 		}
-		payload, err := r.Bytes(MaxOpPayload)
+		operations[i].Payload, err = r.Bytes(MaxOpPayload)
 		if err != nil {
 			return Transaction{}, ErrWire
 		}
-		t.Operations[i] = Operation{Kind: kind, Payload: payload}
 	}
 	fee, err := r.U64()
 	if err != nil {
@@ -401,15 +379,16 @@ func parseIntent(data []byte) (Transaction, error) {
 	if err != nil {
 		return Transaction{}, ErrWire
 	}
-	t.Fee = fee
-	t.ValidUntilHeight = validUntil
-	if err := r.Done(); err != nil {
+	salt, err := r.Fixed(16)
+	if err != nil || r.Done() != nil {
 		return Transaction{}, ErrWire
 	}
-	return t, nil
+	var saltArray [16]byte
+	copy(saltArray[:], salt)
+	return Transaction{Version: version, Network: network, ShardID: shardID, Sender: sender, SenderPublicKey: publicKey, StateRoot: stateRoot, Inputs: inputs, Outputs: outputs, Operations: operations, Fee: fee, ValidUntilHeight: validUntil, Salt: saltArray}, nil
 }
 
-func verifySignature(publicKey *ecdsa.PublicKey, digest types.Hash, signature []byte) error {
+func verifySignature(publicKey *ecdsa.PublicKey, digest [32]byte, signature []byte) error {
 	if len(signature) != 64 {
 		return ErrSignature
 	}
@@ -419,7 +398,8 @@ func verifySignature(publicKey *ecdsa.PublicKey, digest types.Hash, signature []
 	if r.Sign() <= 0 || s.Sign() <= 0 || r.Cmp(order) >= 0 || s.Cmp(order) >= 0 {
 		return ErrSignature
 	}
-	if s.Cmp(halfOrder()) > 0 {
+	half := new(big.Int).Rsh(new(big.Int).Set(order), 1)
+	if s.Cmp(half) > 0 {
 		return ErrCanonicalSig
 	}
 	if !ecdsa.Verify(publicKey, digest[:], r, s) {
@@ -429,23 +409,17 @@ func verifySignature(publicKey *ecdsa.PublicKey, digest types.Hash, signature []
 }
 
 func normalizeLowS(s *big.Int) *big.Int {
-	if s.Cmp(halfOrder()) <= 0 {
-		return new(big.Int).Set(s)
+	order := elliptic.P256().Params().N
+	half := new(big.Int).Rsh(new(big.Int).Set(order), 1)
+	if s.Cmp(half) > 0 {
+		return new(big.Int).Sub(order, s)
 	}
-	return new(big.Int).Sub(elliptic.P256().Params().N, s)
-}
-
-func halfOrder() *big.Int {
-	return new(big.Int).Rsh(new(big.Int).Set(elliptic.P256().Params().N), 1)
+	return s
 }
 
 func pad32(v *big.Int) []byte {
-	raw := v.Bytes()
 	out := make([]byte, 32)
-	if len(raw) >= 32 {
-		copy(out, raw[len(raw)-32:])
-	} else {
-		copy(out[32-len(raw):], raw)
-	}
+	raw := v.Bytes()
+	copy(out[32-len(raw):], raw)
 	return out
 }
