@@ -91,11 +91,11 @@ async function validatorSetRoot(validators: CitizenValidatorDTO[]): Promise<Uint
 async function merkleRoot(leaves: Uint8Array[]): Promise<Uint8Array> {
   const empty = await domainHash('zephyr/merkle/empty/v2', new Uint8Array())
   if (leaves.length === 0) return empty
-  const level = leaves.map(leaf => leaf.slice())
+  const level: Uint8Array[] = leaves.map(leaf => leaf.slice())
   let target = 1
   while (target < level.length) target <<= 1
   while (level.length < target) level.push(empty.slice())
-  let current = level
+  let current: Uint8Array[] = level
   while (current.length > 1) {
     const next: Uint8Array[] = []
     for (let i = 0; i < current.length; i += 2) {
