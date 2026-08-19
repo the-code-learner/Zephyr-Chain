@@ -4,8 +4,8 @@ import (
 	"bytes"
 	"context"
 	"crypto/ecdsa"
+	"crypto/elliptic"
 	"errors"
-	"sort"
 	"sync"
 
 	"github.com/libp2p/go-libp2p/core/peer"
@@ -14,6 +14,7 @@ import (
 	"github.com/zephyr-chain/zephyr-chain/internal/v2/execution"
 	"github.com/zephyr-chain/zephyr-chain/internal/v2/lightapi"
 	p2p "github.com/zephyr-chain/zephyr-chain/internal/v2/network/p2p"
+	"github.com/zephyr-chain/zephyr-chain/internal/v2/sharding"
 	"github.com/zephyr-chain/zephyr-chain/internal/v2/tx"
 	"github.com/zephyr-chain/zephyr-chain/internal/v2/types"
 	"github.com/zephyr-chain/zephyr-chain/internal/v2/worldstate"
@@ -207,7 +208,7 @@ func (s *Service) Propose(ctx context.Context) (lightapi.Snapshot, error) {
 	if err != nil {
 		return lightapi.Snapshot{}, err
 	}
-	votes := []v2consensus.Vote{selfVote}
+	votesByID := map[types.ValidatorID]v2consensus.Vote{selfVote.Voter: selfVote}
 	for _, remote := range peers {
 		response, err := s.P2P.SendConsensus(ctx, remote, proposalWire)
 		if err != nil {
@@ -217,6 +218,10 @@ func (s *Service) Propose(ctx context.Context) (lightapi.Snapshot, error) {
 		if err != nil || vote.HeaderHash != v2consensus.HeaderConsensusHash(proposal.Header) || vote.Height != height || vote.Round != round || s.Validators.VerifyVote(vote) != nil {
 			continue
 		}
+		votesByID[vote.Voter] = vote
+	}
+	votes := make([]v2consensus.Vote, 0, len(votesByID))
+	for _, vote := range votesByID {
 		votes = append(votes, vote)
 	}
 	certificate, err := s.Validators.BuildCertificate(proposal, votes)
@@ -231,7 +236,7 @@ func (s *Service) Propose(ctx context.Context) (lightapi.Snapshot, error) {
 		return lightapi.Snapshot{}, err
 	}
 	snapshot := s.recordFinalizedLocked(finalized, certificate, candidate.Commitments)
-	s.removeCommittedLocked(block)
+	s.clearCommittedStateLocked(block)
 	s.mu.Unlock()
 
 	commitWire, err := (ConsensusMessage{Kind: NetworkMessageCommit, Proposal: proposal, Block: block, Certificate: &certificate}).MarshalBinary()
@@ -276,7 +281,7 @@ func (s *Service) handleCommitLocked(message ConsensusMessage) ([]byte, error) {
 		return nil, ErrCandidateCert
 	}
 	if message.Proposal.Header.Height <= s.Runtime.Height {
-		if message.Proposal.Header.Height == s.Runtime.Height && s.latest != nil && s.latest.Header.Hash() == message.Proposal.Header.Hash() {
+		if message.Proposal.Header.Height == s.Runtime.Height && s.latest != nil && v2consensus.HeaderConsensusHash(s.latest.Header) == v2consensus.HeaderConsensusHash(message.Proposal.Header) {
 			return []byte{1}, nil
 		}
 		return nil, ErrCandidateHeight
@@ -293,7 +298,7 @@ func (s *Service) handleCommitLocked(message ConsensusMessage) ([]byte, error) {
 		return nil, err
 	}
 	s.recordFinalizedLocked(finalized, certificate, candidate.Commitments)
-	s.removeCommittedLocked(message.Block)
+	s.clearCommittedStateLocked(message.Block)
 	return []byte{1}, nil
 }
 
@@ -332,34 +337,27 @@ func (s *Service) pendingBlockLocked() BlockData {
 	return BlockData{Batches: batches}
 }
 
-func (s *Service) removeCommittedLocked(block BlockData) {
-	included := make(map[types.Hash]struct{})
+func (s *Service) clearCommittedStateLocked(block BlockData) {
+	// Proof-carrying transactions are bound to the pre-commit state root, so any
+	// uncommitted transaction must refresh its witnesses after finality.
+	s.mempool = make(map[uint32][]tx.Transaction)
+	s.mempoolInputs = make(map[types.ObjectID]types.Hash)
 	for shard, batch := range block.Batches {
-		for _, transaction := range batch.Transactions {
-			included[transaction.ID()] = struct{}{}
-		}
 		if len(batch.Imports) > 0 {
 			s.imports[shard] = nil
 		}
 	}
-	s.mempoolInputs = make(map[types.ObjectID]types.Hash)
-	for shard, transactions := range s.mempool {
-		keep := transactions[:0]
-		for _, transaction := range transactions {
-			if _, ok := included[transaction.ID()]; ok {
-				continue
-			}
-			keep = append(keep, transaction)
-			for _, input := range transaction.Inputs {
-				s.mempoolInputs[input.ObjectID] = transaction.ID()
-			}
+	for slot := range s.votes {
+		if slot.Height <= s.Runtime.Height {
+			delete(s.votes, slot)
 		}
-		s.mempool[shard] = keep
 	}
 }
 
-func (s *Service) recordFinalizedLocked(header interface{ CanonicalBytes() []byte }, certificate v2consensus.Certificate, commitments []interface{}) lightapi.Snapshot {
-	panic("unreachable")
+func (s *Service) recordFinalizedLocked(header sharding.GlobalHeader, certificate v2consensus.Certificate, commitments []sharding.Commitment) lightapi.Snapshot {
+	snapshot := lightapi.Snapshot{Header: header, Certificate: certificate, Commitments: append([]sharding.Commitment(nil), commitments...), Validators: cloneValidatorSet(s.Validators)}
+	s.latest = &snapshot
+	return cloneSnapshot(snapshot)
 }
 
 func (s *Service) LatestSnapshot() (lightapi.Snapshot, error) {
@@ -378,23 +376,16 @@ func (s *Service) ShardState(shardID uint32) (worldstate.Backend, bool) {
 	return store, ok
 }
 
-func sameProposalHeader(a, b interface{ CanonicalBytes() []byte }) bool {
+func sameProposalHeader(a, b sharding.GlobalHeader) bool {
 	return bytes.Equal(a.CanonicalBytes(), b.CanonicalBytes())
 }
 
 func validatorID(key *ecdsa.PrivateKey) (types.ValidatorID, error) {
-	if key == nil || key.Curve == nil {
+	if key == nil || key.Curve != elliptic.P256() || key.PublicKey.X == nil || key.PublicKey.Y == nil {
 		return types.ValidatorID{}, ErrNotValidator
 	}
-	public := ellipticMarshal(key)
-	if len(public) != 65 {
-		return types.ValidatorID{}, ErrNotValidator
-	}
+	public := elliptic.Marshal(elliptic.P256(), key.PublicKey.X, key.PublicKey.Y)
 	return types.ValidatorIDFromPublicKey(public), nil
-}
-
-func ellipticMarshal(key *ecdsa.PrivateKey) []byte {
-	return key.PublicKey.Curve.Params().NameBytes(key.PublicKey.X, key.PublicKey.Y)
 }
 
 func containsValidator(set v2consensus.ValidatorSet, id types.ValidatorID) bool {
@@ -406,19 +397,19 @@ func containsValidator(set v2consensus.ValidatorSet, id types.ValidatorID) bool 
 	return false
 }
 
-func cloneSnapshot(snapshot lightapi.Snapshot) lightapi.Snapshot {
-	out := snapshot
-	out.Certificate.Votes = append([]v2consensus.Vote(nil), snapshot.Certificate.Votes...)
-	out.Commitments = append(out.Commitments[:0:0], snapshot.Commitments...)
-	out.Validators.Validators = append(out.Validators.Validators[:0:0], snapshot.Validators.Validators...)
-	for i := range out.Validators.Validators {
-		out.Validators.Validators[i].PublicKey = append([]byte(nil), snapshot.Validators.Validators[i].PublicKey...)
+func cloneValidatorSet(set v2consensus.ValidatorSet) v2consensus.ValidatorSet {
+	out := v2consensus.ValidatorSet{Network: set.Network, Validators: make([]v2consensus.Validator, len(set.Validators))}
+	for i, validator := range set.Validators {
+		out.Validators[i] = validator
+		out.Validators[i].PublicKey = append([]byte(nil), validator.PublicKey...)
 	}
 	return out
 }
 
-func sortedPeers(peers []peer.ID) []peer.ID {
-	out := append([]peer.ID(nil), peers...)
-	sort.Slice(out, func(i, j int) bool { return out[i].String() < out[j].String() })
+func cloneSnapshot(snapshot lightapi.Snapshot) lightapi.Snapshot {
+	out := snapshot
+	out.Certificate.Votes = append([]v2consensus.Vote(nil), snapshot.Certificate.Votes...)
+	out.Commitments = append([]sharding.Commitment(nil), snapshot.Commitments...)
+	out.Validators = cloneValidatorSet(snapshot.Validators)
 	return out
 }
