@@ -23,6 +23,10 @@ type peerTransport interface {
 	PostVote(peerURL string, vote consensus.Vote) error
 }
 
+type certifiedBlockEvidenceTransport interface {
+	FetchBlockEvidence(peerURL string, height uint64) ([]ledger.CertifiedBlockEvidence, error)
+}
+
 type httpPeerTransport struct {
 	client         *http.Client
 	sourceNode     string
@@ -65,6 +69,31 @@ func (t *httpPeerTransport) FetchBlock(peerURL string, height uint64) (ledger.Bl
 		return ledger.Block{}, err
 	}
 	return payload.Block, nil
+}
+
+func (t *httpPeerTransport) FetchBlockEvidence(peerURL string, height uint64) ([]ledger.CertifiedBlockEvidence, error) {
+	request, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/v1/internal/block-evidence/%d", peerURL, height), nil)
+	if err != nil {
+		return nil, err
+	}
+	if err := t.applyPeerHeaders(request, nil); err != nil {
+		return nil, err
+	}
+
+	response, err := t.client.Do(request)
+	if err != nil {
+		return nil, err
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("peer returned status %d", response.StatusCode)
+	}
+
+	var payload BlockEvidenceResponse
+	if err := json.NewDecoder(response.Body).Decode(&payload); err != nil {
+		return nil, err
+	}
+	return payload.Evidence, nil
 }
 
 func (t *httpPeerTransport) FetchSnapshot(peerURL string) (ledger.Snapshot, error) {
