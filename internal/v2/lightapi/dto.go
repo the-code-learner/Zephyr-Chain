@@ -1,9 +1,6 @@
 package lightapi
 
-import (
-	"encoding/json"
-	"strconv"
-)
+import "encoding/json"
 
 func (v validatorDTO) MarshalJSON() ([]byte, error) {
 	return json.Marshal(struct {
@@ -11,6 +8,6 @@ func (v validatorDTO) MarshalJSON() ([]byte, error) {
 		PublicKey []byte `json:"publicKey"`
 		Power     string `json:"power"`
 	}{
-		ID: v.ID, PublicKey: v.PublicKey, Power: strconv.FormatUint(v.Power, 10),
+		ID: v.ID, PublicKey: v.PublicKey, Power: v.Power,
 	})
 }
