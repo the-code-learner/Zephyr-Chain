@@ -157,12 +157,12 @@ func TestEpochCollectorCarriesComputeBacklogAndBuildsVerifiedWork(t *testing.T) 
 	}
 	jobObject := object.Object{ID: types.ObjectID{13}, Version: 1, Owner: job.Owner, Kind: object.KindComputeJob, Data: recordRaw}
 	finalize := tx.Transaction{
-		ShardID: 0,
+		ShardID:    0,
 		Operations: []tx.Operation{{Kind: tx.OpComputeFinalize}},
-		Witnesses: []tx.Witness{{Object: jobObject}},
+		Witnesses:  []tx.Witness{{Object: jobObject}},
 	}
 	finalizeResult := execution.Result{
-		TxID: finalize.ID(),
+		TxID:    finalize.ID(),
 		Created: []object.Object{{ID: types.ObjectID{14}, Version: 1, Kind: object.KindSystem, Data: receipt.MarshalBinary()}},
 	}
 	if err := collector.ObserveFinalizedBlock(2, map[uint32]FinalizedShardObservation{
