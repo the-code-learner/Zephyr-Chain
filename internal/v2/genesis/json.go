@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"strconv"
 	"strings"
@@ -51,7 +52,8 @@ func ParseJSON(data []byte) (Config, error) {
 	if err := decoder.Decode(&raw); err != nil {
 		return Config{}, fmt.Errorf("%w: %v", ErrGenesisJSON, err)
 	}
-	if decoder.More() {
+	var trailing any
+	if err := decoder.Decode(&trailing); err != io.EOF {
 		return Config{}, ErrGenesisJSON
 	}
 	cfg := Config{
