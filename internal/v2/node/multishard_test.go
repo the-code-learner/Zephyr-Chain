@@ -163,7 +163,7 @@ func TestReceiptImportRejectsSelfSignedForeignValidatorSet(t *testing.T) {
 	receipt := sharding.CrossShardReceipt{
 		SourceShard: 0, DestinationShard: 1, SourceHeight: 1,
 		TransactionID: types.HashBytes("tx", []byte("fake")), OutputIndex: 0,
-		Output:           object.OutputSpec{Owner: types.AccountIDFromPublicKey([]byte("recipient")), Kind: object.KindSystem},
+		Output:          object.OutputSpec{Owner: types.AccountIDFromPublicKey([]byte("recipient")), Kind: object.KindSystem},
 		SourceStateRoot: candidate.Commitments[0].StateRoot,
 	}
 	if err := runtime.validateReceiptImport(1, ReceiptImport{Header: fakeHeader, Certificate: fakeCert, Validators: attackerValidators, Receipt: receipt}); err != ErrReceiptImport {
