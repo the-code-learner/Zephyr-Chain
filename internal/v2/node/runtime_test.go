@@ -16,8 +16,19 @@ import (
 func TestCandidateDoesNotMutateBeforeQCAndCommitsAfterQC(t *testing.T) {
 	network := types.NetworkID(types.HashBytes("network", []byte("node-runtime")))
 	native := types.TokenID(types.HashBytes("token", []byte("ZPH")))
-	validatorRoot := types.HashBytes("validators", []byte("set-1"))
 	stateStore := worldstate.NewMemory()
+
+	validatorKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	validatorPub := elliptic.Marshal(elliptic.P256(), validatorKey.PublicKey.X, validatorKey.PublicKey.Y)
+	validatorID := types.ValidatorIDFromPublicKey(validatorPub)
+	validators := v2consensus.ValidatorSet{Network: network, Validators: []v2consensus.Validator{{ID: validatorID, PublicKey: validatorPub, Power: 10}}}
+	validatorRoot, err := validators.Root()
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	aliceKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
@@ -66,13 +77,6 @@ func TestCandidateDoesNotMutateBeforeQCAndCommitsAfterQC(t *testing.T) {
 		t.Fatal("candidate did not calculate a new state root")
 	}
 
-	validatorKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	if err != nil {
-		t.Fatal(err)
-	}
-	validatorPub := elliptic.Marshal(elliptic.P256(), validatorKey.PublicKey.X, validatorKey.PublicKey.Y)
-	validatorID := types.ValidatorIDFromPublicKey(validatorPub)
-	validators := v2consensus.ValidatorSet{Network: network, Validators: []v2consensus.Validator{{ID: validatorID, PublicKey: validatorPub, Power: 10}}}
 	proposal, err := v2consensus.SignProposal(validatorKey, candidate.Header, 0)
 	if err != nil {
 		t.Fatal(err)
