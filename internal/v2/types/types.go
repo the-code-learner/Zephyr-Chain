@@ -1,6 +1,7 @@
 package types
 
 import (
+	"encoding/binary"
 	"encoding/hex"
 
 	"github.com/zephyr-chain/zephyr-chain/internal/v2/codec"
@@ -47,11 +48,32 @@ func ValidatorIDFromPublicKey(publicKey []byte) ValidatorID {
 	return ValidatorID(codec.DomainHash("zephyr/validator-id/v2", publicKey))
 }
 
-func ObjectIDFromTransaction(txID Hash, index uint32) ObjectID {
+// AccountShard chooses the execution shard for newly created account-owned
+// objects. The object ID itself permanently records the chosen shard so later
+// shard-count changes cannot silently move an existing object.
+func AccountShard(account AccountID, shardCount uint32) uint32 {
+	if shardCount <= 1 {
+		return 0
+	}
+	return uint32(binary.BigEndian.Uint64(account[:8]) % uint64(shardCount))
+}
+
+func ObjectShard(id ObjectID) uint32 {
+	return binary.BigEndian.Uint32(id[:4])
+}
+
+func ObjectIDForShard(txID Hash, index, shardID uint32) ObjectID {
 	var w codec.Writer
 	w.Fixed(txID[:])
 	w.U32(index)
-	return ObjectID(codec.DomainHash("zephyr/object-id/v2", w.BytesCopy()))
+	w.U32(shardID)
+	hash := codec.DomainHash("zephyr/object-id/v2", w.BytesCopy())
+	binary.BigEndian.PutUint32(hash[:4], shardID)
+	return ObjectID(hash)
+}
+
+func ObjectIDFromTransaction(txID Hash, index uint32) ObjectID {
+	return ObjectIDForShard(txID, index, 0)
 }
 
 func TokenIDFromTransaction(txID Hash, operationIndex uint32) TokenID {
