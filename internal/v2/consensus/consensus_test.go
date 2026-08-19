@@ -34,8 +34,8 @@ func TestV2QuorumCertificateRequiresTwoThirdsPlus(t *testing.T) {
 	header := sharding.GlobalHeader{
 		Version: 2, Network: network, Height: 1,
 		ShardCommitmentRoot: types.HashBytes("shards", []byte("root")),
-		ValidatorRoot: types.HashBytes("validators", []byte("root")),
-		DataRoot: types.HashBytes("data", []byte("root")),
+		ValidatorRoot:       types.HashBytes("validators", []byte("root")),
+		DataRoot:            types.HashBytes("data", []byte("root")),
 	}
 	proposal, err := SignProposal(keys[proposer.ID], header, 0)
 	if err != nil {
