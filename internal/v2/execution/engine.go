@@ -6,6 +6,7 @@ import (
 
 	"github.com/zephyr-chain/zephyr-chain/internal/v2/assets"
 	"github.com/zephyr-chain/zephyr-chain/internal/v2/object"
+	"github.com/zephyr-chain/zephyr-chain/internal/v2/sharding"
 	"github.com/zephyr-chain/zephyr-chain/internal/v2/tx"
 	"github.com/zephyr-chain/zephyr-chain/internal/v2/types"
 )
@@ -18,9 +19,16 @@ var (
 	ErrShard                = errors.New("transaction routed to wrong shard")
 )
 
+type OutboundOutput struct {
+	DestinationShard uint32
+	OutputIndex      uint32
+	Output           object.OutputSpec
+}
+
 type Result struct {
 	Consumed []types.ObjectID
 	Created  []object.Object
+	Outbound []OutboundOutput
 	TxID     types.Hash
 }
 
@@ -40,15 +48,15 @@ func (e Engine) Execute(t tx.Transaction) (Result, error) {
 	if e.ShardCount == 0 {
 		e.ShardCount = 1
 	}
-	if len(t.Inputs) > 0 {
-		expected := shardForObject(t.Inputs[0].ObjectID, e.ShardCount)
-		if t.ShardID != expected {
+	router := sharding.Router{ShardCount: e.ShardCount}
+	senderShard, err := router.ShardForAccount(t.Sender)
+	if err != nil || t.ShardID != senderShard {
+		return Result{}, ErrShard
+	}
+	for _, in := range t.Inputs {
+		inputShard, err := router.ShardForObject(in.ObjectID)
+		if err != nil || inputShard != t.ShardID {
 			return Result{}, ErrShard
-		}
-		for _, in := range t.Inputs[1:] {
-			if shardForObject(in.ObjectID, e.ShardCount) != expected {
-				return Result{}, ErrShard
-			}
 		}
 	}
 	if len(t.Operations) != 1 {
@@ -82,6 +90,8 @@ func (e Engine) executeTransfer(t tx.Transaction) (Result, error) {
 	outputTotals := map[types.TokenID]uint64{}
 	txID := t.ID()
 	created := make([]object.Object, 0, len(t.Outputs))
+	outbound := make([]OutboundOutput, 0)
+	router := sharding.Router{ShardCount: e.ShardCount}
 	for i, spec := range t.Outputs {
 		if spec.Kind != object.KindCoin {
 			return Result{}, ErrConservation
@@ -93,10 +103,18 @@ func (e Engine) executeTransfer(t tx.Transaction) (Result, error) {
 		if err := add(outputTotals, coin.Token, coin.Amount); err != nil {
 			return Result{}, err
 		}
-		created = append(created, object.Object{
-			ID: types.ObjectIDFromTransaction(txID, uint32(i)), Version: 1,
-			Owner: spec.Owner, Kind: spec.Kind, Data: append([]byte(nil), spec.Data...),
-		})
+		destination, err := router.ShardForAccount(spec.Owner)
+		if err != nil {
+			return Result{}, ErrShard
+		}
+		if destination == t.ShardID {
+			created = append(created, object.Object{
+				ID: types.ObjectIDForShard(txID, uint32(i), destination), Version: 1,
+				Owner: spec.Owner, Kind: spec.Kind, Data: append([]byte(nil), spec.Data...),
+			})
+		} else {
+			outbound = append(outbound, OutboundOutput{DestinationShard: destination, OutputIndex: uint32(i), Output: spec})
+		}
 	}
 
 	for token, inAmount := range inputTotals {
@@ -120,7 +138,7 @@ func (e Engine) executeTransfer(t tx.Transaction) (Result, error) {
 	for i, in := range t.Inputs {
 		consumed[i] = in.ObjectID
 	}
-	return Result{Consumed: consumed, Created: created, TxID: txID}, nil
+	return Result{Consumed: consumed, Created: created, Outbound: outbound, TxID: txID}, nil
 }
 
 func (e Engine) executeCreateToken(t tx.Transaction, payload []byte) (Result, error) {
@@ -151,6 +169,8 @@ func (e Engine) executeCreateToken(t tx.Transaction, payload []byte) (Result, er
 	var nativeOut uint64
 	txID := t.ID()
 	created := make([]object.Object, 0, len(t.Outputs)+2)
+	outbound := make([]OutboundOutput, 0)
+	router := sharding.Router{ShardCount: e.ShardCount}
 	for i, spec := range t.Outputs {
 		coin, err := object.ParseCoin(spec.Data)
 		if err != nil || spec.Kind != object.KindCoin || coin.Token != e.NativeToken {
@@ -160,10 +180,18 @@ func (e Engine) executeCreateToken(t tx.Transaction, payload []byte) (Result, er
 			return Result{}, ErrOverflow
 		}
 		nativeOut += coin.Amount
-		created = append(created, object.Object{
-			ID: types.ObjectIDFromTransaction(txID, uint32(i)), Version: 1,
-			Owner: spec.Owner, Kind: spec.Kind, Data: append([]byte(nil), spec.Data...),
-		})
+		destination, err := router.ShardForAccount(spec.Owner)
+		if err != nil {
+			return Result{}, ErrShard
+		}
+		if destination == t.ShardID {
+			created = append(created, object.Object{
+				ID: types.ObjectIDForShard(txID, uint32(i), destination), Version: 1,
+				Owner: spec.Owner, Kind: spec.Kind, Data: append([]byte(nil), spec.Data...),
+			})
+		} else {
+			outbound = append(outbound, OutboundOutput{DestinationShard: destination, OutputIndex: uint32(i), Output: spec})
+		}
 	}
 	if math.MaxUint64-nativeOut < t.Fee || nativeIn != nativeOut+t.Fee {
 		return Result{}, ErrConservation
@@ -179,7 +207,7 @@ func (e Engine) executeCreateToken(t tx.Transaction, payload []byte) (Result, er
 	if err != nil {
 		return Result{}, err
 	}
-	defID := types.ObjectIDFromTransaction(txID, 0x80000000)
+	defID := types.ObjectIDForShard(txID, 0x80000000, t.ShardID)
 	created = append(created, object.Object{
 		ID: defID, Version: 1, Owner: t.Sender, Kind: object.KindTokenDefinition, Data: defData,
 	})
@@ -188,14 +216,14 @@ func (e Engine) executeCreateToken(t tx.Transaction, payload []byte) (Result, er
 		return Result{}, err
 	}
 	created = append(created, object.Object{
-		ID: types.ObjectIDFromTransaction(txID, 0x80000001), Version: 1,
+		ID: types.ObjectIDForShard(txID, 0x80000001, t.ShardID), Version: 1,
 		Owner: initialCoin.Owner, Kind: initialCoin.Kind, Data: initialCoin.Data,
 	})
 	consumed := make([]types.ObjectID, len(t.Inputs))
 	for i, in := range t.Inputs {
 		consumed[i] = in.ObjectID
 	}
-	return Result{Consumed: consumed, Created: created, TxID: txID}, nil
+	return Result{Consumed: consumed, Created: created, Outbound: outbound, TxID: txID}, nil
 }
 
 func add(totals map[types.TokenID]uint64, token types.TokenID, amount uint64) error {
@@ -205,14 +233,4 @@ func add(totals map[types.TokenID]uint64, token types.TokenID, amount uint64) er
 	}
 	totals[token] = current + amount
 	return nil
-}
-
-func shardForObject(id types.ObjectID, shardCount uint32) uint32 {
-	if shardCount <= 1 {
-		return 0
-	}
-	raw := types.Hash(id)
-	v := uint64(raw[0])<<56 | uint64(raw[1])<<48 | uint64(raw[2])<<40 | uint64(raw[3])<<32 |
-		uint64(raw[4])<<24 | uint64(raw[5])<<16 | uint64(raw[6])<<8 | uint64(raw[7])
-	return uint32(v % uint64(shardCount))
 }
