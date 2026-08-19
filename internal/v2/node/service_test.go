@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/libp2p/go-libp2p/core/peer"
+
 	v2consensus "github.com/zephyr-chain/zephyr-chain/internal/v2/consensus"
 	p2p "github.com/zephyr-chain/zephyr-chain/internal/v2/network/p2p"
 	"github.com/zephyr-chain/zephyr-chain/internal/v2/types"
@@ -55,10 +57,6 @@ func TestConsensusServiceFinalizesAcrossThreeQUICValidators(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	for i := range nodes {
-		peers := make([]string, 0, len(nodes)-1)
-		_ = peers
-		ids := make([]interface{}, 0)
-		_ = ids
 		for j := range nodes {
 			if i == j {
 				continue
@@ -72,6 +70,7 @@ func TestConsensusServiceFinalizesAcrossThreeQUICValidators(t *testing.T) {
 			if i != j {
 				peerIDs = append(peerIDs, nodes[j].ID())
 			}
+		}
 		services[i].SetPeers(peerIDs)
 	}
 	expected, err := validators.Proposer(1, 0)
