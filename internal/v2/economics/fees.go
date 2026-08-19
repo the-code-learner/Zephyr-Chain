@@ -57,25 +57,25 @@ func SplitFee(fee uint64, policy FeePolicy) (FeeAllocation, error) {
 }
 
 type ResourceUsage struct {
-	BaseTransactions   uint64
-	SignatureOps       uint64
-	WitnessBytes       uint64
-	StateReads         uint64
-	StateWrites        uint64
-	ContractFuel       uint64
+	BaseTransactions      uint64
+	SignatureOps          uint64
+	WitnessBytes          uint64
+	StateReads            uint64
+	StateWrites           uint64
+	ContractFuel          uint64
 	DataAvailabilityBytes uint64
-	CrossShardReceipts uint64
+	CrossShardReceipts    uint64
 }
 
 type ResourcePrices struct {
-	BaseTransaction       uint64
-	SignatureOp           uint64
-	WitnessByte           uint64
-	StateRead             uint64
-	StateWrite            uint64
-	ContractFuel          uint64
-	DataAvailabilityByte  uint64
-	CrossShardReceipt     uint64
+	BaseTransaction      uint64
+	SignatureOp          uint64
+	WitnessByte          uint64
+	StateRead            uint64
+	StateWrite           uint64
+	ContractFuel         uint64
+	DataAvailabilityByte uint64
+	CrossShardReceipt    uint64
 }
 
 func QuoteResourceFee(usage ResourceUsage, prices ResourcePrices) (uint64, error) {
