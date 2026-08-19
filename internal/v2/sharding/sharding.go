@@ -2,7 +2,6 @@ package sharding
 
 import (
 	"bytes"
-	"encoding/binary"
 	"errors"
 	"sort"
 
@@ -21,15 +20,22 @@ type Router struct {
 	ShardCount uint32
 }
 
-func (r Router) ShardForObject(id types.ObjectID) (uint32, error) {
-	if r.ShardCount == 0 {
+func (r Router) ShardForAccount(account types.AccountID) (uint32, error) {
+	if r.ShardCount == 0 || types.IsZero32([32]byte(account)) {
 		return 0, ErrShardCount
 	}
-	if r.ShardCount == 1 {
-		return 0, nil
+	return types.AccountShard(account, r.ShardCount), nil
+}
+
+func (r Router) ShardForObject(id types.ObjectID) (uint32, error) {
+	if r.ShardCount == 0 || types.IsZero32([32]byte(id)) {
+		return 0, ErrShardCount
 	}
-	v := binary.BigEndian.Uint64(id[:8])
-	return uint32(v % uint64(r.ShardCount)), nil
+	shard := types.ObjectShard(id)
+	if shard >= r.ShardCount {
+		return 0, ErrShardCount
+	}
+	return shard, nil
 }
 
 type Commitment struct {
@@ -149,6 +155,19 @@ func (r CrossShardReceipt) Hash() (types.Hash, error) {
 		return types.Hash{}, err
 	}
 	return merkle.Leaf("cross-shard-receipt", payload), nil
+}
+
+func (r CrossShardReceipt) DestinationObject() (object.Object, error) {
+	if err := r.Validate(); err != nil {
+		return object.Object{}, err
+	}
+	return object.Object{
+		ID:      types.ObjectIDForShard(r.TransactionID, r.OutputIndex, r.DestinationShard),
+		Version: 1,
+		Owner:   r.Output.Owner,
+		Kind:    r.Output.Kind,
+		Data:    append([]byte(nil), r.Output.Data...),
+	}, nil
 }
 
 func sortedCommitments(in []Commitment) ([]Commitment, error) {
