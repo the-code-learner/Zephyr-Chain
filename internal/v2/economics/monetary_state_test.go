@@ -64,7 +64,8 @@ func TestShadowMonetaryEpochStateChainsPreviousEpoch(t *testing.T) {
 			Epoch: epoch, ShardCount: 1, ChargedFees: 10, BurnedFees: 10,
 			FinalizedOperations: 100, ResourceUsed: 50, ResourceCapacity: 100, ResourceUtilizationBps: 5_000,
 			CirculatingNativeSupply: 900_000_000, AgeWeightedVelocityBps: 5_000,
-			VerifiedComputeSupply: 1_000, ComputeFulfilled: 700, ComputeUtilizationBps: 7_000,
+			EscrowBackedComputeDemand: 1_000, VerifiedComputeSupply: 1_000,
+			ComputeFulfilled: 700, ComputeUtilizationBps: 7_000,
 		}
 	}
 	firstAggregate := makeAggregate(1)
