@@ -17,6 +17,28 @@ replace_once(
 )
 
 replace_once(
+    "internal/api/peer_transport.go",
+    '''\tFetchBlock(peerURL string, height uint64) (ledger.Block, error)
+\tFetchBlockEvidence(peerURL string, height uint64) (ledger.CertifiedBlockEvidence, error)
+\tFetchSnapshot(peerURL string) (ledger.Snapshot, error)
+''',
+    '''\tFetchBlock(peerURL string, height uint64) (ledger.Block, error)
+\tFetchSnapshot(peerURL string) (ledger.Snapshot, error)
+''',
+)
+replace_once(
+    "internal/api/peer_transport.go",
+    '''type httpPeerTransport struct {
+''',
+    '''type certifiedBlockEvidenceTransport interface {
+\tFetchBlockEvidence(peerURL string, height uint64) (ledger.CertifiedBlockEvidence, error)
+}
+
+type httpPeerTransport struct {
+''',
+)
+
+replace_once(
     "internal/api/performance_lab_test.go",
     '''func (t *labFaultTransport) FetchBlock(peerURL string, height uint64) (ledger.Block, error) {
 \tif err := t.before(peerURL); err != nil {
@@ -37,7 +59,11 @@ func (t *labFaultTransport) FetchBlockEvidence(peerURL string, height uint64) (l
 \tif err := t.before(peerURL); err != nil {
 \t\treturn ledger.CertifiedBlockEvidence{}, err
 \t}
-\treturn t.base.FetchBlockEvidence(peerURL, height)
+\tevidenceTransport, ok := t.base.(certifiedBlockEvidenceTransport)
+\tif !ok {
+\t\treturn ledger.CertifiedBlockEvidence{}, fmt.Errorf("lab base transport does not support certified block evidence")
+\t}
+\treturn evidenceTransport.FetchBlockEvidence(peerURL, height)
 }
 
 func (t *labFaultTransport) FetchSnapshot(peerURL string) (ledger.Snapshot, error) {''',
@@ -81,13 +107,18 @@ new = '''\t\tif err := s.ledger.ImportBlockWithOptions(block, s.config.RequireCo
 
 \t\t\tvar evidenceErr error
 \t\t\tif s.config.RequireConsensusCertificates {
-\t\t\t\tevidence, fetchEvidenceErr := s.transport.FetchBlockEvidence(peerURL, height)
-\t\t\t\tif fetchEvidenceErr != nil {
-\t\t\t\t\tevidenceErr = fetchEvidenceErr
-\t\t\t\t} else if importEvidenceErr := s.ledger.ImportBlockWithEvidence(block, evidence); importEvidenceErr != nil {
-\t\t\t\t\tevidenceErr = importEvidenceErr
+\t\t\t\tevidenceTransport, ok := s.transport.(certifiedBlockEvidenceTransport)
+\t\t\t\tif !ok {
+\t\t\t\t\tevidenceErr = fmt.Errorf("peer transport does not support certified block evidence")
 \t\t\t\t} else {
-\t\t\t\t\tcontinue
+\t\t\t\t\tevidence, fetchEvidenceErr := evidenceTransport.FetchBlockEvidence(peerURL, height)
+\t\t\t\t\tif fetchEvidenceErr != nil {
+\t\t\t\t\t\tevidenceErr = fetchEvidenceErr
+\t\t\t\t\t} else if importEvidenceErr := s.ledger.ImportBlockWithEvidence(block, evidence); importEvidenceErr != nil {
+\t\t\t\t\t\tevidenceErr = importEvidenceErr
+\t\t\t\t\t} else {
+\t\t\t\t\t\tcontinue
+\t\t\t\t\t}
 \t\t\t\t}
 \t\t\t}
 
