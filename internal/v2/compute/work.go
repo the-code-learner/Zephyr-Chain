@@ -1,8 +1,10 @@
 package compute
 
 import (
+	"bytes"
 	"errors"
 	"math"
+	"sort"
 
 	"github.com/zephyr-chain/zephyr-chain/internal/v2/codec"
 	"github.com/zephyr-chain/zephyr-chain/internal/v2/types"
@@ -167,7 +169,7 @@ func (r *WorkRegistry) Register(spec WorkSpec) error {
 	if existing, ok := r.byWorkload[spec.WorkloadHash]; ok {
 		a, _ := existing.MarshalBinary()
 		b, _ := spec.MarshalBinary()
-		if string(a) != string(b) {
+		if !bytes.Equal(a, b) {
 			return ErrInvalidWorkRegistry
 		}
 		return nil
@@ -182,6 +184,46 @@ func (r *WorkRegistry) Resolve(workload types.Hash) (WorkSpec, bool) {
 	}
 	spec, ok := r.byWorkload[workload]
 	return spec, ok
+}
+
+// CanonicalSpecs returns an independent workload-hash-sorted registry view.
+// Registry insertion order must never affect economic replay or checkpoint
+// identity.
+func (r *WorkRegistry) CanonicalSpecs() ([]WorkSpec, error) {
+	if r == nil {
+		return nil, ErrInvalidWorkRegistry
+	}
+	out := make([]WorkSpec, 0, len(r.byWorkload))
+	for _, spec := range r.byWorkload {
+		if err := spec.Validate(); err != nil {
+			return nil, ErrInvalidWorkRegistry
+		}
+		out = append(out, spec)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		return bytes.Compare(out[i].WorkloadHash[:], out[j].WorkloadHash[:]) < 0
+	})
+	return out, nil
+}
+
+// Hash commits the exact normalized workload definitions used by ZCPI/ZCSI.
+// Checkpoints bind this hash instead of serializing an implicitly trusted
+// registry snapshot; restore must be supplied the same registry explicitly.
+func (r *WorkRegistry) Hash() (types.Hash, error) {
+	specs, err := r.CanonicalSpecs()
+	if err != nil {
+		return types.Hash{}, err
+	}
+	var w codec.Writer
+	w.U32(uint32(len(specs)))
+	for _, spec := range specs {
+		raw, err := spec.MarshalBinary()
+		if err != nil {
+			return types.Hash{}, ErrInvalidWorkRegistry
+		}
+		w.Bytes(raw)
+	}
+	return types.Hash(codec.DomainHash("zephyr/work-registry/v2", w.BytesCopy())), nil
 }
 
 // VerifiedWork is an index-eligible observation. It can only be derived from a
