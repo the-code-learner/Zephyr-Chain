@@ -549,13 +549,13 @@ func (t *labFaultTransport) FetchBlock(peerURL string, height uint64) (ledger.Bl
 	return t.base.FetchBlock(peerURL, height)
 }
 
-func (t *labFaultTransport) FetchBlockEvidence(peerURL string, height uint64) (ledger.CertifiedBlockEvidence, error) {
+func (t *labFaultTransport) FetchBlockEvidence(peerURL string, height uint64) ([]ledger.CertifiedBlockEvidence, error) {
 	if err := t.before(peerURL); err != nil {
-		return ledger.CertifiedBlockEvidence{}, err
+		return nil, err
 	}
 	evidenceTransport, ok := t.base.(certifiedBlockEvidenceTransport)
 	if !ok {
-		return ledger.CertifiedBlockEvidence{}, fmt.Errorf("lab base transport does not support certified block evidence")
+		return nil, fmt.Errorf("lab base transport does not support certified block evidence")
 	}
 	return evidenceTransport.FetchBlockEvidence(peerURL, height)
 }

@@ -165,18 +165,10 @@ func (s *Server) syncFromPeer(peerURL string, localHeight uint64, remoteHeight u
 
 			var evidenceErr error
 			if s.config.RequireConsensusCertificates {
-				evidenceTransport, ok := s.transport.(certifiedBlockEvidenceTransport)
-				if !ok {
-					evidenceErr = fmt.Errorf("peer transport does not support certified block evidence")
+				if recoveryErr := s.recoverCertifiedBlockFromPeers(peerURL, height, block); recoveryErr != nil {
+					evidenceErr = recoveryErr
 				} else {
-					evidence, fetchEvidenceErr := evidenceTransport.FetchBlockEvidence(peerURL, height)
-					if fetchEvidenceErr != nil {
-						evidenceErr = fetchEvidenceErr
-					} else if importEvidenceErr := s.ledger.ImportBlockWithEvidence(block, evidence); importEvidenceErr != nil {
-						evidenceErr = importEvidenceErr
-					} else {
-						continue
-					}
+					continue
 				}
 			}
 

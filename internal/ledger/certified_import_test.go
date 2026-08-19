@@ -166,6 +166,22 @@ func TestImportBlockWithEvidenceRequiresSignedQuorum(t *testing.T) {
 		t.Fatalf("insufficient evidence mutated target height to %d", height)
 	}
 
+	localPlusRemote := newTarget()
+	if err := localPlusRemote.RecordProposal(proposal); err != nil {
+		t.Fatalf("record local recovery proposal: %v", err)
+	}
+	if _, _, err := localPlusRemote.RecordVote(evidence.Votes[0]); err != nil {
+		t.Fatalf("record local recovery vote: %v", err)
+	}
+	fourRemoteVotes := evidence
+	fourRemoteVotes.Votes = append([]consensus.Vote(nil), evidence.Votes[1:5]...)
+	if err := localPlusRemote.ImportBlockWithEvidence(block, fourRemoteVotes); err != nil {
+		t.Fatalf("expected local vote plus four remote votes to reach quorum: %v", err)
+	}
+	if height := localPlusRemote.Status().Height; height != 1 {
+		t.Fatalf("expected local plus remote evidence to import height 1, got %d", height)
+	}
+
 	tampered := newTarget()
 	badEvidence := evidence
 	badEvidence.Votes = append([]consensus.Vote(nil), evidence.Votes...)
