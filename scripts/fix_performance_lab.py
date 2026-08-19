@@ -7,6 +7,34 @@ source = source.replace('\t"errors"\n', '')
 source = source.replace('\nvar _ = errors.Is\n', '\n')
 source = source.replace('labConsensusRoundLimit = 120 * time.Millisecond', 'labConsensusRoundLimit = 1 * time.Second')
 
+old_set = '''\t\tif _, err := node.server.ledger.SetValidators(validators, dpos.ElectionConfig{
+\t\t\tMaxValidators:   validatorCount,
+\t\t\tMinSelfStake:    1,
+\t\t\tMaxMissedBlocks: 100,
+\t\t}); err != nil {
+\t\t\tcluster.Close()
+\t\t\ttb.Fatalf("set validator snapshot on node %d: %v", index, err)
+\t\t}
+'''
+new_set = '''\t\tif _, err := node.server.ledger.SetValidators(validators, dpos.ElectionConfig{
+\t\t\tMaxValidators:   validatorCount,
+\t\t\tMinSelfStake:    1,
+\t\t\tMaxMissedBlocks: 100,
+\t\t}); err != nil {
+\t\t\tcluster.Close()
+\t\t\ttb.Fatalf("set validator snapshot on node %d: %v", index, err)
+\t\t}
+\t\tview := node.server.ledger.Consensus()
+\t\texpectedTotal := uint64(validatorCount) * labVotingPower
+\t\texpectedQuorum := (expectedTotal/3)*2 + ((expectedTotal%3)*2)/3 + 1
+\t\tif view.ValidatorCount != validatorCount || view.TotalVotingPower != expectedTotal || view.QuorumVotingPower != expectedQuorum {
+\t\t\tcluster.Close()
+\t\t\ttb.Fatalf("unexpected validator quorum on node %d: count=%d total=%d quorum=%d, expected count=%d total=%d quorum=%d", index, view.ValidatorCount, view.TotalVotingPower, view.QuorumVotingPower, validatorCount, expectedTotal, expectedQuorum)
+\t\t}
+'''
+if old_set in source:
+    source = source.replace(old_set, new_set, 1)
+
 old_failure = '''\tstatuses := make([]uint64, 0, len(c.nodes))
 \tfor _, node := range c.nodes {
 \t\tstatuses = append(statuses, node.server.ledger.Status().Height)
@@ -29,6 +57,46 @@ new_failure = '''\tsummaries := make([]string, 0, len(c.nodes))
 '''
 if old_failure in source:
     source = source.replace(old_failure, new_failure, 1)
+
+marker = '''func (c *labCluster) driveFor(duration time.Duration) {
+'''
+helper = '''func (c *labCluster) driveAndSyncUntilHeight(indices []int, height uint64, timeout time.Duration) {
+\tc.tb.Helper()
+\tdeadline := time.Now().Add(timeout)
+\tfor time.Now().Before(deadline) {
+\t\tfor _, node := range c.nodes {
+\t\t\tif err := node.server.runConsensusAutomation(); err != nil && !ignoreConsensusAutomationError(err) {
+\t\t\t\tc.tb.Fatalf("drive consensus on %s: %v", node.server.nodeID, err)
+\t\t\t}
+\t\t}
+\t\tfor _, node := range c.nodes {
+\t\t\tnode.server.syncPeers()
+\t\t}
+\t\tif c.indicesAtHeight(indices, height) {
+\t\t\treturn
+\t\t}
+\t\ttime.Sleep(5 * time.Millisecond)
+\t}
+\tc.driveUntilHeight(indices, height, time.Millisecond)
+}
+
+'''
+if helper not in source:
+    if marker not in source:
+        raise SystemExit("driveFor marker not found")
+    source = source.replace(marker, helper + marker, 1)
+
+source = source.replace('func TestLabSevenValidatorsStallWithoutQuorumThenRecover(t *testing.T) {', 'func TestLabSevenValidatorsStallWithoutQuorumThenRecoverWithPeerSync(t *testing.T) {')
+old_heal = '''\tcluster.heal()
+\tcluster.driveUntilHeight(cluster.allIndices(), 1, 5*time.Second)
+\tcluster.assertSameTip(cluster.allIndices(), 1)
+'''
+new_heal = '''\tcluster.heal()
+\tcluster.driveAndSyncUntilHeight(cluster.allIndices(), 1, 8*time.Second)
+\tcluster.assertSameTip(cluster.allIndices(), 1)
+'''
+if old_heal in source:
+    source = source.replace(old_heal, new_heal, 1)
 
 pattern = re.compile(r'func BenchmarkLabConsensusFinality7Validators\(b \*testing\.B\) \{.*?\n\}\n\n(?=func BenchmarkLabP256TransactionVerification)', re.S)
 replacement = r'''func BenchmarkLabConsensusFinality7Validators(b *testing.B) {
