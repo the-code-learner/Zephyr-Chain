@@ -89,10 +89,10 @@ func Leaf(domain string, payload []byte) types.Hash {
 }
 
 func branch(left, right types.Hash) types.Hash {
-	var w codec.Writer
-	w.Fixed(left[:])
-	w.Fixed(right[:])
-	return types.Hash(codec.DomainHash("zephyr/merkle/branch/v2", w.BytesCopy()))
+	var payload [64]byte
+	copy(payload[:32], left[:])
+	copy(payload[32:], right[:])
+	return types.Hash(codec.DomainHash("zephyr/merkle/branch/v2", payload[:]))
 }
 
 func emptyLeaf() types.Hash {
