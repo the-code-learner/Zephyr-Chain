@@ -15,6 +15,7 @@ import (
 type peerTransport interface {
 	FetchStatus(peerURL string) (StatusResponse, error)
 	FetchBlock(peerURL string, height uint64) (ledger.Block, error)
+	FetchBlockEvidence(peerURL string, height uint64) (ledger.CertifiedBlockEvidence, error)
 	FetchSnapshot(peerURL string) (ledger.Snapshot, error)
 	PostTransaction(peerURL string, envelope tx.Envelope) error
 	PostBlock(peerURL string, block ledger.Block) error
@@ -65,6 +66,31 @@ func (t *httpPeerTransport) FetchBlock(peerURL string, height uint64) (ledger.Bl
 		return ledger.Block{}, err
 	}
 	return payload.Block, nil
+}
+
+func (t *httpPeerTransport) FetchBlockEvidence(peerURL string, height uint64) (ledger.CertifiedBlockEvidence, error) {
+	request, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/v1/internal/block-evidence/%d", peerURL, height), nil)
+	if err != nil {
+		return ledger.CertifiedBlockEvidence{}, err
+	}
+	if err := t.applyPeerHeaders(request, nil); err != nil {
+		return ledger.CertifiedBlockEvidence{}, err
+	}
+
+	response, err := t.client.Do(request)
+	if err != nil {
+		return ledger.CertifiedBlockEvidence{}, err
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		return ledger.CertifiedBlockEvidence{}, fmt.Errorf("peer returned status %d", response.StatusCode)
+	}
+
+	var payload BlockEvidenceResponse
+	if err := json.NewDecoder(response.Body).Decode(&payload); err != nil {
+		return ledger.CertifiedBlockEvidence{}, err
+	}
+	return payload.Evidence, nil
 }
 
 func (t *httpPeerTransport) FetchSnapshot(peerURL string) (ledger.Snapshot, error) {
