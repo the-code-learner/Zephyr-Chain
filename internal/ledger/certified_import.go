@@ -13,21 +13,25 @@ var (
 	ErrCertifiedEvidenceQuorum  = errors.New("certified block evidence does not reach quorum")
 )
 
-// CertifiedBlockEvidence carries the signed consensus artifacts required to
-// independently prove that a committed block reached validator quorum.
+// CertifiedBlockEvidence carries signed consensus artifacts that can be used
+// to independently prove that a committed block reached validator quorum.
 //
-// CommitCertificate is intentionally not trusted as a transport proof by
-// itself because it contains derived metadata rather than validator
-// signatures. A recovering node reconstructs the certificate from Proposal
-// and Votes after validating every signature against its local validator set.
+// A transport source may return only the valid proposal/vote fragment it has
+// retained for the committed block. The receiving node is the authority that
+// reconstructs voting power and requires quorum before importing the block.
+// CommitCertificate is deliberately not trusted as a transport proof because
+// it contains derived metadata rather than validator signatures.
 type CertifiedBlockEvidence struct {
 	Proposal consensus.Proposal `json:"proposal"`
 	Votes    []consensus.Vote   `json:"votes"`
 }
 
-// CertifiedBlockEvidenceAt returns a quorum-bearing proposal/vote bundle for
-// an already committed block. The returned evidence is still fully validated
-// by the receiving node; this method is only the transport-side collector.
+// CertifiedBlockEvidenceAt returns the signed proposal and every valid signed
+// vote this node retained for an already committed block. It intentionally
+// does not require a locally persisted derived CommitCertificate: a node that
+// received/imported a committed block may retain useful signed evidence even
+// when that derived artifact is absent. The receiving node still requires a
+// full quorum before ImportBlockWithEvidence can mutate state.
 func (s *Store) CertifiedBlockEvidenceAt(height uint64) (CertifiedBlockEvidence, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -38,27 +42,27 @@ func (s *Store) CertifiedBlockEvidenceAt(height uint64) (CertifiedBlockEvidence,
 	state := s.snapshotLocked()
 	block := state.Blocks[height-1]
 	proposal := matchProposalForBlock(proposalsForHeight(state.Proposals, height), block)
-	if proposal == nil {
-		return CertifiedBlockEvidence{}, false
-	}
-	certificate := matchCertificateForBlock(state.CommitCertificates, block)
-	if certificate == nil || certificate.Round != proposal.Round {
+	if proposal == nil || proposal.ValidateForChain(s.chainID) != nil {
 		return CertifiedBlockEvidence{}, false
 	}
 
-	certifiedVoters := make(map[string]struct{}, len(certificate.Voters))
-	for _, voter := range certificate.Voters {
-		certifiedVoters[voter] = struct{}{}
-	}
-	votes := make([]consensus.Vote, 0, len(certifiedVoters))
+	seen := make(map[string]struct{})
+	votes := make([]consensus.Vote, 0)
 	for _, record := range state.Votes {
 		vote := record.Vote
 		if vote.Height != height || vote.Round != proposal.Round || vote.BlockHash != block.Hash {
 			continue
 		}
-		if _, ok := certifiedVoters[vote.Voter]; !ok {
+		if _, duplicate := seen[vote.Voter]; duplicate {
 			continue
 		}
+		if _, ok := validatorVotingPower(state.ValidatorSnapshot, vote.Voter); !ok {
+			continue
+		}
+		if vote.ValidateForChain(s.chainID) != nil {
+			continue
+		}
+		seen[vote.Voter] = struct{}{}
 		votes = append(votes, vote)
 	}
 	sort.Slice(votes, func(i, j int) bool { return votes[i].Voter < votes[j].Voter })
