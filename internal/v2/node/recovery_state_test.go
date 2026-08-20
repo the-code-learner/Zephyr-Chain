@@ -4,6 +4,7 @@ import (
 	"errors"
 	"testing"
 
+	v2consensus "github.com/zephyr-chain/zephyr-chain/internal/v2/consensus"
 	"github.com/zephyr-chain/zephyr-chain/internal/v2/object"
 	"github.com/zephyr-chain/zephyr-chain/internal/v2/types"
 	"github.com/zephyr-chain/zephyr-chain/internal/v2/worldstate"

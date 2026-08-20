@@ -112,8 +112,8 @@ func newCheckpointEconomicsRuntime(t *testing.T, network types.NetworkID, native
 		Epoch: 1, ShardCount: 1, NativeToken: native,
 		InitialCirculatingSupply: map[uint32]uint64{0: 1_000_000},
 		ResourceCapacityPerBlock: map[uint32]uint64{0: 100},
-		VelocityPolicy: economics.VelocityPolicy{MinAgeBlocks: 1, FullWeightAgeBlocks: 10, MaxVelocityBps: 10_000},
-		FeePolicy: economics.CompatibilityFeePolicy(),
+		VelocityPolicy:           economics.VelocityPolicy{MinAgeBlocks: 1, FullWeightAgeBlocks: 10, MaxVelocityBps: 10_000},
+		FeePolicy:                economics.CompatibilityFeePolicy(),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -125,7 +125,7 @@ func newCheckpointEconomicsRuntime(t *testing.T, network types.NetworkID, native
 	index.WeightsBps[compute.WorkCPUGeneral] = 10_000
 	engineConfig := economics.ShadowEpochEngineConfig{
 		ComputeIndex: index, ComputeScarcity: economics.DefaultComputeScarcityConfig(),
-		Monetary: economics.DefaultShadowPolicy(),
+		Monetary:        economics.DefaultShadowPolicy(),
 		ComputeFeedback: economics.DefaultComputeFeedbackPolicy(economics.ComputeFeedbackObserveOnly),
 	}
 	engine, err := economics.NewShadowEpochEngine(network, engineConfig)

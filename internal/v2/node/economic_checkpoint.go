@@ -14,9 +14,9 @@ import (
 )
 
 const (
-	economicCheckpointVersion uint16 = 1
-	economicCheckpointMagic          = "ZEC2"
-	maxEconomicCheckpointBytes       = 64 << 20
+	economicCheckpointVersion  uint16 = 1
+	economicCheckpointMagic           = "ZEC2"
+	maxEconomicCheckpointBytes        = 64 << 20
 )
 
 var ErrEconomicCheckpoint = errors.New("invalid Zephyr v2 economic runtime checkpoint")

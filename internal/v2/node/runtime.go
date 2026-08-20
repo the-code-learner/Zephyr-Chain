@@ -16,12 +16,13 @@ import (
 )
 
 var (
-	ErrRuntimeConfig   = errors.New("invalid v2 runtime configuration")
-	ErrCandidateHeight = errors.New("invalid v2 candidate height")
-	ErrCandidateState  = errors.New("v2 candidate does not match committed state")
-	ErrCandidateCert   = errors.New("v2 candidate certificate mismatch")
-	ErrStateSimulation = errors.New("v2 backend does not support state simulation")
-	ErrReceiptImport   = errors.New("invalid v2 receipt import")
+	ErrRuntimeConfig           = errors.New("invalid v2 runtime configuration")
+	ErrCandidateHeight         = errors.New("invalid v2 candidate height")
+	ErrCandidateState          = errors.New("v2 candidate does not match committed state")
+	ErrCandidateCert           = errors.New("v2 candidate certificate mismatch")
+	ErrStateSimulation         = errors.New("v2 backend does not support state simulation")
+	ErrReceiptImport           = errors.New("invalid v2 receipt import")
+	ErrRuntimeRecoveryRequired = errors.New("v2 runtime recovery required")
 )
 
 type ReceiptImport struct {
@@ -56,20 +57,22 @@ type Candidate struct {
 }
 
 type Runtime struct {
-	mu                  sync.Mutex
-	Network             types.NetworkID
-	NativeToken         types.TokenID
-	ValidatorRoot       types.Hash
-	ShardCount          uint32
-	States              map[uint32]worldstate.Backend
-	Workers             int
-	Height              uint64
-	ParentHash          types.Hash
-	economicCollector   *economics.EpochCollector
-	economicEngine      *economics.ShadowEpochEngine
-	economicEpochLength uint64
-	economicBalances    economics.MonetaryBalanceSnapshot
-	pendingEconomic     *economics.ShadowEpochPreview
+	mu                      sync.Mutex
+	Network                 types.NetworkID
+	NativeToken             types.TokenID
+	ValidatorRoot           types.Hash
+	ShardCount              uint32
+	States                  map[uint32]worldstate.Backend
+	Workers                 int
+	Height                  uint64
+	ParentHash              types.Hash
+	economicCollector       *economics.EpochCollector
+	economicEngine          *economics.ShadowEpochEngine
+	economicEpochLength     uint64
+	economicBalances        economics.MonetaryBalanceSnapshot
+	pendingEconomic         *economics.ShadowEpochPreview
+	globalCommitJournalPath string
+	recoveryRequired        bool
 }
 
 func NewRuntime(network types.NetworkID, nativeToken types.TokenID, validatorRoot types.Hash, states map[uint32]worldstate.Backend, workers int) (*Runtime, error) {
@@ -88,6 +91,9 @@ func NewRuntime(network types.NetworkID, nativeToken types.TokenID, validatorRoo
 func (r *Runtime) BuildCandidate(height uint64, batches map[uint32]ShardBatch) (Candidate, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if r.recoveryRequired {
+		return Candidate{}, ErrRuntimeRecoveryRequired
+	}
 	if height != r.Height+1 || height == 0 {
 		return Candidate{}, ErrCandidateHeight
 	}
@@ -250,6 +256,9 @@ func (r *Runtime) validateReceiptImport(destinationShard uint32, receiptImport R
 func (r *Runtime) Commit(candidate Candidate, certificate v2consensus.Certificate, validators v2consensus.ValidatorSet) (sharding.GlobalHeader, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if r.recoveryRequired {
+		return sharding.GlobalHeader{}, ErrRuntimeRecoveryRequired
+	}
 	if candidate.Header.Height != r.Height+1 || candidate.Header.ParentHash != r.ParentHash || candidate.Header.Network != r.Network {
 		return sharding.GlobalHeader{}, ErrCandidateState
 	}
@@ -330,15 +339,52 @@ func (r *Runtime) Commit(candidate Candidate, certificate v2consensus.Certificat
 		nextPending = &preview
 	}
 
+	postPending := r.pendingEconomic
+	if nextPending != nil {
+		postPending = nextPending
+	} else if pendingApplied {
+		postPending = nil
+	}
+	finalized := candidate.Header
+	finalized.CertificateHash = certificate.Hash()
+	postParent := v2consensus.HeaderConsensusHash(finalized)
+
+	var journalIntent *globalCommitIntent
+	if r.globalCommitJournalPath != "" {
+		economicCheckpoint, err := r.postCommitEconomicCheckpoint(economicPreview, enginePreview, postPending, nextBalances, finalized.Height, postParent)
+		if err != nil {
+			return sharding.GlobalHeader{}, err
+		}
+		intent, err := r.buildGlobalCommitIntent(candidate, certificate, commitments, economicCheckpoint)
+		if err != nil {
+			return sharding.GlobalHeader{}, err
+		}
+		if err := writeGlobalCommitJournal(r.globalCommitJournalPath, intent); err != nil {
+			r.recoveryRequired = true
+			return sharding.GlobalHeader{}, errors.Join(ErrRuntimeRecoveryRequired, err)
+		}
+		journalIntent = &intent
+	}
+
 	for _, shardValue := range shards {
 		shard := uint32(shardValue)
 		delta := candidate.deltas[shard]
 		root, err := r.States[shard].Apply(delta.Consumed, delta.Created)
 		if err != nil {
-			return sharding.GlobalHeader{}, err
+			r.recoveryRequired = true
+			return sharding.GlobalHeader{}, errors.Join(ErrRuntimeRecoveryRequired, err)
 		}
 		if root != commitments[shard].StateRoot {
-			return sharding.GlobalHeader{}, ErrCandidateState
+			r.recoveryRequired = true
+			return sharding.GlobalHeader{}, errors.Join(ErrRuntimeRecoveryRequired, ErrCandidateState)
+		}
+	}
+
+	if journalIntent != nil {
+		journalIntent.Status = globalCommitCommitted
+		if err := writeGlobalCommitJournal(r.globalCommitJournalPath, *journalIntent); err != nil {
+			r.recoveryRequired = true
+			return sharding.GlobalHeader{}, errors.Join(ErrRuntimeRecoveryRequired, err)
 		}
 	}
 
@@ -348,16 +394,9 @@ func (r *Runtime) Commit(candidate Candidate, certificate v2consensus.Certificat
 	if enginePreview != nil {
 		r.economicEngine = enginePreview
 	}
-	if nextPending != nil {
-		r.pendingEconomic = nextPending
-		r.economicBalances = nextBalances
-	} else if pendingApplied {
-		r.pendingEconomic = nil
-	}
-
-	finalized := candidate.Header
-	finalized.CertificateHash = certificate.Hash()
+	r.pendingEconomic = postPending
+	r.economicBalances = nextBalances
 	r.Height = finalized.Height
-	r.ParentHash = v2consensus.HeaderConsensusHash(finalized)
+	r.ParentHash = postParent
 	return finalized, nil
 }

@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/zephyr-chain/zephyr-chain/internal/v2/economics"
 	"github.com/zephyr-chain/zephyr-chain/internal/v2/object"
 	"github.com/zephyr-chain/zephyr-chain/internal/v2/types"
 	"github.com/zephyr-chain/zephyr-chain/internal/v2/worldstate"
