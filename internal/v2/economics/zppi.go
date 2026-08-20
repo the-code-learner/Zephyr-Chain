@@ -8,7 +8,7 @@ import (
 const (
 	ZPPIPriceScaleQ9                 uint64 = 1_000_000_000
 	PurchasingPowerRetentionAnnualQ9 uint64 = 980_000_000
-	TargetZPPIAnnualFactorQ9          uint64 = 1_020_408_163
+	TargetZPPIAnnualFactorQ9         uint64 = 1_020_408_163
 )
 
 var ErrZPPI = errors.New("invalid Zephyr purchasing power index input")
