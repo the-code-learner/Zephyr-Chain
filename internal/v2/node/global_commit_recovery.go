@@ -68,7 +68,13 @@ func (r *Runtime) RecoverGlobalCommitJournal(validators v2consensus.ValidatorSet
 	postParent := v2consensus.HeaderConsensusHash(intent.Header)
 	atPreAnchor := r.Height == intent.PreHeight && r.ParentHash == intent.PreParentHash
 	atPostAnchor := r.Height == intent.Header.Height && r.ParentHash == postParent
-	if !atPreAnchor && !atPostAnchor {
+	unanchoredRestart := r.Height == 0 && types.IsZero32([32]byte(r.ParentHash))
+	// A freshly constructed runtime has no durable consensus anchor of its own.
+	// In that case the certified journal is allowed to restore the anchor, but
+	// only after the shard loop below proves every state root is exactly at the
+	// journal's pre/post boundary. Any other non-matching runtime anchor fails
+	// closed so recovery cannot silently move an already anchored runtime.
+	if !atPreAnchor && !atPostAnchor && !unanchoredRestart {
 		return ErrGlobalCommitJournal
 	}
 
