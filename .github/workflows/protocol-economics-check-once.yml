@@ -1,0 +1,44 @@
+name: Protocol Economics Package Check Once
+
+on:
+  push:
+    branches:
+      - protocol-economics-p1
+    paths:
+      - internal/v2/economics/**
+      - .github/workflows/protocol-economics-check-once.yml
+
+permissions:
+  contents: write
+
+jobs:
+  check:
+    if: github.repository == 'the-code-learner/Zephyr-Chain' && github.ref == 'refs/heads/protocol-economics-p1'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout economics branch
+        uses: actions/checkout@v6
+        with:
+          ref: protocol-economics-p1
+          fetch-depth: 0
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Vet economics package
+        run: go vet ./internal/v2/economics
+      - name: Test economics package
+        run: go test ./internal/v2/economics -count=1
+      - name: Remove one-shot workflow
+        run: git rm .github/workflows/protocol-economics-check-once.yml
+      - name: Commit cleanup
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          if git diff --cached --quiet; then
+            exit 0
+          fi
+          git commit -m 'Remove completed economics package check'
+          git push origin HEAD:protocol-economics-p1
