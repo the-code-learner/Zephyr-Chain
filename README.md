@@ -1,424 +1,277 @@
 # Zephyr Chain
 
-Zephyr Chain is an early-stage blockchain node and wallet stack focused on a production path toward validator-driven consensus, deterministic WASM execution, and a confidential compute marketplace.
+Zephyr Chain is an open-source blockchain project exploring a clean-break Protocol v2 designed around two equal engineering goals:
 
-The long-term product vision lives in [Zaphyr-chain_manifesto.md](./Zaphyr-chain_manifesto.md). Application and use-case framing lives in [docs/applications.md](./docs/applications.md). Academic paper materials are maintained locally under `paper/` and kept private via `.gitignore`. This `README` stays practical: what works now, what changed in the latest iteration, and what comes next.
+1. **scale up** toward extremely high transaction throughput when hardware is abundant;
+2. **scale down** so verification, payments, relay, data-availability participation and useful network activity remain practical on commodity hardware and eventually inside the Zephyr smartphone wallet.
 
-## Current Status
+Throughput may degrade when hardware is scarce. **Safety must not.**
 
-Implemented today:
+The long-term mission is described in [Zaphyr-chain_manifesto.md](./Zaphyr-chain_manifesto.md). The executable v2 design is specified in [docs/protocol-v2.md](./docs/protocol-v2.md), and the exact implementation/non-claim boundary is tracked in [docs/protocol-v2-implementation-status.md](./docs/protocol-v2-implementation-status.md).
 
-- Go HTTP node entrypoint in `cmd/node`
-- DPoS election primitives and tests in `internal/dpos`
-- transaction envelope validation in `internal/tx`
-- durable accounts, mempool, committed blocks, atomic restart-safe state persistence, and snapshot restore in `internal/ledger`
-- durable validator-set snapshots with versioning, proposer scheduling, and quorum summaries in `internal/ledger`
-- durable consensus round state with restart-safe height, round, and round-start tracking in `internal/ledger`
-- durable signed consensus proposals, validator votes, and quorum certificates in `internal/ledger`
-- self-contained consensus proposals that carry the full candidate transaction body plus deterministic template fields
-- automatic single-node block production plus manual dev block production
-- optional proposer-schedule enforcement for block production when a validator set and local validator address are configured
-- optional certificate-gated local block commit and remote block import when consensus enforcement is enabled
-- certificate-gated local commit can replay a stored certified proposal body even when the local mempool no longer has that candidate
-- optional consensus automation for scheduled self-proposal, validator auto-vote, timeout-driven round advance, proposer rotation, and certified proposer auto-commit on the current devnet path
-- transport-backed peer replication in `internal/api` with the current implementation running over HTTP
-- signed validator transport-identity proofs in status responses and peer verification views when a validator private key is configured
-- optional strict peer-admission enforcement and peer-to-validator binding on the current HTTP transport
-- peer status tracking, peer admission state, per-peer sync telemetry, block fetch by height, block import, snapshot-based catch-up, and consensus artifact replication for admitted peers
-- consensus visibility endpoints for status, validator snapshots, active round inspection, proposer schedule inspection, latest consensus artifacts, and next-block template preview
-- operator-facing observability endpoints for readiness, alerts, SLO summaries, alert-rule exports, recording-rule exports, dashboard bundles, Grafana dashboard export, JSON metrics, Prometheus metrics, and structured logs
-- Vue wallet in `apps/wallet`
-- wallet account generation, encrypted import/export, passphrase-protected local key storage, local signing, account inspection, faucet funding, and transaction broadcast
+> Zephyr's aspirational performance target is **1,000,000 transactions per second finalized through consensus**. It is a benchmark target, not a claim about current capacity.
 
-Implemented in this iteration:
+## Protocol v2 direction
 
-- failed outgoing proposal, vote, and block dissemination now lands in durable `replication_blocked` peer incidents with artifact-specific `reason` labels and transport-oriented error-code rollups
-- `GET /v1/alerts` now separates general peer-sync degradation from targeted `peer_import_blocked`, `peer_admission_blocked`, and `peer_replication_blocked` warnings built from durable peer incident rollups
-- `GET /v1/alert-rules` and `GET /v1/alert-rules/prometheus` now export matching peer-import, peer-admission, and peer-replication diagnostic rules for scrape-based monitoring stacks
-- `GET /metrics` now exports retained peer incident counts and latest observation timestamps per peer with the latest state, reason, and error-code labels attached for scrape-based drill-down
-- `GET /v1/recording-rules` and `GET /v1/recording-rules/prometheus` now export a canonical per-peer incident-pressure rollup so downstream dashboards can reuse that peer view without rewriting PromQL
-- `GET /v1/dashboards` and `GET /v1/dashboards/grafana` now expose peer incident reason panels plus a per-peer incident pressure panel built on that recording rule alongside state and error-code rollups so dissemination failures are visible in the peer-sync bundle
-- `GET /v1/alerts` now also derives a targeted aggregate `peer_snapshot_restored` warning plus repair-path-specific `peer_snapshot_restore_divergence`, `peer_snapshot_restore_import_repair`, and `peer_snapshot_restore_fetch_fallback` warnings from retained `snapshot_restored` incidents so snapshot-based peer repair shows up as a first-class operator signal without hiding the exact repair path
-- `GET /v1/alert-rules` and `GET /v1/alert-rules/prometheus` now additionally export `ZephyrPeerSnapshotRestore` so the snapshot-repair signal can be promoted into Prometheus-based alerting without custom rule authoring
-- `GET /v1/recording-rules` and `GET /v1/recording-rules/prometheus` now additionally export the canonical peer-sync rollup `zephyr:peer_sync:snapshot_restore_pressure` so dashboards can track retained snapshot-repair pressure without re-deriving it from raw incident metrics
-- `GET /v1/dashboards` and `GET /v1/dashboards/grafana` now add a `Peer snapshot restore pressure` stat to the peer-sync bundle so divergence, import-repair, and fetch-fallback recovery remain visible next to state, reason, error-code, and per-peer incident pressure
-- `GET /v1/alert-rules` and `GET /v1/alert-rules/prometheus` now additionally export repair-path-specific `ZephyrPeerSnapshotRestoreDivergence`, `ZephyrPeerSnapshotRestoreImportRepair`, and `ZephyrPeerSnapshotRestoreFetchFallback` rules so downstream alerting can split divergence repair from import-repair and fetch-fallback paths without custom PromQL
-- `GET /v1/recording-rules` and `GET /v1/recording-rules/prometheus` now additionally export the canonical peer-sync rollup `zephyr:peer_sync:snapshot_restore_pressure_by_reason` so dashboards and alert managers can reuse the filtered divergence, import-repair, and fetch-fallback series directly
-- `GET /v1/dashboards` and `GET /v1/dashboards/grafana` now add a `Peer snapshot restore reasons` panel to the peer-sync bundle so repair-path pressure is graphed explicitly instead of only being inferred from the wider incident-reason panel
-- `GET /v1/recording-rules`, `GET /v1/recording-rules/prometheus`, and `GET /v1/dashboards` now preserve the compatibility aggregate `peer_snapshot_restored` code alongside the split `peer_snapshot_restore_*` codes in related-alert metadata so downstream rollups and dashboard bundles can pivot incrementally without losing the older aggregate signal
-- `GET /v1/metrics` now carries horizon-aware `peerSyncSummary.horizons` views for `5m`, `15m`, `1h`, `6h`, and `24h`, `GET /metrics` mirrors them through `zephyr_peer_sync_horizon_*` gauges, and `GET /v1/health` now includes recent peer incident occurrence and affected-peer horizon detail so operators can tell whether retained peer pressure is fresh or lingering
-- `GET /v1/recording-rules` and `GET /v1/recording-rules/prometheus` now additionally export `zephyr:peer_sync:incident_pressure_by_horizon`, and `GET /v1/dashboards` plus `GET /v1/dashboards/grafana` now add a `Peer incident pressure horizons` panel so the peer-sync bundle can compare recent retained pressure across short and long windows without rebuilding PromQL
-- `GET /metrics` now also exports per-peer snapshot-repair metadata through `zephyr_peer_snapshot_restore_last_height`, `zephyr_peer_snapshot_restore_last_observed_at_seconds`, and `zephyr_peer_snapshot_restore_age_seconds`, while `GET /v1/recording-rules` plus `GET /v1/recording-rules/prometheus` now add `zephyr:peer_sync:snapshot_restore_pressure_by_peer` and `zephyr:peer_sync:snapshot_restore_age_by_peer` for canonical per-peer repair pressure and repair age drill-down
-- `GET /v1/dashboards` and `GET /v1/dashboards/grafana` now add `Peer snapshot restore pressure by peer`, `Peer snapshot restore heights`, and `Peer snapshot restore age` so operators can correlate repair pressure, retained repair reason, the latest restored height, and whether a restore is fresh before drilling into `/v1/peers` for block-hash and `recentIncidents` detail
-- `GET /v1/metrics` now includes `chainThroughput` totals plus rolling `1m`, `5m`, and `15m` windows for committed blocks, committed transactions, average transactions per block, and recent TPS baselining, along with a `settlementThroughput` view carrying raw queue-drain lag, latest commit age, warn or fail thresholds, active alert metadata, normalized warn or fail utilization ratios, recent 1m, 5m, and 15m backlog-drain estimates, per-estimate warn utilization ratios, and an explicit `peakDrainEstimate` summary for the current worst-case backlog projection
-- `GET /metrics` now also exports committed-block, committed-transaction, latest-block-interval, and rolling throughput gauges plus settlement queue-drain gauges such as `zephyr_settlement_queue_drain_lag_seconds`, `zephyr_settlement_queue_drain_threshold_seconds`, `zephyr_settlement_queue_drain_utilization_ratio`, `zephyr_settlement_estimated_queue_drain_warn_utilization_ratio`, `zephyr_settlement_estimated_queue_drain_warn_utilization_ratio_max`, `zephyr_settlement_estimated_queue_drain_seconds`, and `zephyr_settlement_estimated_queue_drain_seconds_max` so Prometheus-style monitoring can track both recent TPS and settlement pressure without re-deriving chain history
-- `GET /v1/recording-rules` and `GET /v1/recording-rules/prometheus` now additionally export canonical `zephyr:chain:transactions_per_second_1m`, `zephyr:chain:transactions_per_second_5m`, and `zephyr:chain:transactions_per_second_15m` rollups for dashboard reuse
-- `GET /v1/dashboards` and `GET /v1/dashboards/grafana` now add a `Recent transaction throughput` overview panel built on those rollups so operators can baseline recent TPS alongside readiness and peer health
-- `GET /v1/health` now includes a `settlement_throughput` check that watches queued transaction drain against the configured automatic block interval when block production is enabled and carries the current worst-case drain forecast in its detail
-- `GET /v1/alerts` and `GET /v1/slo` now derive `settlement_throughput_reduced`, `settlement_throughput_stalled`, and the `settlement_throughput` objective so slow or stalled queue drain becomes first-class operator evidence, with detail strings now carrying the current worst-case drain forecast when recent throughput baselines exist
-- `GET /v1/alert-rules` and `GET /v1/alert-rules/prometheus` now export `ZephyrSettlementThroughputAtRisk` and `ZephyrSettlementThroughputStalled` so the same queue-drain signal can be promoted into Prometheus-based alerting
-- `GET /v1/recording-rules` and `GET /v1/recording-rules/prometheus` now additionally export canonical `zephyr:settlement_throughput:at_risk` and `zephyr:settlement_throughput:breached` rollups plus normalized `zephyr:settlement_queue_drain:warn_utilization` and `zephyr:settlement_queue_drain:fail_utilization` series plus canonical `zephyr:settlement_queue_drain:estimate_seconds_1m`, `zephyr:settlement_queue_drain:estimate_seconds_5m`, `zephyr:settlement_queue_drain:estimate_seconds_15m`, and `zephyr:settlement_queue_drain:estimate_seconds_max` rollups and canonical `zephyr:settlement_queue_drain:estimate_warn_utilization_1m`, `zephyr:settlement_queue_drain:estimate_warn_utilization_5m`, `zephyr:settlement_queue_drain:estimate_warn_utilization_15m`, and `zephyr:settlement_queue_drain:estimate_warn_utilization_max` rollups for queue-drain dashboards and fleet summaries
-- `GET /v1/dashboards` and `GET /v1/dashboards/grafana` now add a `Settlement throughput state` overview panel, a raw `Settlement queue-drain lag` panel, a normalized `Settlement queue-drain utilization` panel, an `Estimated queue-drain pressure` panel built on canonical warn-normalized drain-estimate recording rules, a `Worst-case estimated queue-drain pressure` stat built on the canonical max projected-pressure rollup, an `Estimated queue-drain time` panel built on canonical drain-estimate recording rules, and a `Worst-case estimated queue-drain time` stat built on the canonical max drain-estimate rollup so operators can see both absolute lag, threshold pressure, and recent backlog-drain expectations next to recent TPS baselines; on passive nodes these settlement-specific panels now stay visible in JSON with `disabledReason`, while Grafana export keeps only the enabled subset
-- `GET /v1/peers` now backfills the latest import, snapshot-repair, and replication-failure telemetry from durable peer incidents so operator context survives restart before the next live sync pass
-- successful local certified commits now record a durable `block_commit` consensus action so recovery history and action metrics cover the full proposer path from proposal and vote through commit
-- focused tests now cover peer import, admission, replication, and snapshot-restore alerts, per-peer Prometheus incident metrics, restart-safe per-peer telemetry reconstruction, JSON and Prometheus throughput metrics including settlement alert metadata, normalized utilization ratios, raw settlement-lag gauges, recent backlog-drain estimates, the explicit peak drain-estimate summary, warn-normalized drain-estimate ratios, explicit max drain gauges, settlement health or alert or SLO detail enrichment with worst-case drain forecasts, the canonical max projected-pressure and max drain-estimate recording rules, throughput health or alert or SLO projections, alert-rule export, dashboard export, and durable `block_commit` history across the operator surfaces
+Zephyr v2 is being built as a clean break rather than preserving experimental wire/state compatibility.
 
-Planned but not implemented yet:
+The architecture combines:
 
-- authenticated peer discovery and replay-safe transport over libp2p on top of the new HTTP admission and binding policy
-- broader consensus recovery coverage plus richer dashboard packages, longer-horizon aggregation, and export adapters beyond the current local proposal, vote, block-commit, peer-import, snapshot-recovery, JSON metrics, Prometheus text export, alert-rule bundles, recording-rule bundles, dashboard bundles, Grafana dashboard export, derived readiness, alerts, SLO summaries, structured event logs, durable peer-sync history, and derived peer-sync summary surfaces
-- on-chain staking and governance-driven validator updates instead of ad hoc election API writes
-- deterministic WASM smart-contract runtime with native fee metering
-- confidential compute marketplace for encrypted off-chain jobs paid in native tokens, with partitioned worker-lane scaling ahead of any full consensus-sharding step
-- production observability, recovery tooling, and public testnet operations
+- genesis-derived network identity and canonical bounded binary consensus encoding;
+- separate account, node and validator identities;
+- proof-oriented object state backed by an incremental Sparse Merkle Tree;
+- proof-carrying transactions and deterministic parallel execution;
+- weighted validator consensus, quorum certificates and global finalized headers;
+- shard-ready state/execution with finalized asynchronous cross-shard receipts;
+- Citizen/light verification intended for resource-constrained and mobile participants;
+- deterministic smart-contract execution with a production WASM/Rust path;
+- native custom-token creation, fixed/capped/mintable supply policies, mint/burn and transferability rules;
+- a native distributed-compute market for workloads such as scientific computing, AI, rendering and other provider-executed jobs;
+- authenticated data-availability foundations and libp2p/QUIC networking foundations;
+- an oracle-free economic measurement layer for ZPH, compute demand/supply and adaptive monetary-policy experiments.
 
-## Repository Layout
+The implementation rule is:
 
-- `cmd/node`: node process entrypoint and environment-based runtime configuration
-- `internal/api`: HTTP handlers, peer replication, consensus surface, transport abstraction, sync loops, automation loop, and status endpoints
-- `internal/consensus`: signed proposal and vote message primitives
-- `internal/dpos`: candidate, vote, validator, and election service logic
-- `internal/ledger`: persisted accounts, mempool entries, committed blocks, validator snapshots, round state, consensus artifacts, snapshots, and commit/import logic
-- `internal/tx`: transaction envelope validation, address derivation, and signature verification
-- `apps/wallet`: reference light wallet built with Vue 3, Vite, and Tailwind CSS
-- `docs/`: architecture, API, usage, roadmap, and applications guides
-- `paper/`: private local academic paper workspace, draft manuscript materials, and evaluation planning notes kept out of git via `.gitignore`
-- `var/`: default local runtime state directory for the node, ignored by git
-
-## Prerequisites
-
-- Go 1.22 or newer
-- Node.js
-- npm
-
-PowerShell note: if your shell blocks `npm`, use `npm.cmd` instead.
-
-## Quick Start
-
-### 1. Run one node
-
-From the repository root, enable development-only endpoints only when you need the local faucet or manual block tools:
-
-```powershell
-$env:ZEPHYR_ENABLE_DEV_ENDPOINTS="true"
-go run ./cmd/node
+```text
+measure first -> simulate second -> activate last
 ```
 
-For a normal node process, leave `ZEPHYR_ENABLE_DEV_ENDPOINTS` unset or set it to `false`. The node process:
+## What is implemented on the v2 branch
 
-- listens on `127.0.0.1:8080` by default; set `ZEPHYR_HTTP_ADDR` explicitly to bind another interface
-- stores durable state in `var/node`
-- produces blocks every `15s` when transactions are queued
-- runs the consensus automation ticker every `1s`, but automation stays off until `ZEPHYR_ENABLE_CONSENSUS_AUTOMATION=true`
-- uses a `5s` consensus round timeout once automation is enabled
-- runs peer sync only if `ZEPHYR_PEERS` is configured
-- exposes consensus status even before a validator set has been elected
-- keeps `/v1/dev/*` unavailable unless `ZEPHYR_ENABLE_DEV_ENDPOINTS=true` is explicitly configured
+The current v2 development branch contains executable foundations and tests for:
 
-Useful probes:
+- canonical v2 codec and genesis/network identity;
+- P-256 proof-carrying transactions with low-S canonical signatures;
+- object/coin state and Sparse-Merkle inclusion/absence proofs;
+- durable WAL/checkpoint state persistence and non-mutating state simulation;
+- deterministic parallel batch execution;
+- v2 proposal/vote/QC consensus and validator-root transitions;
+- cross-shard ZPH receipts with proof verification and durable anti-replay state;
+- Citizen/light proof verification and wallet-side quorum/state-proof verification;
+- custom tokens with fixed, capped and mintable policies plus native mint/burn;
+- transferability policy enforcement without serializing independent token transfers on one hot policy object;
+- deterministic metered reference smart-contract execution and contract deploy/call paths;
+- compute offers, escrow, collateral, assignment, provider results, replicated-majority settlement and objective slashing foundations;
+- standardized compute `WorkVector`/`WorkSpec` representation;
+- finalized compute settlement receipts that can be reconstructed and verified from chain state;
+- ZCPI compute-price measurement from successfully verified standardized work;
+- ZCSI compute-scarcity measurement with independent capacity-reliability gates;
+- age-weighted native-money velocity and canonical per-shard economic epoch metrics;
+- ZAMP shadow monetary-policy evaluation centered near a long-run ~2% net-supply-growth target;
+- finalized-block economic collection, cross-epoch compute backlog accounting and chained Merkle-authenticated shadow monetary state;
+- automatic **shadow** economic epoch closure and insertion of the pending `MonetaryEpochState` into the next normal consensus candidate;
+- Reed-Solomon data-availability reconstruction foundations;
+- libp2p/QUIC transport foundations;
+- v1 and v2 consensus/performance CI labs.
 
-```powershell
-Invoke-RestMethod http://localhost:8080/health
-curl.exe -i http://localhost:8080/v1/health
-Invoke-RestMethod http://localhost:8080/v1/alerts
-Invoke-RestMethod http://localhost:8080/v1/slo
-Invoke-RestMethod http://localhost:8080/v1/alert-rules
-Invoke-RestMethod http://localhost:8080/v1/recording-rules
-Invoke-RestMethod http://localhost:8080/v1/dashboards
-Invoke-RestMethod http://localhost:8080/v1/status
-curl.exe http://localhost:8080/metrics
-curl.exe http://localhost:8080/v1/alert-rules/prometheus
-curl.exe http://localhost:8080/v1/recording-rules/prometheus
-curl.exe http://localhost:8080/v1/dashboards/grafana
+These are development/protocol foundations. They are not equivalent to a production public network.
+
+## Citizen Node / mobile goal
+
+A core Zephyr goal is to make the wallet a real network participant rather than a thin client that must trust a large RPC provider.
+
+The intended Citizen Node can progressively perform:
+
+```text
+header + quorum verification
+        -> account/object proof verification
+        -> transaction relay
+        -> data-availability sampling/cache
+        -> opportunistic recent execution
 ```
 
-### 2. Run the wallet
+Participation should adapt to battery, connectivity and device resources. Smartphones are not assumed to be always-on validators. Consensus liveness must remain possible on inexpensive commodity hardware even when mobile operating systems suspend background work.
 
-In a second terminal:
+Two benchmark axes are therefore first-class:
 
-```powershell
+```text
+How fast can Zephyr go?
+How small can Zephyr run?
+```
+
+## Sharding and parallel execution
+
+Zephyr v2 is shard-aware but does not assume that more shards are automatically better.
+
+The safe activation value remains a single shard until controlled 4/16-shard tests demonstrate safety, recovery and useful scaling.
+
+The intended model is:
+
+```text
+shard-local parallel execution
+        -> shard state/data/receipt commitments
+        -> global finalized commitment/QC
+```
+
+Cross-shard native payments use finalized one-time receipts. General synchronous atomic cross-shard smart-contract semantics are deliberately not a v0 requirement.
+
+## Smart contracts
+
+The repository includes a bounded deterministic reference runtime and contract deploy/call execution path. The production direction is deterministic metered **WASM**, with Rust-first tooling/SDK work planned around a stable ABI and cross-machine conformance tests.
+
+Validators must never depend on nondeterministic clock, network, filesystem or host randomness during consensus-critical execution.
+
+## Native distributed compute
+
+Heavy compute is intentionally separated from deterministic validator execution.
+
+Examples include:
+
+- scientific/HPC workloads;
+- AI inference or training;
+- video/3D rendering;
+- simulation and optimization;
+- other provider-executed workloads whose result can be verified through an approved evidence policy.
+
+The chain manages economic and verification state such as:
+
+```text
+job -> escrow -> assignment -> provider result -> verification -> settlement
+```
+
+Validators verify bounded settlement evidence rather than re-running arbitrarily expensive workloads.
+
+Verification modes have explicit protocol boundaries for deterministic replication, replicated majority, challenge systems, ZK evidence, TEE evidence, client approval and future hybrids. Production ZK/TEE integrations are not yet claimed.
+
+## Compute economics: ZCR, ZCPI and ZCSI
+
+There is no honest single universal scalar that makes CPU, GPU tensor work, FP64 scientific work, memory, storage and network usage equivalent.
+
+Zephyr therefore models compute as a normalized resource/work vector and only prices standardized workload classes whose definitions are committed by `WorkSpec`.
+
+`ZCPI` measures the ZPH actually paid for finalized, verification-satisfied standardized work. It excludes provider-advertised offer prices and theoretical peak FLOPS.
+
+`ZCSI` combines signals such as:
+
+- escrow-backed standardized demand;
+- verified standardized supply;
+- opening/closing backlog;
+- fulfilled work;
+- compute utilization;
+- reliable ZCPI trend.
+
+Long jobs are accounted as stock-flow across epochs:
+
+```text
+opening backlog + new demand
+=
+fulfilled + expired + closing backlog
+```
+
+A numeric capacity value cannot make ZCSI trustworthy by itself. Compute supply has a separate reliability flag and remains monetarily inert until capacity can be derived from a consensus-reproducible benchmark/collateral/availability mechanism.
+
+See [docs/compute-economics-v2.md](./docs/compute-economics-v2.md) and [docs/economic-runtime-v2.md](./docs/economic-runtime-v2.md).
+
+## ZPH tokenomics — shadow mode
+
+The v2 economic design does **not** assume a fixed maximum supply.
+
+The research direction is an oracle-free burn/mint controller centered near approximately 2% long-run effective net supply growth, with bounded/rate-limited adjustments from on-chain signals such as:
+
+- fee burn;
+- staking/locked supply;
+- protocol reserve;
+- chain resource utilization;
+- finalized operations;
+- age-weighted money velocity;
+- potentially reliable compute scarcity.
+
+Compute feedback currently has three simulation modes:
+
+```text
+A — observe only
+B — change suggested compute-reward routing only
+C — B plus a narrow bounded shadow inflation correction
+```
+
+Mode B is the preferred first activation candidate if long-run devnet evidence supports it. **No current mode mints live ZPH.** Suggested issuance is stored only as shadow economic state for replay and analysis.
+
+See [docs/tokenomics-v2.md](./docs/tokenomics-v2.md) and [docs/economic-state-v2.md](./docs/economic-state-v2.md).
+
+## Consensus & Performance Lab
+
+Zephyr defines throughput as transactions **finalized through validator consensus**, not HTTP ingress or mempool acceptance.
+
+CI includes multi-validator conformance, partition/recovery stress, finalized-throughput sampling, signature verification baselines and v2 batch-scaling tests.
+
+Shared GitHub runner numbers are development signals only and must not be presented as production capacity claims.
+
+See [docs/performance-lab.md](./docs/performance-lab.md).
+
+## Current non-claims
+
+The repository must not currently be presented as having production-ready:
+
+- live adaptive ZPH issuance or final monetary parameters;
+- active validator/compute/reserve reward distribution;
+- production gas/resource pricing;
+- authenticated governance-controlled economic parameters;
+- production benchmarked/collateralized compute-capacity registry;
+- production ZK/TEE confidential-compute integrations;
+- audited deterministic WASM engine and stable Rust SDK;
+- mobile OS lifecycle/background integration with measured device budgets;
+- production peer discovery/NAT/mobile relay/shard-aware gossip;
+- dynamic resharding or public 4/16-shard activation;
+- public-mainnet operational/security maturity.
+
+The authoritative detailed list is [docs/protocol-v2-implementation-status.md](./docs/protocol-v2-implementation-status.md).
+
+## Repository layout
+
+```text
+apps/wallet/              Vue reference wallet / Citizen verification work
+cmd/node/                 legacy/current node entrypoint
+cmd/compute-provider/     compute-provider tooling foundation
+cmd/zephyr-econ-sim/      deterministic economic replay simulator
+internal/v2/              clean-break Protocol v2 implementation
+internal/v2/economics/    ZCPI, ZCSI, ZAMP, fee and epoch accounting
+internal/v2/compute/      native distributed-compute market/state
+internal/v2/node/         v2 candidate/finality runtime
+internal/v2/worldstate/   proof-oriented in-memory/durable state
+internal/v2/network/      v2 networking foundations
+mobile/                   Citizen/mobile policy foundations
+docs/                     protocol, economics, performance and roadmap docs
+```
+
+The pre-v2 packages remain in the repository because the existing Consensus & Performance Lab and hardening work are still valuable regression gates while v2 is developed.
+
+## Development checks
+
+From the repository root:
+
+```bash
+gofmt -w ./internal/v2 ./mobile ./cmd/zephyr-econ-sim
+go vet ./...
+go test ./...
+```
+
+Wallet:
+
+```bash
 cd apps/wallet
-npm install
-npm run dev
+npm ci
+npm run build
 ```
 
-If PowerShell execution policy blocks `npm`, run:
-
-```powershell
-cd apps/wallet
-npm.cmd install
-npm.cmd run dev
-```
-
-Vite serves the wallet on `http://localhost:5173` by default and proxies `/health`, `/v1`, and `/metrics` to `http://127.0.0.1:8080`, so local development stays same-origin in the browser. Set `ZEPHYR_WALLET_DEV_NODE` to change the dev proxy target, or `VITE_ZEPHYR_API_BASE` when intentionally targeting a different API origin.
-
-### 3. Run a two-node local devnet
-
-Node A, producer:
-
-```powershell
-$env:ZEPHYR_NODE_ID="node-a"
-$env:ZEPHYR_HTTP_ADDR=":8080"
-$env:ZEPHYR_DATA_DIR="var/devnet-a"
-$env:ZEPHYR_PEERS="http://localhost:8081"
-$env:ZEPHYR_ENABLE_BLOCK_PRODUCTION="true"
-$env:ZEPHYR_ENABLE_PEER_SYNC="true"
-go run ./cmd/node
-```
-
-Node B, replica:
-
-```powershell
-$env:ZEPHYR_NODE_ID="node-b"
-$env:ZEPHYR_HTTP_ADDR=":8081"
-$env:ZEPHYR_DATA_DIR="var/devnet-b"
-$env:ZEPHYR_PEERS="http://localhost:8080"
-$env:ZEPHYR_ENABLE_BLOCK_PRODUCTION="false"
-$env:ZEPHYR_ENABLE_PEER_SYNC="true"
-go run ./cmd/node
-```
-
-Use the wallet against Node A. Node B will follow through transaction, block, snapshot, and consensus-artifact sync from admitted peers.
-
-### 4. Enable certificate-gated commit/import
-
-For production-style consensus enforcement on the current devnet flow, run a node with:
-
-```powershell
-$env:ZEPHYR_NODE_ID="node-a"
-$env:ZEPHYR_VALIDATOR_ADDRESS="zph_validator_a"
-$env:ZEPHYR_VALIDATOR_PRIVATE_KEY="<base64-pkcs8-p256-private-key>"
-$env:ZEPHYR_ENFORCE_PROPOSER_SCHEDULE="true"
-$env:ZEPHYR_REQUIRE_CONSENSUS_CERTIFICATES="true"
-go run ./cmd/node
-```
-
-Then use:
-
-```powershell
-Invoke-RestMethod http://localhost:8080/v1/status
-Invoke-RestMethod http://localhost:8080/v1/dev/block-template
-Invoke-RestMethod http://localhost:8080/v1/consensus
-```
-
-`GET /v1/status` exposes the node's signed transport identity when `ZEPHYR_VALIDATOR_PRIVATE_KEY` is configured. The template response gives you the exact `height`, `previousHash`, `producedAt`, full `transactions`, ordered `transactionIds`, and `blockHash` that a signed proposal must certify. Once a matching quorum certificate exists, `POST /v1/dev/produce-block` can commit that exact block candidate from the stored proposal body.
-
-### 5. Enable autonomous certified consensus on a devnet
-
-Initial round-0 proposer:
-
-```powershell
-$env:ZEPHYR_NODE_ID="node-a"
-$env:ZEPHYR_HTTP_ADDR=":8080"
-$env:ZEPHYR_DATA_DIR="var/devnet-a"
-$env:ZEPHYR_PEERS="http://localhost:8081"
-$env:ZEPHYR_VALIDATOR_PRIVATE_KEY="<base64-pkcs8-p256-private-key-a>"
-$env:ZEPHYR_ENABLE_BLOCK_PRODUCTION="true"
-$env:ZEPHYR_ENABLE_PEER_SYNC="true"
-$env:ZEPHYR_ENABLE_CONSENSUS_AUTOMATION="true"
-$env:ZEPHYR_CONSENSUS_INTERVAL="250ms"
-$env:ZEPHYR_CONSENSUS_ROUND_TIMEOUT="2s"
-$env:ZEPHYR_ENFORCE_PROPOSER_SCHEDULE="true"
-$env:ZEPHYR_REQUIRE_CONSENSUS_CERTIFICATES="true"
-go run ./cmd/node
-```
-
-Second validator:
-
-```powershell
-$env:ZEPHYR_NODE_ID="node-b"
-$env:ZEPHYR_HTTP_ADDR=":8081"
-$env:ZEPHYR_DATA_DIR="var/devnet-b"
-$env:ZEPHYR_PEERS="http://localhost:8080"
-$env:ZEPHYR_VALIDATOR_PRIVATE_KEY="<base64-pkcs8-p256-private-key-b>"
-$env:ZEPHYR_ENABLE_BLOCK_PRODUCTION="true"
-$env:ZEPHYR_ENABLE_PEER_SYNC="true"
-$env:ZEPHYR_ENABLE_CONSENSUS_AUTOMATION="true"
-$env:ZEPHYR_CONSENSUS_INTERVAL="250ms"
-$env:ZEPHYR_CONSENSUS_ROUND_TIMEOUT="2s"
-$env:ZEPHYR_REQUIRE_PEER_IDENTITY="true"
-$env:ZEPHYR_PEER_VALIDATORS="http://localhost:8080=zph_validator_a"
-$env:ZEPHYR_REQUIRE_CONSENSUS_CERTIFICATES="true"
-go run ./cmd/node
-```
-
-With an active validator set and queued transactions, the scheduled proposer self-builds and signs the next proposal, active validators auto-vote, and the scheduled proposer auto-commits as soon as a matching quorum certificate exists. If the scheduled proposer stalls past the round timeout, the node advances the round, rotates the proposer, and the new proposer can reuse the latest stored candidate body for that same height.
-
-## Runtime Configuration
-
-### Node
-
-- `ZEPHYR_HTTP_ADDR`: HTTP bind address for the Go node
-- `ZEPHYR_NODE_ID`: human-readable node identifier used in peer replication headers and status output
-- `ZEPHYR_VALIDATOR_ADDRESS`: chain-level validator address used for proposer-schedule enforcement and status reporting
-- `ZEPHYR_VALIDATOR_PRIVATE_KEY`: base64-encoded PKCS#8 P-256 private key used to derive and sign the node's validator transport identity plus automated proposal and vote messages
-- `ZEPHYR_DATA_DIR`: local directory used for durable node state
-- `ZEPHYR_PEERS`: comma-separated peer base URLs such as `http://localhost:8081,http://localhost:8082`
-- `ZEPHYR_BLOCK_INTERVAL`: automatic block-production interval such as `15s`
-- `ZEPHYR_CONSENSUS_INTERVAL`: automation ticker interval such as `250ms` or `1s`
-- `ZEPHYR_CONSENSUS_ROUND_TIMEOUT`: timeout window for the active round before automation advances to the next round
-- `ZEPHYR_SYNC_INTERVAL`: peer poll/sync interval such as `5s`
-- `ZEPHYR_MAX_TXS_PER_BLOCK`: maximum committed transactions per produced block
-- `ZEPHYR_ENABLE_BLOCK_PRODUCTION`: `true` or `false`
-- `ZEPHYR_ENABLE_CONSENSUS_AUTOMATION`: `true` or `false`; when enabled, active validators automatically propose, vote, and advance rounds on the current devnet path
-- `ZEPHYR_ENABLE_PEER_SYNC`: `true` or `false`
-- `ZEPHYR_ENABLE_STRUCTURED_LOGS`: `true` or `false`; when enabled, the node emits newline-delimited JSON event logs for diagnostics, peer incidents, and snapshot recovery
-- `ZEPHYR_REQUIRE_PEER_IDENTITY`: `true` or `false`; when enabled, replicated peer POST requests must include a valid signed transport identity
-- `ZEPHYR_PEER_VALIDATORS`: comma-separated `<peer-url>=<validator-address>` bindings used to pin configured peers to expected validators
-- `ZEPHYR_ENFORCE_PROPOSER_SCHEDULE`: `true` or `false`; when enabled and a validator set exists, only the scheduled proposer for the active round may produce the next block locally
-- `ZEPHYR_REQUIRE_CONSENSUS_CERTIFICATES`: `true` or `false`; when enabled and a validator set exists, local block commit and remote block import require a matching proposal and quorum certificate
-
-Default values:
-
-- `ZEPHYR_HTTP_ADDR`: `:8080`
-- `ZEPHYR_NODE_ID`: `node-local`
-- `ZEPHYR_VALIDATOR_ADDRESS`: empty
-- `ZEPHYR_VALIDATOR_PRIVATE_KEY`: empty
-- `ZEPHYR_DATA_DIR`: `var/node`
-- `ZEPHYR_PEERS`: empty
-- `ZEPHYR_BLOCK_INTERVAL`: `15s`
-- `ZEPHYR_CONSENSUS_INTERVAL`: `1s`
-- `ZEPHYR_CONSENSUS_ROUND_TIMEOUT`: `5s`
-- `ZEPHYR_SYNC_INTERVAL`: `5s`
-- `ZEPHYR_MAX_TXS_PER_BLOCK`: `100`
-- `ZEPHYR_ENABLE_BLOCK_PRODUCTION`: `true`
-- `ZEPHYR_ENABLE_CONSENSUS_AUTOMATION`: `false`
-- `ZEPHYR_ENABLE_PEER_SYNC`: `true`
-- `ZEPHYR_ENABLE_STRUCTURED_LOGS`: `false`
-- `ZEPHYR_REQUIRE_PEER_IDENTITY`: `false`
-- `ZEPHYR_PEER_VALIDATORS`: empty
-- `ZEPHYR_ENFORCE_PROPOSER_SCHEDULE`: `false`
-- `ZEPHYR_REQUIRE_CONSENSUS_CERTIFICATES`: `false`
-
-### Wallet
-
-- `VITE_ZEPHYR_API_BASE`: base URL used by the wallet for node API calls
-- default: `http://localhost:8080`
-
-Example `.env.local` inside `apps/wallet`:
-
-```env
-VITE_ZEPHYR_API_BASE=http://localhost:8080
-```
-
-## How The MVP Works
-
-1. The wallet generates an ECDSA P-256 keypair in the browser using Web Crypto.
-2. It derives a Zephyr-style address from the SHA-256 hash of the exported public key.
-3. The wallet stores the private key, public key, and address in browser `localStorage`.
-4. The wallet can inspect node-side account state and use a dev faucet for local funding.
-5. The wallet signs a canonical transaction payload locally and sends the signed envelope to the node.
-6. The node validates the payload, address, signature, nonce, and available balance before persisting the transaction in the durable mempool.
-7. A block-producing node can build a deterministic next-block template from the current mempool and latest chain tip.
-8. DPoS elections persist a durable validator snapshot with versioning, voting-power totals, and next-proposer scheduling metadata.
-9. Consensus state now persists the active height, round, and round start time separately from blocks and validator snapshots.
-10. Operators can still submit signed proposals for the active round's concrete block template, including the exact `previousHash`, `producedAt`, full `transactions`, ordered `transactionIds`, and derived `blockHash`.
-11. Validators can verify those proposal transactions directly from the proposal body instead of depending on local mempool convergence alone.
-12. If consensus automation is enabled, the scheduled proposer for the active round can build that same template, sign a proposal, persist it, and disseminate it without an operator POST.
-13. Active validators with automation enabled can sign and replicate a vote for the current known proposal.
-14. If the active round times out, the node advances the round, rotates the scheduled proposer, and can accept higher-round messages from peers even if its own timer had not fired yet.
-15. A new higher-round proposer can reuse the latest stored candidate body for that height instead of depending only on local mempool state.
-16. Once vote power crosses quorum, the node stores a durable commit certificate artifact for that height and round.
-17. If proposer-schedule enforcement is enabled, a node can refuse to produce a block unless its configured validator address matches the scheduled proposer for the active round.
-18. If consensus-certificate enforcement is enabled, local block commit and remote block import both require a proposal and quorum certificate for the exact block template being committed.
-19. A scheduled proposer with automation enabled and certificate enforcement turned on can auto-commit immediately from the stored certified proposal body.
-20. A consensus-gated local commit can replay the stored certified proposal body even when the local mempool does not contain that candidate anymore.
-21. If a validator private key is configured, the node derives a signed transport identity for its validator address and exposes that proof in runtime status.
-22. Configured peer nodes receive transactions, self-contained consensus proposals, votes, and blocks over the current transport implementation, verify peer identity proofs when available, enforce admission and validator binding when configured, import blocks when possible, and fall back to snapshot restore when they need catch-up.
-
-## Current Limitations
-
-- the current multi-node layer is still HTTP-based under the new transport abstraction, not libp2p networking
-- peer admission and validator pinning can now be enforced over the current HTTP transport, but peer discovery is still static configuration rather than libp2p
-- the round engine now supports timeout-driven proposer rotation, latest-artifact rebroadcast after link recovery, richer `roundEvidence`, per-height `roundHistory`, `blockReadiness`, import-aware `recovery`, durable peer-sync incident history, bounded rejection diagnostics, machine-readable `GET /v1/metrics`, Prometheus-style `GET /metrics`, derived `GET /v1/health`, derived `GET /v1/alerts` including peer import, admission, replication, and snapshot-restore warnings, derived `GET /v1/slo`, recommended `GET /v1/alert-rules`, exported `GET /v1/alert-rules/prometheus`, recommended `GET /v1/recording-rules`, exported `GET /v1/recording-rules/prometheus`, recommended `GET /v1/dashboards`, exported `GET /v1/dashboards/grafana`, and local consensus-action history across restart for proposal, vote, round-advance, block-commit, import, and snapshot-repair events, but broader recovery tooling is still missing
-- crash recovery now persists active round metadata plus a bounded local consensus-action WAL, and peer snapshot restore preserves local recovery, diagnostics, and peer-sync incident history, but replay coverage is still centered on local proposal, vote, certified block-commit, and import-repair paths rather than the full consensus lifecycle
-- DPoS elections still happen through an API call, not an on-chain staking/governance flow
-- snapshot restore is a state catch-up mechanism, not a trust-minimized proof-based sync protocol
-- WASM smart-contract execution is planned, but not implemented yet
-- confidential compute jobs, worker attestation, escrow, and settlement are planned, but not implemented yet
-- wallet private keys are stored unencrypted in browser `localStorage`
-
-Because of these limitations, the current MVP should still be treated as a development prototype, not a production blockchain network.
-
-## Roadmap
-
-The production roadmap now lives in [docs/roadmap.md](./docs/roadmap.md).
-
-Short version:
-
-1. Move the new enforced HTTP peer-admission and validator-binding policy toward authenticated libp2p discovery plus replay-safe transport behavior.
-2. Extend the new `blockReadiness`, `roundHistory`, `roundEvidence`, `recovery`, `diagnostics`, `peerSyncHistory`, `peerSyncSummary`, per-peer `recentIncidents`, `GET /v1/metrics`, `GET /metrics`, `GET /v1/health`, `GET /v1/alerts`, `GET /v1/slo`, `GET /v1/alert-rules`, `GET /v1/alert-rules/prometheus`, `GET /v1/recording-rules`, `GET /v1/recording-rules/prometheus`, `GET /v1/dashboards`, `GET /v1/dashboards/grafana`, and structured event logs into deeper recovery, longer-horizon incident retention, richer exported metrics, broader dashboard coverage, and production incident tooling.
-3. Move validator lifecycle changes behind staking, delegation, slashing, and governance state transitions.
-4. Add deterministic WASM execution, native fee metering, and the confidential compute lane.
-5. Add production observability, recovery tooling, and public testnet operations.
+The GitHub workflows are the authoritative shared gate for the v1 Lab, V2 Lab, wallet build and dependency lock.
 
 ## Documentation
 
-- [docs/architecture.md](./docs/architecture.md)
-- [docs/api.md](./docs/api.md)
-- [docs/usage.md](./docs/usage.md)
-- [docs/roadmap.md](./docs/roadmap.md)
-- [docs/applications.md](./docs/applications.md)
-- [paper/README.md](./paper/README.md)
-- [Zaphyr-chain_manifesto.md](./Zaphyr-chain_manifesto.md)
+Start with:
+
+- [Protocol v2 architecture](./docs/protocol-v2.md)
+- [Protocol v2 implementation status](./docs/protocol-v2-implementation-status.md)
+- [Validator trust model](./docs/protocol-v2-validator-trust.md)
+- [Tokenomics v2](./docs/tokenomics-v2.md)
+- [Compute economics v2](./docs/compute-economics-v2.md)
+- [Economic state v2](./docs/economic-state-v2.md)
+- [Finalized economic runtime](./docs/economic-runtime-v2.md)
+- [Consensus & Performance Lab](./docs/performance-lab.md)
+- [Roadmap](./docs/roadmap.md)
+- [Project manifesto](./Zaphyr-chain_manifesto.md)
 
 ## License
 
-Zephyr Chain is licensed under the MIT License. See [LICENSE](./LICENSE).
+Zephyr Chain is licensed under the **Apache License, Version 2.0**. See [LICENSE](./LICENSE).
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+The redistribution attribution notice is provided in [NOTICE](./NOTICE) and must be preserved as required by the Apache License 2.0.
