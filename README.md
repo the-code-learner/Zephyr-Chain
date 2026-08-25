@@ -56,10 +56,15 @@ The current v2 development branch contains executable foundations and tests for:
 - finalized compute settlement receipts that can be reconstructed and verified from chain state;
 - ZCPI compute-price measurement from successfully verified standardized work;
 - ZCSI compute-scarcity measurement with independent capacity-reliability gates;
+- dynamic per-work-class ZCU reference measurement from verified delivered-slot evidence;
+- a versioned ZPPI compute/data-availability/storage basket with coverage and reliability gates;
 - age-weighted native-money velocity and canonical per-shard economic epoch metrics;
-- ZAMP shadow monetary-policy evaluation centered near a long-run ~2% net-supply-growth target;
+- a prospective shadow `IdleCapitalTracker` that preserves capital age through transfers, split/merge and canonical cross-shard receipts;
+- opt-in finalized collector integration and versioned checkpoint/restart support for idle-capital lineage;
+- legacy ZAMP shadow-actuator evaluation being migrated toward the ZPPI purchasing-power objective rather than a fixed supply-growth target;
 - finalized-block economic collection, cross-epoch compute backlog accounting and chained Merkle-authenticated shadow monetary state;
 - automatic **shadow** economic epoch closure and insertion of the pending `MonetaryEpochState` into the next normal consensus candidate;
+- finalized-through-consensus benchmark report foundations with warm-up separation, p50/p95/p99 finality and safety/liveness invalidation;
 - Reed-Solomon data-availability reconstruction foundations;
 - libp2p/QUIC transport foundations;
 - v1 and v2 consensus/performance CI labs.
@@ -164,29 +169,23 @@ See [docs/compute-economics-v2.md](./docs/compute-economics-v2.md) and [docs/eco
 
 ## ZPH tokenomics — shadow mode
 
-The v2 economic design does **not** assume a fixed maximum supply.
+The Protocol v2 economic design does **not** assume a fixed maximum supply and does **not** target a fixed +2% annual ZPH supply increase.
 
-The research direction is an oracle-free burn/mint controller centered near approximately 2% long-run effective net supply growth, with bounded/rate-limited adjustments from on-chain signals such as:
+The canonical long-run monetary objective from the 19 August 2026 economics working paper is approximately **-2% annual purchasing-power drift for ZPH against a Zephyr-native basket**. With `PP = 1 / ZPPI`, the corresponding annual ZPPI target factor is approximately **1.020408163** (Q9: `1_020_408_163`). Supply is endogenous: any future issuance or contraction, if activated, must respond to measured conditions and bounded governance rules rather than a constant inflation target.
 
-- fee burn;
-- staking/locked supply;
-- protocol reserve;
-- chain resource utilization;
-- finalized operations;
-- age-weighted money velocity;
-- potentially reliable compute scarcity.
+`ZPPI` is the slow monetary-direction signal. `ZCSI` is primarily a compute incentive/capacity-routing signal, and dynamic `ZCU` reference values are derived from verified delivered work rather than advertised capacity or theoretical peak FLOPS.
 
-Compute feedback currently has three simulation modes:
+Protocol v2 also includes prospective **shadow** idle-capital telemetry. Capital lineage is tracked through ordinary movement without resetting dormancy, including canonical cross-shard transfers identified by `CrossShardReceipt.Hash()` and protocol-defined destination objects. Generic transfers and arbitrary contract calls are not automatically treated as productive use.
+
+No idle levy, live adaptive minting or reward-routing change is activated merely because telemetry exists. Economic activation follows:
 
 ```text
-A — observe only
-B — change suggested compute-reward routing only
-C — B plus a narrow bounded shadow inflation correction
+measure first -> simulate second -> activate last
 ```
 
-Mode B is the preferred first activation candidate if long-run devnet evidence supports it. **No current mode mints live ZPH.** Suggested issuance is stored only as shadow economic state for replay and analysis.
+The legacy ZAMP supply-growth evaluator remains a shadow actuator/simulation boundary while the ZPPI path is integrated end-to-end. **No current mode mints live ZPH.**
 
-See [docs/tokenomics-v2.md](./docs/tokenomics-v2.md) and [docs/economic-state-v2.md](./docs/economic-state-v2.md).
+See [docs/tokenomics-v2.md](./docs/tokenomics-v2.md), [docs/protocol-economics-p1-status.md](./docs/protocol-economics-p1-status.md) and [docs/economic-state-v2.md](./docs/economic-state-v2.md).
 
 ## Consensus & Performance Lab
 
@@ -203,6 +202,7 @@ See [docs/performance-lab.md](./docs/performance-lab.md).
 The repository must not currently be presented as having production-ready:
 
 - live adaptive ZPH issuance or final monetary parameters;
+- an active idle-capital levy or automatic productive-use credit policy;
 - active validator/compute/reserve reward distribution;
 - production gas/resource pricing;
 - authenticated governance-controlled economic parameters;
@@ -261,6 +261,7 @@ Start with:
 
 - [Protocol v2 architecture](./docs/protocol-v2.md)
 - [Protocol v2 implementation status](./docs/protocol-v2-implementation-status.md)
+- [Protocol Economics P1 status](./docs/protocol-economics-p1-status.md)
 - [Validator trust model](./docs/protocol-v2-validator-trust.md)
 - [Tokenomics v2](./docs/tokenomics-v2.md)
 - [Compute economics v2](./docs/compute-economics-v2.md)
