@@ -27,12 +27,12 @@ func TestFinalizedIdleCapitalTransferUsesCanonicalReceiptIdentity(t *testing.T) 
 		t.Fatal(err)
 	}
 	transaction := tx.Transaction{
-		ShardID: 0,
-		Inputs: []tx.InputRef{{ObjectID: inputID}},
-		Outputs: []object.OutputSpec{localOutput, crossOutput},
+		ShardID:    0,
+		Inputs:     []tx.InputRef{{ObjectID: inputID}},
+		Outputs:    []object.OutputSpec{localOutput, crossOutput},
 		Operations: []tx.Operation{{Kind: tx.OpTransfer}},
-		Fee: 10,
-		Witnesses: []tx.Witness{{Object: input}},
+		Fee:        10,
+		Witnesses:  []tx.Witness{{Object: input}},
 	}
 	txID := transaction.ID()
 	localID := types.ObjectIDForShard(txID, 0, 0)
@@ -43,7 +43,7 @@ func TestFinalizedIdleCapitalTransferUsesCanonicalReceiptIdentity(t *testing.T) 
 			Data: append([]byte(nil), localOutput.Data...),
 		}},
 		Outbound: []execution.OutboundOutput{{DestinationShard: 1, OutputIndex: 1, Output: crossOutput}},
-		TxID: txID,
+		TxID:     txID,
 	}
 	receipt := sharding.CrossShardReceipt{
 		SourceShard: 0, DestinationShard: 1, SourceHeight: 100,
@@ -116,7 +116,7 @@ func TestFinalizedIdleCapitalRejectsReceiptMismatchAtomically(t *testing.T) {
 	result := execution.Result{
 		Consumed: []types.ObjectID{inputID},
 		Outbound: []execution.OutboundOutput{{DestinationShard: 1, OutputIndex: 0, Output: crossOutput}},
-		TxID: txID,
+		TxID:     txID,
 	}
 	bad := sharding.CrossShardReceipt{
 		SourceShard: 0, DestinationShard: 1, SourceHeight: 20,
@@ -222,7 +222,7 @@ func TestFinalizedIdleCapitalMixedTrackedAndUnknownAgeFailsClosed(t *testing.T) 
 	}
 	transaction := tx.Transaction{
 		ShardID: 0,
-		Inputs: []tx.InputRef{{ObjectID: trackedID}, {ObjectID: unknownID}},
+		Inputs:  []tx.InputRef{{ObjectID: trackedID}, {ObjectID: unknownID}},
 		Outputs: []object.OutputSpec{output}, Operations: []tx.Operation{{Kind: tx.OpTransfer}}, Fee: 10,
 		Witnesses: []tx.Witness{{Object: tracked}, {Object: unknown}},
 	}
