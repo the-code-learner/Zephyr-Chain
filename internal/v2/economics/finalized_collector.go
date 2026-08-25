@@ -33,6 +33,7 @@ type FinalizedShardObservation struct {
 	Transactions            []tx.Transaction
 	Results                 []execution.Result
 	Imports                 []sharding.CrossShardReceipt
+	Exports                 []sharding.CrossShardReceipt
 	DataBytes               uint64
 	ComputeCapacityUnits    uint64
 	ComputeCapacityReliable bool
@@ -58,6 +59,7 @@ type EpochCollector struct {
 	shards       map[uint32]*shardEpochAccumulator
 	supply       map[uint32]uint64
 	verifiedWork []compute.VerifiedWork
+	idleCapital  *IdleCapitalTracker
 	lastHeight   uint64
 }
 
@@ -95,6 +97,37 @@ func NewEpochCollector(config EpochCollectorConfig) (*EpochCollector, error) {
 	return collector, nil
 }
 
+// EnableIdleCapitalTracking enables prospective shadow lineage tracking before
+// the collector has observed any finalized block. The tracker must be empty so
+// enabling the feature cannot smuggle unauthenticated historical state into
+// finalized telemetry.
+func (c *EpochCollector) EnableIdleCapitalTracking(tracker *IdleCapitalTracker) error {
+	if c == nil || tracker == nil || c.lastHeight != 0 || c.idleCapital != nil ||
+		len(tracker.objects) != 0 || len(tracker.pendingTransfers) != 0 || len(tracker.bootstrapLineages) != 0 ||
+		tracker.productive.observedCapital != 0 || tracker.productive.weightedCoverageBps.Sign() != 0 {
+		return ErrFinalizedEconomics
+	}
+	c.idleCapital = tracker.Clone()
+	if c.idleCapital == nil {
+		return ErrFinalizedEconomics
+	}
+	return nil
+}
+
+func (c *EpochCollector) IdleCapitalSnapshot(height uint64, bounds []uint64) (IdleCapitalSnapshot, bool, error) {
+	if c == nil {
+		return IdleCapitalSnapshot{}, false, ErrFinalizedEconomics
+	}
+	if c.idleCapital == nil {
+		return IdleCapitalSnapshot{}, false, nil
+	}
+	snapshot, err := c.idleCapital.Snapshot(height, bounds)
+	if err != nil {
+		return IdleCapitalSnapshot{}, true, err
+	}
+	return snapshot, true, nil
+}
+
 // ObserveFinalizedBlock applies a full global-block observation atomically.
 // Telemetry changes only after normal consensus finality and never mutates
 // world state or mints ZPH.
@@ -122,6 +155,27 @@ func (c *EpochCollector) observeFinalizedBlock(height uint64, observations map[u
 		if len(observation.Transactions) != len(observation.Results) {
 			return ErrFinalizedEconomics
 		}
+		if c.idleCapital != nil {
+			resultIDs := make(map[types.Hash]struct{}, len(observation.Results))
+			for _, result := range observation.Results {
+				if types.IsZero32([32]byte(result.TxID)) {
+					return ErrFinalizedEconomics
+				}
+				if _, duplicate := resultIDs[result.TxID]; duplicate {
+					return ErrFinalizedEconomics
+				}
+				resultIDs[result.TxID] = struct{}{}
+			}
+			for _, receipt := range observation.Exports {
+				if err := receipt.Validate(); err != nil || receipt.SourceShard != shard || receipt.SourceHeight != height ||
+					receipt.DestinationShard >= c.config.ShardCount || receipt.DestinationShard == shard {
+					return ErrFinalizedEconomics
+				}
+				if _, ok := resultIDs[receipt.TransactionID]; !ok {
+					return ErrFinalizedEconomics
+				}
+			}
+		}
 		acc := c.shards[shard]
 		if err := addTo(&acc.resourceCapacity, c.config.ResourceCapacityPerBlock[shard]); err != nil {
 			return err
@@ -140,6 +194,12 @@ func (c *EpochCollector) observeFinalizedBlock(height uint64, observations map[u
 			if err := c.observeFinalizedTransaction(height, shard, transaction, result, acc); err != nil {
 				return err
 			}
+			if c.idleCapital != nil {
+				exports := finalizedReceiptsForTransaction(observation.Exports, result.TxID)
+				if _, err := ApplyFinalizedIdleCapitalTransfer(c.idleCapital, height, c.config.NativeToken, transaction, result, exports); err != nil {
+					return err
+				}
+			}
 		}
 		for _, receipt := range observation.Imports {
 			if receipt.DestinationShard != shard || receipt.SourceShard >= c.config.ShardCount || receipt.SourceShard == receipt.DestinationShard {
@@ -147,6 +207,11 @@ func (c *EpochCollector) observeFinalizedBlock(height uint64, observations map[u
 			}
 			if err := c.observeImportedReceipt(receipt); err != nil {
 				return err
+			}
+			if c.idleCapital != nil {
+				if _, err := ApplyFinalizedIdleCapitalImport(c.idleCapital, c.config.NativeToken, receipt); err != nil {
+					return err
+				}
 			}
 			if err := addTo(&acc.operations, 1); err != nil {
 				return err
@@ -170,6 +235,16 @@ func (c *EpochCollector) observeFinalizedBlock(height uint64, observations map[u
 	}
 	c.lastHeight = height
 	return nil
+}
+
+func finalizedReceiptsForTransaction(receipts []sharding.CrossShardReceipt, transactionID types.Hash) []sharding.CrossShardReceipt {
+	out := make([]sharding.CrossShardReceipt, 0)
+	for _, receipt := range receipts {
+		if receipt.TransactionID == transactionID {
+			out = append(out, receipt)
+		}
+	}
+	return out
 }
 
 func (c *EpochCollector) observeFinalizedTransaction(height uint64, shard uint32, transaction tx.Transaction, result execution.Result, acc *shardEpochAccumulator) error {
@@ -392,6 +467,11 @@ func (c *EpochCollector) AdvanceEpoch(next uint64) error {
 	}
 	c.config.Epoch = next
 	c.verifiedWork = nil
+	if c.idleCapital != nil {
+		if err := c.idleCapital.ResetProductiveCoverage(); err != nil {
+			return err
+		}
+	}
 	for shard := uint32(0); shard < c.config.ShardCount; shard++ {
 		prior := c.shards[shard]
 		velocity, err := NewVelocityAccumulator(c.config.VelocityPolicy)
@@ -424,6 +504,7 @@ func (c *EpochCollector) clone() *EpochCollector {
 		shards:       make(map[uint32]*shardEpochAccumulator, len(c.shards)),
 		supply:       make(map[uint32]uint64, len(c.supply)),
 		verifiedWork: append([]compute.VerifiedWork(nil), c.verifiedWork...),
+		idleCapital:  c.idleCapital.Clone(),
 		lastHeight:   c.lastHeight,
 	}
 	for shard, amount := range c.supply {
