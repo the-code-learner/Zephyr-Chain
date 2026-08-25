@@ -1,205 +1,116 @@
-# Zephyr v2 Tokenomics — Protocol Economics and Purchasing-Power Target
+# Zephyr Chain Protocol v2 — Economics & Tokenomics
 
-Status: **design contract + shadow-mode implementation target**.
+> Status: Protocol v2 research and implementation. Economic mechanisms described here are **not live monetary policy** unless explicitly marked as activated. The activation discipline is **measure first → simulate second → activate last**.
 
-This document tracks the executable Protocol v2 economic foundation against the Zephyr Chain *Protocol Economics, Monetary Design, Governance, Lending and Consensus Incentives* working paper v0.1 dated 19 August 2026.
+## Design goals
 
-The working paper supersedes the earlier assumption that the monetary objective is a fixed annual ZPH supply-growth rate. The canonical objective is now expressed in Zephyr-native purchasing power. Supply remains endogenous and any monetary actuator stays shadow-only until explicit activation gates pass.
+Zephyr Chain Protocol v2 treats tokenomics as a measurable control system rather than a fixed-emission schedule. The monetary design is intended to align purchasing power, productive network capacity, state costs, compute-market incentives and governance without putting heavy economic computation in the consensus hot path.
 
-## 1. Canonical monetary objective
+The protocol does **not** target a fixed +2% annual supply increase. Instead, the long-term monetary objective is approximately **-2% annual purchasing-power drift for ZPH against a Zephyr-native basket**, represented as an annual ZPPI target factor of **1.020408163** (Q9: `1_020_408_163`). Supply is therefore endogenous: future issuance or contraction, if activated, must respond to measured conditions and bounded governance rules rather than a constant inflation target.
 
-The intended long-run property is:
+## Core economic indexes
 
-```text
-PP_t = 1 / ZPPI_t
-PP_(t+1) = 0.98 * PP_t
-ZPPI_(t+1) / ZPPI_t = 1 / 0.98 ~= 1.020408163
-```
+### ZPPI — Zephyr Purchasing Power Index
 
-Therefore an exact annual **-2.00% purchasing-power target** corresponds to approximately **+2.0408% annual ZPPI inflation**.
+ZPPI is the slow monetary-direction signal. Protocol v2 currently models a deterministic, versioned basket covering compute, data availability and storage with fixed-point price relatives, explicit reference values and weights, coverage/reliability checks, EWMA smoothing and bounded movement.
 
-The protocol stores the canonical Q9 annual factor:
+Purchasing power is represented as `PP = 1 / ZPPI`. ZPPI is designed to inform future monetary direction; it is not, by itself, an instruction to mint or burn supply.
 
-```text
-TargetZPPIAnnualFactorQ9 = 1_020_408_163
-```
+### ZCSI — Zephyr Compute Supply Index
 
-This is not a fiat CPI target and does not require an exchange-price oracle. ZPPI is the price, in ZPH, of a versioned basket of competitively priced Zephyr-native services.
+ZCSI is primarily a compute incentive and capacity-routing signal. It is intended to reflect **verified delivered work**, not theoretical FLOPS, advertised capacity or unverified provider claims.
 
-## 2. Separation of control loops
+### ZCU — Zephyr Compute Unit reference
 
-Zephyr keeps independent control signals so one metric cannot dominate monetary policy, resource pricing and consensus simultaneously.
+The v2 implementation includes a dynamic ZCU reference derived from delivered-slot, availability, success and confidence observations using deterministic weighted aggregation, EWMA smoothing, bounded movement and fail-closed coverage rules.
 
-```text
-finalized native markets
-  -> dynamic ZCU / service normalization
-  -> ZCPI + DA/storage observations
-  -> ZPPI
-  -> slow ZAMP monetary evaluation
+Only verified/finalized compute-market evidence should feed production economic telemetry.
 
-compute demand/supply/backlog/utilization
-  -> ZCSI
-  -> primarily reward routing / capacity incentives
+## Compute market separation
 
-coin age + productive coverage + concentration
-  -> IdlePressure / future idle-capital levy
+The compute market is asynchronous and keeps heavy work off-chain while using on-chain escrow, verification and settlement. Provider payment is separate from blockchain gas.
 
-stake + reliability + diversity
-  -> consensus SecurityWeight
-```
+`WorkSpec` and `WorkRegistry` are versioned/canonical protocol objects. Only `VerifiedWork` finalized through consensus may feed trusted economic telemetry such as ZCPI/ZCSI/ZCU/ZPPI. Production benchmark authentication, governed registry activation and ZK/TEE verifier infrastructure remain future gates.
 
-The fast blockchain resource-fee loop remains separate from the slow monetary loop.
+## Idle capital and productive-use telemetry
 
-## 3. Dynamic ZCU reference
+Protocol v2 is developing a prospective `IdleCapitalTracker` as **shadow telemetry**. It tracks capital lineage rather than wallet counts so that ordinary transfers, self-transfers, change outputs, split/merge patterns or address fragmentation cannot fabricate economic activity or reset dormancy.
 
-A fixed FLOP benchmark becomes obsolete as hardware and software improve. Protocol v2 therefore retains the multidimensional `WorkVector` accounting layer and adds a shadow dynamic reference for each compute work class.
+Key properties of the tracker design:
 
-A verified compute-slot observation contains benchmark-derived performance plus evidence-weighted availability history. Provider-declared peak performance is not an input.
+- capital lineage is amount-conserving and deterministic;
+- `IdleSinceHeight` survives ordinary movement, split/merge and cross-shard transfer;
+- productive use is an explicit verified hook, separate from generic transfers or contract calls;
+- cross-shard transfer identity is the consensus-canonical receipt hash;
+- destination object identity is the protocol-defined destination object;
+- prospective bootstrap coverage is exposed explicitly and is not presented as complete historical lineage;
+- checkpoints are canonical, bounded and fail closed on malformed state;
+- replay and invalid/non-conserving transitions are rejected atomically.
 
-```text
-EffectiveSlotWeight =
-    DeliveredSlotTime
-  * AvailabilityEWMA
-  * SuccessEWMA
-  * Confidence
+The tracker does **not** currently impose an idle levy and does not mutate supply.
 
-ZCU_ref(class, epoch) = weighted_median(verified slot performance)
-```
+## State carrying cost
 
-The reference is smoothed with EWMA and bounded by a maximum per-epoch change. Thin classes fail closed as unreliable rather than inventing a reference.
+Protocol v2 includes deterministic measurement of state carrying cost and fragmentation pressure. The purpose is to quantify long-lived state/resource externalities before proposing any economic charge. Measurement and public simulation precede any activation decision.
 
-Current implementation:
+## Monetary activation gates
 
-- `internal/v2/economics/zcu_reference.go`
-- deterministic weighted median per work class;
-- delivered-slot-time, availability, success and confidence weighting;
-- Q9 fixed-point reference values;
-- minimum verified-slot coverage gate;
-- EWMA smoothing;
-- per-epoch rate limit;
-- no provider self-reported peak-performance field.
+No idle levy, monetary minting, burn policy or reward-routing change becomes live merely because telemetry exists. Activation requires explicit protocol/governance gates, sufficient observation windows, deterministic simulations and safety review.
 
-This is **shadow telemetry only**. It does not change live rewards or supply.
+The required sequence is:
 
-## 4. ZCPI and ZCSI
+1. **Measure** — collect deterministic, finalized evidence with explicit coverage/reliability.
+2. **Simulate** — run public scenarios over long windows, including adversarial and fragmented-capital cases.
+3. **Activate** — only through an explicit bounded protocol/governance decision after the evidence is sufficient.
 
-Existing Protocol v2 code already reconstructs verified paid compute observations from finalized compute state and builds:
+## Governance direction
 
-- ZCPI: finalized paid ZPH per standardized verified compute unit, using per-class medians, EWMA, coverage and reliability;
-- ZCSI: bounded compute scarcity from escrow-backed demand, verified supply, backlog, fulfillment, utilization and reliable price trend.
+Protocol v2 is designed for explicit versioning, bounded parameters and delayed/timelocked activation. Later roadmap stages include contribution/citizen evidence, VRF committees and governance objects. These remain developmental and must not be interpreted as production-ready governance claims.
 
-Unreliable price or capacity evidence fails closed. ZCSI is primarily a routing signal for compute incentives and must not become the monetary anchor.
+## Lending roadmap
 
-## 5. ZPPI — Zephyr Purchasing Power Index
+The economics roadmap includes bilateral native lending, including the ability to represent negative rates where economically justified, followed by device credentials and additional economic indexes. These features belong to later Protocol v2 phases and are not yet live.
 
-The initial basket emphasizes:
+## Consensus incentives and benchmark discipline
 
-- compute;
-- data availability;
-- storage.
+Economic design must not weaken safety, liveness or verifiability. Performance claims are valid only for **finalized-through-consensus** transactions. Execution-only throughput is not chain TPS.
 
-Gas/base fee should have low or zero basket weight because it is directly influenced by protocol policy and would introduce reflexive feedback.
+The v2 benchmark framework is being extended to report:
 
-The first executable reference uses a version-scoped **chain-weighted price-relative basket**. Each service is normalized to a reference price fixed for that basket version before aggregation, so heterogeneous raw service prices are not treated as equivalent units.
+- finalized TPS over a measured window;
+- warm-up finalization separately from measured finalization;
+- p50/p95/p99 finality latency;
+- shard/validator counts, transactions per block, block cadence and cross-shard workload ratio;
+- commit SHA and machine/environment metadata;
+- rejected transactions and errors;
+- explicit invalidation when safety or liveness failures occur;
+- machine-readable JSON output.
 
-Current implementation:
+The **1,000,000 TPS finalized-through-consensus** figure is a long-term aspirational north-star, **not a benchmark already achieved and not a production-capacity claim**.
 
-- `internal/v2/economics/zppi.go`;
-- Q9 component price relatives;
-- compute / data-availability / storage components;
-- version-supplied reference prices and weights;
-- reliability-aware coverage;
-- EWMA smoothing;
-- canonical exact purchasing-power/ZPPI target conversion;
-- fail-closed behavior when reliable basket coverage is too low.
+## Current Protocol v2 implementation status
 
-A future benchmark/basket governance transition may use geometric aggregation after overlap/calibration. Basket changes must be versioned, delayed and measured across an overlap window.
+Implemented or prepared in the current P1 economics work:
 
-## 6. ZAMP migration boundary
+- deterministic dynamic ZCU reference;
+- ZPPI compute/DA/storage basket with Q9 arithmetic and reliability/coverage gates;
+- capital-lot lineage primitives, dormancy histograms and productive-coverage measurement;
+- deterministic state carrying-cost estimator;
+- adversarial fragmentation simulation;
+- prospective IdleCapitalTracker implementation and adversarial tests prepared for repository integration;
+- finalized-through-consensus benchmark report core and tests prepared for V2 Lab integration.
 
-The branch already contains a deterministic shadow ZAMP evaluator that was built around the earlier 2% annual net-supply-growth center. That controller remains useful as a simulation/actuator baseline, but the **2% supply-growth center is no longer the normative monetary target**.
+Still gated / not production-ready:
 
-Until the ZPPI path is integrated end-to-end:
+- live monetary mint/burn or idle levy;
+- final reward-routing parameters;
+- full collector/checkpoint integration of idle-capital tracking;
+- production benchmark/capacity authentication;
+- production ZK/TEE verification infrastructure;
+- governed production WorkRegistry;
+- production Rust/WASM contract stack;
+- any claim that the 1M TPS north-star has been reached.
 
-- the legacy supply-growth evaluator remains shadow-only;
-- it must not be activated for live minting;
-- new ZCU/ZPPI snapshots are measurement foundations, not supply commands;
-- the next controller revision must use ZPPI target error as its primary monetary direction signal;
-- ZCSI should mainly affect reward routing rather than broad issuance;
-- mint, burn, reserve and reward-routing changes remain deterministic consensus state transitions behind explicit activation gates.
+## Source of economic design
 
-## 7. Idle capital and productive coverage — next P1 tranche
-
-The working design defines:
-
-```text
-AgePressure(a) = 1 - exp(-k * a)
-EffectiveIdle = AgePressure * (1 - ProductiveCoverage)
-IdleLevyIntensity_i = Base * EffectiveIdle_i * CapitalPressure_i * GlobalIdlePressure
-```
-
-P1 implementation should add shadow-only:
-
-- dormancy histograms;
-- capital-lineage metadata for split objects;
-- fragmentation/state carrying-cost simulation;
-- productive-coverage accounting hooks;
-- adversarial scenarios for 10/100/1,000/10,000-way wallet fragmentation.
-
-No balance levy should activate in this tranche.
-
-## 8. Native lending — P2
-
-Native bilateral lending is the productive escape valve for idle capital. A loan becomes productive only after both sides accept terms and funding/collateral locks are atomically satisfied.
-
-The future market includes:
-
-- lender offers and borrower requests;
-- counteroffers;
-- duration/rate/collateral constraints;
-- objective borrower history;
-- negative rates;
-- anti-wash credit that accrues over time rather than entirely at origination.
-
-Negative rates are intentionally valid when the cost of lending is lower than the expected idle-capital pressure plus risk cost.
-
-## 9. Activation discipline
-
-Economic mechanisms progress through:
-
-```text
-Observe -> Shadow -> adversarial simulation -> bounded Active
-```
-
-No controller should jump directly from a paper design to live monetary state.
-
-Minimum gates include:
-
-1. all monetary metrics derived reproducibly from finalized consensus state;
-2. authenticated benchmark/availability state for verified compute supply;
-3. versioned basket and benchmark-era governance with overlap and timelocks;
-4. long-horizon manipulation tests for self-cycling, wash lending, fragmentation and concentration;
-5. bounded parameter changes and deterministic emergency fallback;
-6. Citizen Node decoding/verification of economic state and history;
-7. explicit protocol-version/activation-height transitions for mint, reward, fee split or levy changes.
-
-## 10. Implementation order
-
-The current working-paper roadmap is:
-
-- **P0** keep CI/gofmt and Protocol v2 correctness gates green;
-- **P1** dynamic ZCU + verified-slot accounting in shadow;
-- **P1** ZPPI basket + exact -2% purchasing-power target simulation;
-- **P1** dormancy histogram + lineage + fragmentation simulator;
-- **P2** bilateral native lending;
-- **P2** DeviceCredential abstraction;
-- **P2** ZECI concentration telemetry;
-- **P3** ContributionScore/Citizen challenge network, VRF committees and governance timelocks;
-- **P4** Ethereum collateral light-client adapter and Bitcoin collateral research;
-- **P5** incremental economic activation after long-running public simulation.
-
-The engineering rule remains:
-
-```text
-measure first -> simulate second -> activate last
-```
+This documentation reflects **Zephyr Chain — Protocol Economics, Monetary Design, Governance, Lending and Consensus Incentives, working whitepaper v0.1 (19 Aug 2026)** together with the current Protocol v2 P1 implementation state.
