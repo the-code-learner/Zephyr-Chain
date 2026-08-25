@@ -15,7 +15,13 @@ This tranche is **shadow-only**. It does not activate live monetary supply chang
 - capital-lot lineage primitives, dormancy histograms and productive-coverage measurement;
 - deterministic state carrying-cost estimation and fragmentation-pressure simulation;
 - prospective `IdleCapitalTracker` with amount-conserving lineage, canonical checkpoints, local/cross-shard targets and explicit productive-use hooks;
-- repository tests for fragmentation stability, target-order canonicality, cross-shard materialization, productive coverage, checkpoint round trips and atomic invalid-transition rejection;
+- adversarial/edge coverage for repeated self-cycling, payment/change outputs, mixed-age merge, fragmentation, duplicate materialization and malformed/invalid transition handling;
+- finalized-evidence lineage derivation from transaction/result/witness data without heuristic transfer identifiers;
+- canonical cross-shard tracker identity using `CrossShardReceipt.Hash()` and protocol `DestinationObject()` identity;
+- opt-in `IdleCapitalTracker` integration inside the finalized `EpochCollector` preview/apply path;
+- canonical export receipts passed from the runtime into finalized economic observations after the source state root is known;
+- collector checkpoint version 2 carrying idle-capital state while retaining restore support for version 1 checkpoints;
+- restart/canonical checkpoint and local/cross-shard collector integration tests;
 - finalized-through-consensus benchmark report core with warm-up separation, measured finalized TPS, p50/p95/p99 finality, environment/config metadata, JSON output and safety/liveness invalidation.
 
 The pre-existing supply-growth controller remains a legacy **shadow simulator** until the ZPPI path is integrated into the monetary epoch path. ZCSI remains primarily a compute incentive/capacity-routing signal rather than the monetary anchor.
@@ -30,11 +36,9 @@ No live mint, burn policy, levy or reward-routing change is implied by the prese
 
 ## Remaining P1 work
 
-- add the extended adversarial tracker suite for repeated self-cycling, payment/change outputs, mixed-age merge, materialization replay and checkpoint malformed-state coverage;
-- integrate `IdleCapitalTracker` into the finalized `EpochCollector` as an opt-in shadow component;
-- derive local and cross-shard lineage only from finalized transaction/result/witness evidence;
-- use canonical cross-shard receipt identity for tracker transfer IDs and protocol-defined destination object identity on import;
-- integrate tracker state into collector checkpoint/restore with explicit versioning and restart tests;
+- connect productive-coverage updates only to explicitly verified productive events, beginning with narrow finalized compute escrow/settlement evidence rather than generic transfers or contract calls;
+- expand restart/fault scenarios around collector/runtime checkpoints and cross-shard lineage as the shadow tracker accumulates larger state;
 - connect the finalized benchmark report to real V2 Lab finality/QC samples;
 - add a small deterministic CI benchmark scenario and a heavier manual shard/cross-shard matrix;
+- run long-horizon public/adversarial economic simulations before proposing any monetary or idle-capital activation;
 - publish no new chain-TPS claim until the finalized-through-consensus harness has actually run under a documented configuration.
