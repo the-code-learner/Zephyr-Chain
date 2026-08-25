@@ -34,20 +34,24 @@ The compute market is asynchronous and keeps heavy work off-chain while using on
 
 ## Idle capital and productive-use telemetry
 
-Protocol v2 is developing a prospective `IdleCapitalTracker` as **shadow telemetry**. It tracks capital lineage rather than wallet counts so that ordinary transfers, self-transfers, change outputs, split/merge patterns or address fragmentation cannot fabricate economic activity or reset dormancy.
+Protocol v2 includes a prospective `IdleCapitalTracker` as **shadow telemetry**. It tracks capital lineage rather than wallet counts so that ordinary transfers, self-transfers, change outputs, split/merge patterns or address fragmentation cannot fabricate economic activity or reset dormancy.
 
-Key properties of the tracker design:
+Key properties of the tracker design and current P1 implementation:
 
 - capital lineage is amount-conserving and deterministic;
 - `IdleSinceHeight` survives ordinary movement, split/merge and cross-shard transfer;
 - productive use is an explicit verified hook, separate from generic transfers or contract calls;
-- cross-shard transfer identity is the consensus-canonical receipt hash;
-- destination object identity is the protocol-defined destination object;
-- prospective bootstrap coverage is exposed explicitly and is not presented as complete historical lineage;
+- cross-shard transfer identity is exactly the consensus-canonical `CrossShardReceipt.Hash()`;
+- destination object identity comes from the protocol-defined `CrossShardReceipt.DestinationObject()`;
+- finalized transaction/result/witness evidence is used to derive native-capital movement;
+- previously unseen historical capital is only prospectively bootstrapped when consensus-stamped age is available, with incomplete coverage exposed rather than hidden;
+- the tracker is opt-in inside the finalized `EpochCollector` preview/apply path;
+- runtime-produced canonical export receipts are supplied to economic observations only after the source state root is known;
+- collector checkpoint version 2 carries idle-capital state and can still restore version 1 collector checkpoints;
 - checkpoints are canonical, bounded and fail closed on malformed state;
 - replay and invalid/non-conserving transitions are rejected atomically.
 
-The tracker does **not** currently impose an idle levy and does not mutate supply.
+The tracker does **not** currently impose an idle levy and does not mutate supply. Productive-coverage updates are not granted for generic transfers or arbitrary contract calls; future hooks must be tied to narrow, verifiable productive events.
 
 ## State carrying cost
 
@@ -90,22 +94,26 @@ The **1,000,000 TPS finalized-through-consensus** figure is a long-term aspirati
 
 ## Current Protocol v2 implementation status
 
-Implemented or prepared in the current P1 economics work:
+Implemented in the current P1 economics branch:
 
 - deterministic dynamic ZCU reference;
 - ZPPI compute/DA/storage basket with Q9 arithmetic and reliability/coverage gates;
 - capital-lot lineage primitives, dormancy histograms and productive-coverage measurement;
 - deterministic state carrying-cost estimator;
-- adversarial fragmentation simulation;
-- prospective IdleCapitalTracker implementation and adversarial tests prepared for repository integration;
-- finalized-through-consensus benchmark report core and tests prepared for V2 Lab integration.
+- adversarial fragmentation and lineage edge-case coverage;
+- prospective IdleCapitalTracker with canonical local/cross-shard identity and finalized-evidence derivation;
+- opt-in finalized `EpochCollector` integration with atomic preview/apply semantics;
+- versioned collector checkpoint/restart support for idle-capital state;
+- finalized-through-consensus benchmark report core and tests for V2 Lab integration.
 
 Still gated / not production-ready:
 
 - live monetary mint/burn or idle levy;
 - final reward-routing parameters;
-- full collector/checkpoint integration of idle-capital tracking;
+- automatic productive-coverage credit beyond explicitly approved and verifiable hooks;
+- long-horizon public economic simulations and manipulation-resistance evidence;
 - production benchmark/capacity authentication;
+- wiring the report core to real V2 Lab finality/QC sampling and publishing new measured chain-TPS results;
 - production ZK/TEE verification infrastructure;
 - governed production WorkRegistry;
 - production Rust/WASM contract stack;
