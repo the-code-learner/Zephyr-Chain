@@ -201,6 +201,7 @@ func (r *Runtime) BuildCandidate(height uint64, batches map[uint32]ShardBatch) (
 				Transactions: append([]tx.Transaction(nil), batch.Transactions...),
 				Results:      append([]execution.Result(nil), results...),
 				Imports:      imports,
+				Exports:      append([]sharding.CrossShardReceipt(nil), receipts...),
 			}
 		}
 	}
