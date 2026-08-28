@@ -21,12 +21,12 @@ import (
 // not mark an entire compute job object productive: that object can also carry
 // provider collateral, which is economically distinct from paid compute spend.
 type FinalizedComputeProductiveEvidence struct {
-	JobObjectID types.ObjectID
-	JobID       types.JobID
-	Escrow      uint64
-	Paid        uint64
-	CoverageBps uint32
-	ResultRoot  types.Hash
+	JobObjectID  types.ObjectID
+	JobID        types.JobID
+	Escrow       uint64
+	Paid         uint64
+	CoverageBps  uint32
+	ResultRoot   types.Hash
 	Verification compute.VerificationMode
 }
 
@@ -125,12 +125,12 @@ func DeriveFinalizedComputeProductiveEvidence(
 	}
 
 	return FinalizedComputeProductiveEvidence{
-		JobObjectID: ref.JobObject,
-		JobID:       record.ID,
-		Escrow:      record.Escrow,
-		Paid:        paid,
-		CoverageBps: coverage,
-		ResultRoot:  receipt.ResultRoot,
+		JobObjectID:  ref.JobObject,
+		JobID:        record.ID,
+		Escrow:       record.Escrow,
+		Paid:         paid,
+		CoverageBps:  coverage,
+		ResultRoot:   receipt.ResultRoot,
 		Verification: record.Job.Verification,
 	}, true, nil
 }
