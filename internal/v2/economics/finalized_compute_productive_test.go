@@ -28,7 +28,7 @@ func TestDeriveFinalizedComputeProductiveEvidenceExactSettlement(t *testing.T) {
 	if evidence.Escrow != 100 || evidence.Paid != 70 || evidence.CoverageBps != 7_000 {
 		t.Fatalf("unexpected productive capital evidence: %#v", evidence)
 	}
-	if evidence.ResultRoot != types.Hash{9} || evidence.Verification != compute.VerificationReplicated {
+	if evidence.ResultRoot != (types.Hash{9}) || evidence.Verification != compute.VerificationReplicated {
 		t.Fatalf("unexpected verification evidence: %#v", evidence)
 	}
 }
@@ -44,7 +44,7 @@ func TestDeriveFinalizedComputeProductiveEvidenceMajorityOnlyCountsPaidProviders
 	if !applied || evidence.Paid != 60 || evidence.Escrow != 100 || evidence.CoverageBps != 6_000 {
 		t.Fatalf("majority settlement did not isolate paid compute escrow: %#v", evidence)
 	}
-	if evidence.ResultRoot != types.Hash{9} {
+	if evidence.ResultRoot != (types.Hash{9}) {
 		t.Fatalf("wrong accepted majority root: %x", evidence.ResultRoot)
 	}
 }
@@ -109,16 +109,21 @@ func finalizedComputeRecord(majority bool) compute.OnChainJob {
 		ID: jobID,
 		Job: compute.Job{
 			Owner: owner, WorkloadHash: types.Hash{5}, InputRoot: types.Hash{6},
-			Resources: compute.Resources{CPUCores: 1, MemoryMiB: 256},
-			MaxPrice: 100, CollateralRequired: 10, Verification: compute.VerificationReplicated,
-			DeadlineHeight: 100, Replicas: replicas,
+			Resources:          compute.Resources{CPUCores: 1, MemoryMiB: 256},
+			MaxPrice:           100,
+			CollateralRequired: 10,
+			Verification:       compute.VerificationReplicated,
+			DeadlineHeight:     100,
+			Replicas:           replicas,
 		},
-		Escrow: 100, Status: compute.JobAwaitingVerification,
-		Assignments: assignments, Results: results,
+		Escrow:      100,
+		Status:      compute.JobAwaitingVerification,
+		Assignments: assignments,
+		Results:     results,
 	}
 }
 
-func finalizedComputeTransaction(t *testing.T, record compute.OnChainJob, kind tx.OperationKind) (tx.Transaction, execution.Result) {
+func finalizedComputeTransaction(t *testing.T, record compute.OnChainJob, kind uint16) (tx.Transaction, execution.Result) {
 	t.Helper()
 	jobRaw, err := record.MarshalBinary()
 	if err != nil {
@@ -131,9 +136,11 @@ func finalizedComputeTransaction(t *testing.T, record compute.OnChainJob, kind t
 	}
 	transaction := tx.Transaction{
 		ShardID: 0,
-		Sender: record.Job.Owner,
-		Inputs: []tx.InputRef{{ObjectID: jobObjectID}},
-		Operations: []tx.Operation{{Kind: kind, Payload: payload}},
+		Sender:  record.Job.Owner,
+		Inputs:  []tx.InputRef{{ObjectID: jobObjectID}},
+		Operations: []tx.Operation{{
+			Kind: kind, Payload: payload,
+		}},
 		Witnesses: []tx.Witness{{Object: object.Object{
 			ID: jobObjectID, Version: 4, Owner: record.Job.Owner, Kind: object.KindComputeJob, Data: jobRaw,
 		}}},
@@ -153,7 +160,7 @@ func finalizedComputeTransaction(t *testing.T, record compute.OnChainJob, kind t
 	}
 	return transaction, execution.Result{
 		Consumed: []types.ObjectID{jobObjectID},
-		Created: []object.Object{{ID: types.ObjectID{11}, Version: 1, Kind: object.KindSystem, Data: receipt.MarshalBinary()}},
-		TxID: transaction.ID(),
+		Created:  []object.Object{{ID: types.ObjectID{11}, Version: 1, Kind: object.KindSystem, Data: receipt.MarshalBinary()}},
+		TxID:     transaction.ID(),
 	}
 }
