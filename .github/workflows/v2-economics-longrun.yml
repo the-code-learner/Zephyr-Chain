@@ -1,0 +1,70 @@
+name: V2 Economics Long Horizon
+
+on:
+  workflow_dispatch:
+    inputs:
+      epochs:
+        description: Number of shadow epochs to simulate.
+        required: true
+        default: "1095"
+      checkpoint_every:
+        description: Emit compact output checkpoints every N epochs.
+        required: true
+        default: "365"
+      include_epochs:
+        description: Include the full per-epoch timeline in the JSON artifact.
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  long-run:
+    name: Shadow economics adversarial long run
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - name: Run adversarial shadow simulation
+        shell: bash
+        run: |
+          args=(
+            -epochs "${{ inputs.epochs }}"
+            -checkpoint-every "${{ inputs.checkpoint_every }}"
+            -output economics-longrun.json
+          )
+          if [ "${{ inputs.include_epochs }}" = "true" ]; then
+            args+=( -include-epochs )
+          fi
+          go run ./cmd/zephyr-econ-longrun "${args[@]}"
+
+      - name: Publish shadow-only summary
+        shell: bash
+        run: |
+          {
+            echo '## V2 adversarial economics long run'
+            echo
+            echo 'Shadow-only simulation. This workflow cannot activate minting, levies, reward routing, fee splits, or supply mutation.'
+            echo
+            echo '```json'
+            cat economics-longrun.json
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload simulation artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: v2-economics-longrun-${{ github.sha }}
+          path: economics-longrun.json
+          if-no-files-found: error
+          retention-days: 30

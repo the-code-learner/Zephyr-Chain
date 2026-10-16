@@ -1,0 +1,35 @@
+{
+  "epoch": 42,
+  "priorTargetBps": 200,
+  "metrics": {
+    "Supply": 1000000000,
+    "CirculatingSupply": 900000000,
+    "StakedSupply": 450000000,
+    "ProtocolReserve": 100000000,
+    "BurnedThisEpoch": 12000,
+    "FinalizedOperations": 1000000,
+    "ResourceUtilizationBps": 5000,
+    "AgeWeightedVelocityBps": 5000,
+    "ComputeIndexQ9": 7500000000,
+    "ComputePriceTrendBps": 800,
+    "ComputeIndexReliable": true
+  },
+  "computeMarket": {
+    "EscrowBackedDemandUnits": 200000,
+    "VerifiedSupplyUnits": 150000,
+    "BacklogUnits": 30000,
+    "FulfilledUnits": 170000,
+    "UtilizationBps": 8500,
+    "ComputePriceTrendBps": 800,
+    "ComputeIndexReliable": true
+  },
+  "feedbackPolicy": {
+    "Mode": 1,
+    "BaseComputeRewardShareBps": 1000,
+    "MinComputeRewardShareBps": 0,
+    "MaxComputeRewardShareBps": 3000,
+    "RewardSensitivityBps": 2000,
+    "MonetarySensitivityBps": 25,
+    "MaxInflationCorrectionBps": 25
+  }
+}

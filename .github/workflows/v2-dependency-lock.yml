@@ -1,0 +1,46 @@
+name: V2 Dependency Lock
+
+on:
+  pull_request:
+    paths:
+      - go.mod
+      - internal/v2/**
+      - .github/workflows/v2-dependency-lock.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lock:
+    name: Resolve production v2 dependencies
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - name: Resolve pinned dependencies
+        run: |
+          go get go.starlark.net@5395d018f003e2a08bfbca6dcb2562acee700f62
+          go get github.com/tetratelabs/wazero@v1.11.0
+          go get github.com/klauspost/reedsolomon@latest
+          go get github.com/libp2p/go-libp2p@latest
+          go get github.com/libp2p/go-libp2p-pubsub@latest
+          echo '--- go.mod ---'
+          cat go.mod
+          echo '--- go.sum ---'
+          cat go.sum
+
+      - name: Upload dependency lock
+        uses: actions/upload-artifact@v4
+        with:
+          name: v2-go-dependency-lock
+          path: |
+            go.mod
+            go.sum
