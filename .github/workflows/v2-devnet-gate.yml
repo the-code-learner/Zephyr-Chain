@@ -34,6 +34,10 @@ jobs:
           go-version-file: go.mod
           cache: false
 
+      - name: Show devnet gofmt diff
+        shell: bash
+        run: gofmt -d internal/v2/node/devnet_integration_test.go
+
       - name: Run transaction, voting, finality and quorum-fault devnet
         shell: bash
         run: |
