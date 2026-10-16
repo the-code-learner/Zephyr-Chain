@@ -29,6 +29,11 @@ const (
 	OpComputeFinalize          uint16 = 11
 	OpComputeResolveReplicated uint16 = 12
 	OpComputeExpire            uint16 = 13
+	OpLoanOffer                uint16 = 16
+	OpLoanCancel               uint16 = 17
+	OpLoanAccept               uint16 = 18
+	OpLoanRepay                uint16 = 19
+	OpLoanDefault              uint16 = 20
 
 	MaxInputs      = 4096
 	MaxOutputs     = 4096

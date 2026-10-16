@@ -19,6 +19,8 @@ const (
 	KindComputeJob
 	KindComputeAssignment
 	KindComputeResult
+	KindLoanOffer
+	KindLoan
 	KindSystem
 )
 
