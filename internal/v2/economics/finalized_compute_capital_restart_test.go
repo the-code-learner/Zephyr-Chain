@@ -3,6 +3,7 @@ package economics
 import (
 	"bytes"
 	"encoding/binary"
+	"reflect"
 	"testing"
 
 	"github.com/zephyr-chain/zephyr-chain/internal/v2/compute"
@@ -157,7 +158,7 @@ func TestEpochCollectorCheckpointRestoresLargeComputePendingCrossShardState(t *t
 	if err != nil || !enabled {
 		t.Fatalf("restored idle snapshot failed: enabled=%v err=%v", enabled, err)
 	}
-	if beforeSnapshot != afterSnapshot {
+	if !reflect.DeepEqual(beforeSnapshot, afterSnapshot) {
 		t.Fatalf("collector checkpoint changed aggregate idle state: before=%#v after=%#v", beforeSnapshot, afterSnapshot)
 	}
 	restoredPending, ok := restored.idleCapital.pendingTransfers[remoteTransferID]
