@@ -18,12 +18,12 @@ type longRunConfigOutput struct {
 }
 
 type longRunOutput struct {
-	Version     uint16                                 `json:"version"`
-	Shadow      bool                                   `json:"shadow"`
-	Scenario    string                                 `json:"scenario"`
-	Disclaimer  string                                 `json:"disclaimer"`
-	Config      longRunConfigOutput                    `json:"config"`
-	Summary     economics.LongHorizonSimulationSummary `json:"summary"`
+	Version     uint16                                   `json:"version"`
+	Shadow      bool                                     `json:"shadow"`
+	Scenario    string                                   `json:"scenario"`
+	Disclaimer  string                                   `json:"disclaimer"`
+	Config      longRunConfigOutput                      `json:"config"`
+	Summary     economics.LongHorizonSimulationSummary   `json:"summary"`
 	Checkpoints []economics.LongHorizonEpochSnapshot     `json:"checkpoints"`
 	Sensitivity []economics.LongHorizonSensitivityResult `json:"sensitivity"`
 	Epochs      []economics.LongHorizonEpochSnapshot     `json:"epochs,omitempty"`
