@@ -81,3 +81,29 @@ func TestFinalityHarnessRejectsUnrepresentableCrossShardRatio(t *testing.T) {
 		t.Fatal("harness accepted a cross-shard ratio that cannot be represented exactly per block")
 	}
 }
+
+
+func TestV2LabFinalityMatrixFourShardCrossShardSmoke(t *testing.T) {
+	result, err := RunFinalityHarness(FinalityHarnessConfig{
+		ShardCount:           4,
+		ValidatorCount:       7,
+		TransactionsPerBlock: 4,
+		WarmupBlocks:         0,
+		MeasuredBlocks:       1,
+		CrossShardBPS:        2_500,
+		BlockCadence:         time.Millisecond,
+		Workers:              4,
+		CommitSHA:            os.Getenv("GITHUB_SHA"),
+		Workload:             "native-transfer-receipt-import-four-shard-smoke",
+		Topology:             "single-process-in-memory",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Report.Valid || result.Report.Config.ShardCount != 4 ||
+		result.Report.Config.CrossShardBPS != 2_500 ||
+		result.GeneratedCrossShard != 1 || result.ImportedCrossShard != 1 ||
+		result.DrainBlocks != 1 || result.FinalizedConsensusBlocks != 2 {
+		t.Fatalf("unexpected four-shard matrix smoke result: %#v", result)
+	}
+}
