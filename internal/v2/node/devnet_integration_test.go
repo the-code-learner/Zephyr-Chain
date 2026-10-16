@@ -15,8 +15,8 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 
 	v2consensus "github.com/zephyr-chain/zephyr-chain/internal/v2/consensus"
-	"github.com/zephyr-chain/zephyr-chain/internal/v2/object"
 	p2p "github.com/zephyr-chain/zephyr-chain/internal/v2/network/p2p"
+	"github.com/zephyr-chain/zephyr-chain/internal/v2/object"
 	"github.com/zephyr-chain/zephyr-chain/internal/v2/tx"
 	"github.com/zephyr-chain/zephyr-chain/internal/v2/types"
 	"github.com/zephyr-chain/zephyr-chain/internal/v2/worldstate"
