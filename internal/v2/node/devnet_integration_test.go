@@ -15,6 +15,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 
 	v2consensus "github.com/zephyr-chain/zephyr-chain/internal/v2/consensus"
+	"github.com/zephyr-chain/zephyr-chain/internal/v2/lending"
 	p2p "github.com/zephyr-chain/zephyr-chain/internal/v2/network/p2p"
 	"github.com/zephyr-chain/zephyr-chain/internal/v2/object"
 	"github.com/zephyr-chain/zephyr-chain/internal/v2/tx"
@@ -39,10 +40,12 @@ type protocolV2Devnet struct {
 	observer      *Service
 	observerStore *worldstate.Memory
 	clientNode    *p2p.Node
-	initialObject object.Object
-	senderKey     *ecdsa.PrivateKey
-	sender        types.AccountID
-	recipient     types.AccountID
+	initialObject          object.Object
+	recipientInitialObject object.Object
+	senderKey              *ecdsa.PrivateKey
+	recipientKey           *ecdsa.PrivateKey
+	sender                 types.AccountID
+	recipient              types.AccountID
 }
 
 func TestProtocolV2DevnetTransactionVotingAndFinality(t *testing.T) {
@@ -218,6 +221,17 @@ func newProtocolV2Devnet(t *testing.T, validatorCount int) *protocolV2Devnet {
 		Kind:    initialSpec.Kind,
 		Data:    initialSpec.Data,
 	}
+	recipientSpec, err := object.NewCoinOutput(recipient, native, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	recipientInitial := object.Object{
+		ID:      types.ObjectIDForShard(types.HashBytes("devnet-input", []byte("1")), 0, 0),
+		Version: 1,
+		Owner:   recipient,
+		Kind:    recipientSpec.Kind,
+		Data:    recipientSpec.Data,
+	}
 
 	devnet := &protocolV2Devnet{
 		network:       network,
@@ -227,10 +241,12 @@ func newProtocolV2Devnet(t *testing.T, validatorCount int) *protocolV2Devnet {
 		nodes:         make([]*p2p.Node, validatorCount),
 		services:      make([]*Service, validatorCount),
 		stores:        make([]*worldstate.Memory, validatorCount),
-		initialObject: initial,
-		senderKey:     senderKey,
-		sender:        sender,
-		recipient:     recipient,
+		initialObject:          initial,
+		recipientInitialObject: recipientInitial,
+		senderKey:              senderKey,
+		recipientKey:           recipientKey,
+		sender:                 sender,
+		recipient:              recipient,
 	}
 
 	for i := 0; i < validatorCount; i++ {
@@ -244,7 +260,7 @@ func newProtocolV2Devnet(t *testing.T, validatorCount int) *protocolV2Devnet {
 		}
 		devnet.nodes[i] = transport
 		store := worldstate.NewMemory()
-		if _, err := store.Apply(nil, []object.Object{initial}); err != nil {
+		if _, err := store.Apply(nil, []object.Object{initial, recipientInitial}); err != nil {
 			t.Fatal(err)
 		}
 		devnet.stores[i] = store
@@ -269,7 +285,7 @@ func newProtocolV2Devnet(t *testing.T, validatorCount int) *protocolV2Devnet {
 	}
 	devnet.observerNode = observerTransport
 	observerStore := worldstate.NewMemory()
-	if _, err := observerStore.Apply(nil, []object.Object{initial}); err != nil {
+	if _, err := observerStore.Apply(nil, []object.Object{initial, recipientInitial}); err != nil {
 		t.Fatal(err)
 	}
 	devnet.observerStore = observerStore
