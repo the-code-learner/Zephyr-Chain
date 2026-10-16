@@ -2,7 +2,6 @@ package lending
 
 import (
 	"errors"
-	"math"
 	"math/big"
 
 	"github.com/zephyr-chain/zephyr-chain/internal/v2/codec"
@@ -59,11 +58,7 @@ func (t Terms) RepaymentDue() (uint64, error) {
 	if due.Sign() <= 0 || due.BitLen() > 64 {
 		return 0, ErrLending
 	}
-	value := due.Uint64()
-	if value > math.MaxUint64 {
-		return 0, ErrLending
-	}
-	return value, nil
+	return due.Uint64(), nil
 }
 
 func (t Terms) MarshalBinary() ([]byte, error) {
