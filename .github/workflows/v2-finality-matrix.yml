@@ -1,0 +1,76 @@
+name: V2 Finality Matrix
+
+on:
+  workflow_dispatch:
+    inputs:
+      transactions_per_block:
+        description: Transactions per traffic block; choose a value that exactly represents requested cross-shard ratios.
+        required: true
+        default: "40"
+      warmup_blocks:
+        description: Warmup traffic blocks excluded from measurements.
+        required: true
+        default: "1"
+      measured_blocks:
+        description: Traffic blocks included in measurements.
+        required: true
+        default: "3"
+      block_cadence:
+        description: Minimum cadence between submitted traffic blocks.
+        required: true
+        default: "1ms"
+
+permissions:
+  contents: read
+
+jobs:
+  matrix:
+    name: Finalized-through-consensus matrix
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - name: Run single-process shard and cross-shard matrix
+        shell: bash
+        run: |
+          go run ./cmd/v2-finality-matrix \
+            -shards 1,2,4,8 \
+            -cross-shard-bps 0,1000,2500,5000 \
+            -transactions-per-block "${{ inputs.transactions_per_block }}" \
+            -warmup-blocks "${{ inputs.warmup_blocks }}" \
+            -measured-blocks "${{ inputs.measured_blocks }}" \
+            -block-cadence "${{ inputs.block_cadence }}" \
+            -validators 7 \
+            -commit "$GITHUB_SHA" \
+            -topology single-process-in-memory \
+            -workload native-transfer-receipt-import-matrix \
+            > finality-matrix.json
+
+      - name: Publish matrix summary
+        shell: bash
+        run: |
+          {
+            echo '## V2 finalized-through-consensus matrix'
+            echo
+            echo 'This artifact is single-process instrumentation and is not a production-capacity or TPS claim.'
+            echo
+            echo '```json'
+            cat finality-matrix.json
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload matrix artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: v2-finality-matrix-${{ github.sha }}
+          path: finality-matrix.json
+          if-no-files-found: error
+          retention-days: 14
