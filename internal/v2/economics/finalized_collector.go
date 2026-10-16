@@ -6,6 +6,7 @@ import (
 
 	"github.com/zephyr-chain/zephyr-chain/internal/v2/compute"
 	"github.com/zephyr-chain/zephyr-chain/internal/v2/execution"
+	"github.com/zephyr-chain/zephyr-chain/internal/v2/lending"
 	"github.com/zephyr-chain/zephyr-chain/internal/v2/object"
 	"github.com/zephyr-chain/zephyr-chain/internal/v2/sharding"
 	"github.com/zephyr-chain/zephyr-chain/internal/v2/tx"
@@ -316,22 +317,56 @@ func finalizedTransactionResourceUnits(transaction tx.Transaction, result execut
 }
 
 func (c *EpochCollector) observeImportedReceipt(receipt sharding.CrossShardReceipt) error {
-	if receipt.Output.Kind != object.KindCoin {
-		return nil
-	}
-	coin, err := object.ParseCoin(receipt.Output.Data)
+	amount, carriesNative, err := finalizedReceiptNativeValue(receipt, c.config.NativeToken)
 	if err != nil {
 		return err
 	}
-	if coin.Token != c.config.NativeToken {
+	if !carriesNative {
 		return nil
 	}
-	if c.supply[receipt.SourceShard] < coin.Amount || math.MaxUint64-c.supply[receipt.DestinationShard] < coin.Amount {
+	if c.supply[receipt.SourceShard] < amount || math.MaxUint64-c.supply[receipt.DestinationShard] < amount {
 		return ErrFinalizedEconomics
 	}
-	c.supply[receipt.SourceShard] -= coin.Amount
-	c.supply[receipt.DestinationShard] += coin.Amount
+	c.supply[receipt.SourceShard] -= amount
+	c.supply[receipt.DestinationShard] += amount
 	return nil
+}
+
+func finalizedReceiptNativeValue(receipt sharding.CrossShardReceipt, nativeToken types.TokenID) (uint64, bool, error) {
+	switch receipt.Output.Kind {
+	case object.KindCoin:
+		coin, err := object.ParseCoin(receipt.Output.Data)
+		if err != nil {
+			return 0, false, err
+		}
+		if coin.Token != nativeToken {
+			return 0, false, nil
+		}
+		return coin.Amount, true, nil
+	case object.KindCrossLoanOffer:
+		message, err := lending.ParseCrossOffer(receipt.Output.Data)
+		if err != nil {
+			return 0, false, ErrFinalizedEconomics
+		}
+		return message.Terms.Principal, true, nil
+	case object.KindCrossLoanAcceptance:
+		message, err := lending.ParseCrossAcceptance(receipt.Output.Data)
+		if err != nil {
+			return 0, false, ErrFinalizedEconomics
+		}
+		if message.Terms.Collateral == 0 {
+			return 0, false, nil
+		}
+		return message.Terms.Collateral, true, nil
+	case object.KindCrossLoanRepayment:
+		message, err := lending.ParseCrossRepayment(receipt.Output.Data)
+		if err != nil {
+			return 0, false, ErrFinalizedEconomics
+		}
+		return message.Amount, true, nil
+	default:
+		return 0, false, nil
+	}
 }
 
 func (c *EpochCollector) observeComputeLifecycle(transaction tx.Transaction, result execution.Result, acc *shardEpochAccumulator) error {
