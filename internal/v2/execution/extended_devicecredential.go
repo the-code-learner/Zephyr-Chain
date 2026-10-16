@@ -1,6 +1,8 @@
 package execution
 
 import (
+	"math"
+
 	"github.com/zephyr-chain/zephyr-chain/internal/v2/devicecredential"
 	"github.com/zephyr-chain/zephyr-chain/internal/v2/object"
 	"github.com/zephyr-chain/zephyr-chain/internal/v2/tx"
@@ -67,7 +69,7 @@ func (e Engine) executeDeviceCredentialUpdate(t tx.Transaction, payload []byte) 
 		return Result{}, devicecredential.ErrCredential
 	}
 	current, err := devicecredential.ParseCredential(witness.Object.Data)
-	if err != nil || current.Owner != t.Sender {
+	if err != nil || current.Owner != t.Sender || current.Sequence == math.MaxUint64 {
 		return Result{}, devicecredential.ErrCredential
 	}
 	created, consumed, err := e.feeOnlyOutputsExcluding(t, witness.Object.ID, nil)
