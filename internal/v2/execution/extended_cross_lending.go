@@ -109,7 +109,7 @@ func (e Engine) executeCrossLoanAccept(t tx.Transaction, payload []byte) (Result
 	acceptanceID := types.ObjectIDForShard(txID, lending.CrossAcceptanceMessageIndex, lenderShard)
 	acceptance := lending.CrossAcceptance{
 		OfferObject: offer.OfferObject, ActivationObject: activationID,
-		LenderShard:      lenderShard, BorrowerShard: borrowerShard,
+		LenderShard: lenderShard, BorrowerShard: borrowerShard,
 		AcceptedHeight: e.Height, Terms: offer.Terms,
 	}
 	acceptanceRaw, err := acceptance.MarshalBinary()
