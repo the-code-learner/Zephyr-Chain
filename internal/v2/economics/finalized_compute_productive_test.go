@@ -25,6 +25,13 @@ func TestDeriveFinalizedComputeProductiveEvidenceExactSettlement(t *testing.T) {
 	if evidence.JobID != record.ID || evidence.JobObjectID != transaction.Inputs[0].ObjectID {
 		t.Fatalf("unexpected settlement identity: %#v", evidence)
 	}
+	escrowComponentID, err := ComputeEscrowComponentID(record.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if evidence.EscrowComponentID != escrowComponentID {
+		t.Fatalf("unexpected escrow component identity: %x", evidence.EscrowComponentID)
+	}
 	if evidence.Escrow != 100 || evidence.Paid != 70 || evidence.CoverageBps != 7_000 {
 		t.Fatalf("unexpected productive capital evidence: %#v", evidence)
 	}

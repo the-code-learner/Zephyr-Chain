@@ -23,7 +23,8 @@ This tranche is **shadow-only**. It does not activate live monetary supply chang
 - collector checkpoint version 2 carrying idle-capital state while retaining restore support for version 1 checkpoints;
 - restart/canonical checkpoint and local/cross-shard collector integration tests;
 - finalized compute productive-evidence derivation that verifies the referenced consumed job object and canonical settlement receipt, reconstructs exact/strict-majority settlement, isolates paid compute escrow from collateral/refunds, and computes overflow-safe `paid / escrow` coverage in basis points;
-- productive-evidence tests for exact replicated settlement, strict-majority settlement, tampered receipts, generic-transfer exclusion and maximum-`uint64` capital values;
+- stable shadow component identities for owner escrow and each provider collateral position, keyed independently of compute-job object versions so future lineage updates cannot conflate productive spend with collateral;
+- productive-evidence/component tests for exact replicated settlement, strict-majority settlement, stable escrow/collateral identities, duplicate-provider rejection, tampered receipts, generic-transfer exclusion and maximum-`uint64` capital values;
 - finalized-through-consensus benchmark report core with warm-up separation, measured finalized TPS, p50/p95/p99 finality, environment/config metadata, JSON output and safety/liveness invalidation.
 
 The pre-existing supply-growth controller remains a legacy **shadow simulator** until the ZPPI path is integrated into the monetary epoch path. ZCSI remains primarily a compute incentive/capacity-routing signal rather than the monetary anchor.
@@ -32,7 +33,7 @@ The pre-existing supply-growth controller remains a legacy **shadow simulator** 
 
 The finalized compute evidence layer is intentionally read-only for now. A compute job object can contain both the owner's escrow and provider collateral, while settlement outputs can aggregate provider payment and collateral return into the same native coin. Marking the whole job object productive would therefore over-credit collateral.
 
-The next lineage step must preserve those economic subcomponents explicitly before any call to `MarkObjectProductive`. Generic transfers and arbitrary contract calls remain ineligible for productive-use credit.
+P1 now assigns deterministic shadow identities to the escrow component and each per-provider collateral component. These identities are stable across job-object version updates, but they do not yet mutate `IdleCapitalTracker`. The next lineage step is to route finalized job creation/assignment/settlement capital through those component identities before any productive reset is applied. Generic transfers and arbitrary contract calls remain ineligible for productive-use credit.
 
 ## Activation discipline
 
