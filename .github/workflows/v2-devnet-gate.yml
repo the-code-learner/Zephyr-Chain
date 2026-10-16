@@ -32,6 +32,14 @@ jobs:
           go-version-file: go.mod
           cache: false
 
+      - name: Show cross-lending gofmt diffs
+        shell: bash
+        run: |
+          gofmt -d internal/v2/economics/cross_lending_test.go || true
+          gofmt -d internal/v2/execution/cross_lending_boundaries_test.go || true
+          gofmt -d internal/v2/execution/extended_cross_lending.go || true
+          gofmt -d internal/v2/lending/cross_shard_test.go || true
+
       - name: Run transaction, voting, finality and quorum-fault devnet
         shell: bash
         run: |
