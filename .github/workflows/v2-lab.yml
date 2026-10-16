@@ -30,8 +30,17 @@ jobs:
       - name: V2 seven-validator conformance
         run: go test ./internal/v2/lab ./internal/v2/node ./internal/v2/consensus ./internal/v2/state ./internal/v2/worldstate -count=1 -timeout=120s
 
+      - name: V2 finalized-through-consensus report sample
+        run: go test ./internal/v2/lab -run '^TestV2LabFinalityReportFromConsensusCommit
+      - name: V2 finalized batch scaling
+        run: go test ./internal/v2/node -run '^$' -bench '^BenchmarkV2FinalizedBatch32$' -benchtime=1x -count=1 -timeout=120s
+ -count=1 -v -timeout=120s
+
       - name: V2 partition stress
-        run: go test ./internal/v2/lab -run '^TestV2Lab(FourThreePartitionStallsThenHeals|FiveTwoPartitionFinalizesQuorumSideAndMinorityCatchesUp)$' -count=10 -timeout=120s
+        run: go test ./internal/v2/lab -run '^TestV2Lab(FourThreePartitionStallsThenHeals|FiveTwoPartitionFinalizesQuorumSideAndMinorityCatchesUp)
+      - name: V2 finalized batch scaling
+        run: go test ./internal/v2/node -run '^$' -bench '^BenchmarkV2FinalizedBatch32$' -benchtime=1x -count=1 -timeout=120s
+ -count=10 -timeout=120s
 
       - name: V2 finalized batch scaling
         run: go test ./internal/v2/node -run '^$' -bench '^BenchmarkV2FinalizedBatch32$' -benchtime=1x -count=1 -timeout=120s
