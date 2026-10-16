@@ -34,6 +34,9 @@ const (
 	OpLoanAccept               uint16 = 18
 	OpLoanRepay                uint16 = 19
 	OpLoanDefault              uint16 = 20
+	OpDeviceCredentialRegister uint16 = 21
+	OpDeviceCredentialUpdate   uint16 = 22
+	OpDeviceCredentialRevoke   uint16 = 23
 
 	MaxInputs      = 4096
 	MaxOutputs     = 4096
