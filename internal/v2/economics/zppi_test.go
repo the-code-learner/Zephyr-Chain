@@ -59,3 +59,46 @@ func TestBuildZPPIFailsClosedOnLowCoverage(t *testing.T) {
 		t.Fatalf("low coverage must remain unreliable: %d/%v", snapshot.CoverageBps, snapshot.Reliable)
 	}
 }
+
+
+func TestBuildZPPIPreservesEWMAHistoryAcrossMissingComponent(t *testing.T) {
+	cfg := ZPPIBasketConfig{MinCoverageBps: 7_500, EWMABps: 5_000}
+	cfg.WeightsBps[ZPPICompute] = 5_000
+	cfg.WeightsBps[ZPPIStorage] = 5_000
+	cfg.ReferencePriceQ9[ZPPICompute] = ZPPIPriceScaleQ9
+	cfg.ReferencePriceQ9[ZPPIStorage] = ZPPIPriceScaleQ9
+
+	first, err := BuildZPPI(1, []ZPPIObservation{
+		{Component: ZPPICompute, PriceQ9: ZPPIPriceScaleQ9, Reliable: true},
+		{Component: ZPPIStorage, PriceQ9: ZPPIPriceScaleQ9, Reliable: true},
+	}, ZPPISnapshot{}, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sparse, err := BuildZPPI(2, []ZPPIObservation{
+		{Component: ZPPIStorage, PriceQ9: ZPPIPriceScaleQ9, Reliable: true},
+	}, first, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sparse.Reliable || sparse.CoverageBps != 5_000 {
+		t.Fatalf("sparse epoch unexpectedly reliable: %#v", sparse)
+	}
+	if sparse.ComponentIndexQ9[ZPPICompute] != ZPPIPriceScaleQ9 {
+		t.Fatalf("sparse epoch lost compute EWMA history: %#v", sparse)
+	}
+
+	recovered, err := BuildZPPI(3, []ZPPIObservation{
+		{Component: ZPPICompute, PriceQ9: 2 * ZPPIPriceScaleQ9, Reliable: true},
+		{Component: ZPPIStorage, PriceQ9: ZPPIPriceScaleQ9, Reliable: true},
+	}, sparse, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !recovered.Reliable {
+		t.Fatalf("recovered epoch remained unreliable: %#v", recovered)
+	}
+	if got, want := recovered.ComponentIndexQ9[ZPPICompute], uint64(1_500_000_000); got != want {
+		t.Fatalf("compute EWMA after sparse epoch = %d, want %d", got, want)
+	}
+}
