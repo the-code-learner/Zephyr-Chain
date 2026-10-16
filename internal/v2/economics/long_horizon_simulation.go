@@ -20,60 +20,60 @@ const (
 )
 
 type LongHorizonSimulationConfig struct {
-	EpochsPerYear          uint64
-	DirectionBandBps       uint32
-	InitialHeight          uint64
-	BlocksPerEpoch         uint64
-	ZPPI                    ZPPIBasketConfig
-	ComputeScarcity         ComputeScarcityConfig
-	StateCarryingCost       StateCarryingCostPolicy
-	DormancyUpperBounds     []uint64
-	InitialCapital          []CapitalLot
+	EpochsPerYear       uint64
+	DirectionBandBps    uint32
+	InitialHeight       uint64
+	BlocksPerEpoch      uint64
+	ZPPI                ZPPIBasketConfig
+	ComputeScarcity     ComputeScarcityConfig
+	StateCarryingCost   StateCarryingCostPolicy
+	DormancyUpperBounds []uint64
+	InitialCapital      []CapitalLot
 }
 
 type LongHorizonEpochInput struct {
-	ZPPIObservations       []ZPPIObservation
-	ComputeMarket          ComputeMarketMetrics
-	ProductiveCoverageBps  uint32
-	FragmentCount          uint64
-	PayloadBytesPerObject  uint64
+	ZPPIObservations      []ZPPIObservation
+	ComputeMarket         ComputeMarketMetrics
+	ProductiveCoverageBps uint32
+	FragmentCount         uint64
+	PayloadBytesPerObject uint64
 }
 
 type LongHorizonEpochSnapshot struct {
-	Epoch                   uint64
-	Height                  uint64
-	ZPPI                    ZPPISnapshot
-	PurchasingPowerQ9       uint64
+	Epoch                  uint64
+	Height                 uint64
+	ZPPI                   ZPPISnapshot
+	PurchasingPowerQ9      uint64
 	AnnualTargetZPPIQ9     uint64
 	MonetaryDirection      ShadowMonetaryDirection
 	ComputeScarcity        ComputeScarcitySnapshot
 	ProductiveCoverageBps  uint32
-	Dormancy                DormancyHistogram
+	Dormancy               DormancyHistogram
 	FragmentCount          uint64
 	StateCarryingCostUnits uint64
 	TrackedCapital         uint64
 }
 
 type LongHorizonSimulationSummary struct {
-	Epochs                      uint64
-	ReliableZPPIEpochs          uint64
-	UnreliableZPPIEpochs        uint64
-	DirectionUnavailableEpochs  uint64
-	DirectionLooserEpochs       uint64
-	DirectionOnTargetEpochs     uint64
-	DirectionTighterEpochs      uint64
-	ReliableScarcityEpochs      uint64
-	UnreliableScarcityEpochs    uint64
-	PositiveScarcityEpochs      uint64
-	NeutralScarcityEpochs       uint64
-	NegativeScarcityEpochs      uint64
-	MaxAbsScarcityBps           uint32
-	MaxStateCarryingCostUnits   uint64
-	InitialTrackedCapital       uint64
-	FinalTrackedCapital         uint64
-	FinalZPPIQ9                 uint64
-	FinalPurchasingPowerQ9      uint64
-	FinalDormancy               DormancyHistogram
+	Epochs                     uint64
+	ReliableZPPIEpochs         uint64
+	UnreliableZPPIEpochs       uint64
+	DirectionUnavailableEpochs uint64
+	DirectionLooserEpochs      uint64
+	DirectionOnTargetEpochs    uint64
+	DirectionTighterEpochs     uint64
+	ReliableScarcityEpochs     uint64
+	UnreliableScarcityEpochs   uint64
+	PositiveScarcityEpochs     uint64
+	NeutralScarcityEpochs      uint64
+	NegativeScarcityEpochs     uint64
+	MaxAbsScarcityBps          uint32
+	MaxStateCarryingCostUnits  uint64
+	InitialTrackedCapital      uint64
+	FinalTrackedCapital        uint64
+	FinalZPPIQ9                uint64
+	FinalPurchasingPowerQ9     uint64
+	FinalDormancy              DormancyHistogram
 }
 
 type LongHorizonSimulationResult struct {
@@ -92,12 +92,12 @@ func DefaultLongHorizonSimulationConfig() LongHorizonSimulationConfig {
 	zppi.ReferencePriceQ9[ZPPIStorage] = ZPPIPriceScaleQ9
 
 	return LongHorizonSimulationConfig{
-		EpochsPerYear:      365,
-		DirectionBandBps:   25,
-		InitialHeight:      1,
-		BlocksPerEpoch:     1,
-		ZPPI:               zppi,
-		ComputeScarcity:    DefaultComputeScarcityConfig(),
+		EpochsPerYear:    365,
+		DirectionBandBps: 25,
+		InitialHeight:    1,
+		BlocksPerEpoch:   1,
+		ZPPI:             zppi,
+		ComputeScarcity:  DefaultComputeScarcityConfig(),
 		StateCarryingCost: StateCarryingCostPolicy{
 			BaseUnitsPerObject: 100,
 			UnitsPerKiB:        10,
@@ -288,15 +288,15 @@ func RunLongHorizonShadowSimulation(
 		}
 
 		snapshot := LongHorizonEpochSnapshot{
-			Epoch:                   epoch,
-			Height:                  height,
-			ZPPI:                    zppi,
-			PurchasingPowerQ9:       purchasingPower,
+			Epoch:                  epoch,
+			Height:                 height,
+			ZPPI:                   zppi,
+			PurchasingPowerQ9:      purchasingPower,
 			AnnualTargetZPPIQ9:     target,
 			MonetaryDirection:      direction,
 			ComputeScarcity:        scarcity,
 			ProductiveCoverageBps:  input.ProductiveCoverageBps,
-			Dormancy:                dormancy,
+			Dormancy:               dormancy,
 			FragmentCount:          input.FragmentCount,
 			StateCarryingCostUnits: carryingCost,
 			TrackedCapital:         trackedCapital,
