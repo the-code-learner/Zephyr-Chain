@@ -55,7 +55,7 @@ func TestV2LabFinalityReportCrossShardReceiptImport(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.Report.Valid || result.Report.MeasuredFinalized != 8 || result.Report.CrossShardBPS != 5_000 ||
+	if !result.Report.Valid || result.Report.MeasuredFinalized != 8 || result.Report.Config.CrossShardBPS != 5_000 ||
 		result.GeneratedCrossShard != 6 || result.ImportedCrossShard != 6 || result.DrainBlocks != 1 ||
 		result.FinalizedConsensusBlocks != 4 {
 		t.Fatalf("unexpected cross-shard finalized result: %#v", result)
