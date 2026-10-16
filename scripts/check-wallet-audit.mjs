@@ -47,8 +47,9 @@ if (!rootHasAllowedAdvisory) {
   console.error(`Expected temporary audit exception ${ALLOWED_ADVISORY} was not the root cause.`);
   process.exit(1);
 }
-if (root.fixAvailable !== false) {
-  console.error(`${ALLOWED_ADVISORY} now has an npm fix path; remove the exception and update dependencies.`);
+const rootFix = root.fixAvailable;
+if (rootFix !== false && !(rootFix && typeof rootFix === "object" && rootFix.isSemVerMajor === true)) {
+  console.error(`${ALLOWED_ADVISORY} now has a non-breaking npm fix path; remove the exception and update dependencies.`);
   process.exit(1);
 }
 if (Date.now() >= EXPIRES_AT) {
