@@ -166,7 +166,7 @@ func BuildZECIShadowTelemetry(metrics []ShardEpochMetrics, verified []compute.Ve
 }
 
 func (c *EpochCollector) ZECIShadowTelemetry(height uint64, dormancyBounds []uint64) (ZECIShadowTelemetry, error) {
-	if c == nil {
+	if c == nil || height == 0 || height != c.lastHeight {
 		return ZECIShadowTelemetry{}, ErrZECI
 	}
 	metrics, verified, err := c.FinalizeEpoch()
