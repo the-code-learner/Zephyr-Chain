@@ -21,6 +21,7 @@ const (
 	KindComputeResult
 	KindLoanOffer
 	KindLoan
+	KindDeviceCredential
 	KindSystem
 )
 
