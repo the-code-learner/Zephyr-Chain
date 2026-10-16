@@ -51,7 +51,7 @@ func TestCrossShardLendingDefaultAndOfferExpiryRequireGraceWindow(t *testing.T) 
 		activationID := types.ObjectIDForShard(types.HashBytes("activation", []byte("grace")), lending.CrossActivationObjectIndex, 1)
 		acceptanceID := types.ObjectIDForShard(types.HashBytes("acceptance", []byte("grace")), lending.CrossAcceptanceMessageIndex, 0)
 		acceptance := lending.CrossAcceptance{
-			OfferObject: types.ObjectIDForShard(types.HashBytes("offer", []byte("grace")), lending.CrossOfferMessageIndex, 1),
+			OfferObject:      types.ObjectIDForShard(types.HashBytes("offer", []byte("grace")), lending.CrossOfferMessageIndex, 1),
 			ActivationObject: activationID, LenderShard: 0, BorrowerShard: 1, AcceptedHeight: 3, Terms: terms,
 		}
 		raw, err := acceptance.MarshalBinary()
