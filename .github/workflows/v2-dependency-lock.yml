@@ -2,10 +2,6 @@ name: V2 Dependency Lock
 
 on:
   pull_request:
-    paths:
-      - go.mod
-      - internal/v2/**
-      - .github/workflows/v2-dependency-lock.yml
   workflow_dispatch:
 
 permissions:
@@ -44,3 +40,15 @@ jobs:
           path: |
             go.mod
             go.sum
+
+  required-status:
+    name: V2 Dependency Lock
+    needs:
+      - lock
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require dependency lock job
+        env:
+          LOCK_RESULT: ${{ needs.lock.result }}
+        run: test "$LOCK_RESULT" = "success"
