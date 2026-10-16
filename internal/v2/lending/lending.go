@@ -12,6 +12,10 @@ const (
 	Version            uint16 = 1
 	MaxPositiveRateBps int32  = 100_000
 	MinNegativeRateBps int32  = -9_999
+
+	OfferObjectIndex  uint32 = 0xD0000000
+	LoanObjectIndex   uint32 = 0xD0000001
+	PayoutObjectIndex uint32 = 0xD0000010
 )
 
 var (
