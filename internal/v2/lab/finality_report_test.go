@@ -79,6 +79,10 @@ func TestFinalityBenchmarkRejectsNonFinalizedOrInvalidSamples(t *testing.T) {
 	if _, err := BuildFinalityBenchmarkReport(base); err == nil {
 		t.Fatal("negative finality latency accepted")
 	}
+	base.Samples = []FinalitySample{{SubmittedAt: start.Add(-time.Millisecond), FinalizedAt: start.Add(100 * time.Millisecond)}}
+	if _, err := BuildFinalityBenchmarkReport(base); err == nil {
+		t.Fatal("warmup submission before measured window was counted")
+	}
 }
 
 func TestFinalityBenchmarkJSONContainsMachineReadableConfiguration(t *testing.T) {
