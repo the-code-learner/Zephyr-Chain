@@ -23,17 +23,21 @@ This tranche is **shadow-only**. It does not activate live monetary supply chang
 - collector checkpoint version 2 carrying idle-capital state while retaining restore support for version 1 checkpoints;
 - restart/canonical checkpoint and local/cross-shard collector integration tests;
 - finalized compute productive-evidence derivation that verifies the referenced consumed job object and canonical settlement receipt, reconstructs exact/strict-majority settlement, isolates paid compute escrow from collateral/refunds, and computes overflow-safe `paid / escrow` coverage in basis points;
-- stable shadow component identities for owner escrow and each provider collateral position, keyed independently of compute-job object versions so future lineage updates cannot conflate productive spend with collateral;
-- productive-evidence/component tests for exact replicated settlement, strict-majority settlement, stable escrow/collateral identities, duplicate-provider rejection, tampered receipts, generic-transfer exclusion and maximum-`uint64` capital values;
+- stable shadow component identities for owner escrow and each provider collateral position, keyed independently of compute-job object versions so lineage updates cannot conflate productive spend with collateral;
+- finalized compute capital-lineage routing through job creation, offer/accept collateral locking, assignment ingest, settlement and expiry;
+- deterministic settlement legs that preserve escrow/refund/payment and per-provider collateral return/slash lineage even when execution merges payment and collateral into the same native coin;
+- exact paid-escrow productive reset at finalized settlement, while refund and collateral preserve their prior idle age; expired compute receives no productive reset;
+- tracked cross-shard compute coin receipts materialize from canonical receipt identity even when the execution coin has no CreatedHeight stamp, because the tracker already carries authoritative lineage age;
+- productive-evidence/component/lineage tests for exact replicated settlement, expiry, collector integration, stable escrow/collateral identities, duplicate-provider rejection, tampered receipts, generic-transfer exclusion and maximum-`uint64` capital values;
 - finalized-through-consensus benchmark report core with warm-up separation, measured finalized TPS, p50/p95/p99 finality, environment/config metadata, JSON output and safety/liveness invalidation.
 
 The pre-existing supply-growth controller remains a legacy **shadow simulator** until the ZPPI path is integrated into the monetary epoch path. ZCSI remains primarily a compute incentive/capacity-routing signal rather than the monetary anchor.
 
 ## Productive-capital boundary
 
-The finalized compute evidence layer is intentionally read-only for now. A compute job object can contain both the owner's escrow and provider collateral, while settlement outputs can aggregate provider payment and collateral return into the same native coin. Marking the whole job object productive would therefore over-credit collateral.
+A compute job object can contain both the owner's escrow and provider collateral, while settlement outputs can aggregate provider payment and collateral return into the same native coin. Marking the whole job object productive would therefore over-credit collateral.
 
-P1 now assigns deterministic shadow identities to the escrow component and each per-provider collateral component. These identities are stable across job-object version updates, but they do not yet mutate `IdleCapitalTracker`. The next lineage step is to route finalized job creation/assignment/settlement capital through those component identities before any productive reset is applied. Generic transfers and arbitrary contract calls remain ineligible for productive-use credit.
+P1 now routes those economic subcomponents through deterministic shadow identities in `IdleCapitalTracker`. At a canonical finalized settlement, only the exact paid portion of escrow receives a productive age reset; unused escrow refunds and provider collateral retain their prior lineage age. Deterministic settlement legs keep those histories separate until they are merged into the actual settlement coin. Expiry returns capital without a productive reset. Generic transfers and arbitrary contract calls remain ineligible for productive-use credit.
 
 ## Activation discipline
 
@@ -45,8 +49,7 @@ No live mint, burn policy, levy or reward-routing change is implied by the prese
 
 ## Remaining P1 work
 
-- map finalized compute escrow lineage through job creation, assignment/ingest and settlement without folding provider collateral into productive credit, then connect only verified paid escrow to productive-coverage updates;
-- expand restart/fault scenarios around collector/runtime checkpoints and cross-shard lineage as the shadow tracker accumulates larger state;
+- expand restart/fault scenarios around collector/runtime checkpoints, compute settlement legs and cross-shard lineage as the shadow tracker accumulates larger state;
 - connect the finalized benchmark report to real V2 Lab finality/QC samples;
 - add a small deterministic CI benchmark scenario and a heavier manual shard/cross-shard matrix;
 - run long-horizon public/adversarial economic simulations before proposing any monetary or idle-capital activation;
