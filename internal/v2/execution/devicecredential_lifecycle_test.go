@@ -88,7 +88,9 @@ func TestDeviceCredentialRegisterRotateAndRevoke(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	attackerUpdate := computeSignedTx(t, store, attackerKey, network, native, 0, []types.ObjectID{rotated.ID}, 0, tx.OpDeviceCredentialUpdate, updateRaw, 113)
+	attacker := accountForKey(attackerKey)
+	attackerCoin := seedLendingCoin(t, store, attacker, native, 10, "device-attacker")
+	attackerUpdate := computeSignedTx(t, store, attackerKey, network, native, 0, []types.ObjectID{rotated.ID, attackerCoin}, 9, tx.OpDeviceCredentialUpdate, updateRaw, 113)
 	if _, err := (Engine{Network: network, NativeToken: native, ShardCount: 1, Height: 21}).Execute(attackerUpdate); err == nil {
 		t.Fatal("non-owner credential update was accepted")
 	}
