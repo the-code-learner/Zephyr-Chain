@@ -22,6 +22,7 @@ const (
 	KindLoanOffer
 	KindLoan
 	KindSystem
+	KindDeviceCredential
 )
 
 const MaxObjectDataBytes = 1 << 20
