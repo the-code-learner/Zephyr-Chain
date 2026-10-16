@@ -34,9 +34,7 @@ func TestZECIShadowTelemetryCanonicalAcrossInputOrder(t *testing.T) {
 		t.Fatal(err)
 	}
 	if a != b {
-		t.Fatalf("ZECI shadow telemetry changed with input order:
-%+v
-%+v", a, b)
+		t.Fatalf("ZECI shadow telemetry changed with input order: a=%+v b=%+v", a, b)
 	}
 	if !a.Shadow || !a.ProductiveCoverageAvailable || a.ProductiveCoverageBps != 6_000 {
 		t.Fatalf("unexpected shadow/productive fields: %+v", a)
