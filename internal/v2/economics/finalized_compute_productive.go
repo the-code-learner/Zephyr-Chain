@@ -25,10 +25,10 @@ type FinalizedComputeProductiveEvidence struct {
 	JobID             types.JobID
 	EscrowComponentID types.Hash
 	Escrow            uint64
-	Paid         uint64
-	CoverageBps  uint32
-	ResultRoot   types.Hash
-	Verification compute.VerificationMode
+	Paid              uint64
+	CoverageBps       uint32
+	ResultRoot        types.Hash
+	Verification      compute.VerificationMode
 }
 
 // DeriveFinalizedComputeProductiveEvidence verifies one finalized compute
@@ -134,10 +134,10 @@ func DeriveFinalizedComputeProductiveEvidence(
 		JobID:             record.ID,
 		EscrowComponentID: components.Escrow.ID,
 		Escrow:            record.Escrow,
-		Paid:         paid,
-		CoverageBps:  coverage,
-		ResultRoot:   receipt.ResultRoot,
-		Verification: record.Job.Verification,
+		Paid:              paid,
+		CoverageBps:       coverage,
+		ResultRoot:        receipt.ResultRoot,
+		Verification:      record.Job.Verification,
 	}, true, nil
 }
 
