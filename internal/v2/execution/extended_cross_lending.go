@@ -188,7 +188,7 @@ func (e Engine) executeCrossLoanRepay(t tx.Transaction, payload []byte) (Result,
 	repayment := lending.CrossRepayment{
 		AcceptanceObject: activation.AcceptanceObject,
 		ActivationObject: activationWitness.Object.ID,
-		LenderShard: lenderShard, BorrowerShard: borrowerShard,
+		LenderShard:      lenderShard, BorrowerShard: borrowerShard,
 		Amount: due, PaidHeight: e.Height, TermsHash: termsHash,
 	}
 	raw, err := repayment.MarshalBinary()
