@@ -93,7 +93,7 @@ func crossLendingReceipt(t *testing.T, source, destination uint32, height uint64
 	receipt := sharding.CrossShardReceipt{
 		SourceShard: source, DestinationShard: destination, SourceHeight: height,
 		TransactionID: types.HashBytes("cross-lending-receipt", []byte{byte(source), byte(destination), byte(index)}),
-		OutputIndex: index, Output: output, SourceStateRoot: types.HashBytes("state", []byte{byte(height)}),
+		OutputIndex:   index, Output: output, SourceStateRoot: types.HashBytes("state", []byte{byte(height)}),
 	}
 	if err := receipt.Validate(); err != nil {
 		t.Fatal(err)
