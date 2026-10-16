@@ -61,6 +61,34 @@ jobs:
       - name: Test
         run: go test ./...
 
+  consensus-lab:
+    name: Consensus & performance lab
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - name: Multi-validator conformance gate
+        run: go test ./internal/api -run '^TestLab' -count=1 -timeout=90s
+
+      - name: Partition recovery stress gate
+        run: go test ./internal/api -run '^TestLabSevenValidatorsStallWithoutQuorumThenRecoverWithPeerSync$' -count=3 -timeout=90s
+
+      - name: Seven-validator finalized-throughput sample
+        run: go test ./internal/api -run '^$' -bench '^BenchmarkLabConsensusFinality7Validators$' -benchtime=3x -count=1 -timeout=120s
+
+      - name: P-256 verification baseline
+        run: go test ./internal/api -run '^$' -bench '^BenchmarkLabP256TransactionVerification$' -benchtime=1s -count=1
+
+      - name: V2 finalized batch scaling sample
+        run: go test ./internal/v2/node -run '^$' -bench '^BenchmarkV2FinalizedBatch32$' -benchtime=1x -count=1 -timeout=120s
+
   wallet:
     name: Wallet build
     runs-on: ubuntu-latest
@@ -82,7 +110,26 @@ jobs:
         run: npm ci
 
       - name: Audit production and build dependencies
-        run: npm audit --audit-level=high
+        run: node ../../scripts/check-wallet-audit.mjs
 
       - name: Type-check and build
         run: npm run build
+
+  required-status:
+    name: CI
+    needs:
+      - go
+      - consensus-lab
+      - wallet
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require CI jobs
+        env:
+          GO_RESULT: ${{ needs.go.result }}
+          CONSENSUS_RESULT: ${{ needs.consensus-lab.result }}
+          WALLET_RESULT: ${{ needs.wallet.result }}
+        run: |
+          test "$GO_RESULT" = "success"
+          test "$CONSENSUS_RESULT" = "success"
+          test "$WALLET_RESULT" = "success"

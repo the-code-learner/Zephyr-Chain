@@ -316,6 +316,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/v1/dev/block-template", s.handleBlockTemplate)
 	s.mux.HandleFunc("/v1/dev/produce-block", s.handleProduceBlock)
 	s.mux.HandleFunc("/v1/internal/blocks", s.handleImportBlock)
+	s.mux.HandleFunc("/v1/internal/block-evidence/", s.handleBlockEvidence)
 	s.mux.HandleFunc("/v1/internal/snapshot", s.handleSnapshot)
 }
 

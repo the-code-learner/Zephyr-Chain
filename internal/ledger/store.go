@@ -527,7 +527,7 @@ func (s *Store) writeState(state persistedState) error {
 		return ErrStateChainMismatch
 	}
 	state = normalizeState(state)
-	raw, err := json.MarshalIndent(state, "", "  ")
+	raw, err := json.Marshal(state)
 	if err != nil {
 		return err
 	}

@@ -1,0 +1,47 @@
+name: V2 Exact Dependency Lock
+
+on:
+  push:
+    branches:
+      - chatgpt/protocol-v2-foundation
+    paths:
+      - go.mod
+      - internal/v2/contracts/**
+      - internal/v2/da/**
+      - internal/v2/network/**
+      - .github/workflows/v2-lock-write.yml
+
+permissions:
+  contents: write
+
+jobs:
+  lock:
+    if: github.repository == 'the-code-learner/Zephyr-Chain' && github.ref == 'refs/heads/chatgpt/protocol-v2-foundation'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout v2 branch
+        uses: actions/checkout@v6
+        with:
+          ref: chatgpt/protocol-v2-foundation
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - name: Generate exact module lock
+        run: go mod tidy
+
+      - name: Commit generated lock if needed
+        run: |
+          if git diff --quiet -- go.mod go.sum; then
+            echo 'Dependency lock already exact.'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add go.mod go.sum
+          git commit -m 'lock exact Zephyr v2 Go dependency graph'
+          git push origin HEAD:chatgpt/protocol-v2-foundation
