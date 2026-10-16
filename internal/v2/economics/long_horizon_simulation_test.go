@@ -110,3 +110,55 @@ func longHorizonTestInput(reliable bool, price uint64) LongHorizonEpochInput {
 		PayloadBytesPerObject: 256,
 	}
 }
+
+
+func TestLongHorizonSensitivityMatrixExercisesParameterBands(t *testing.T) {
+	cfg := DefaultLongHorizonSimulationConfig()
+	results, err := RunLongHorizonSensitivityMatrix(3*cfg.EpochsPerYear, DefaultLongHorizonSensitivityCases())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 7 {
+		t.Fatalf("sensitivity result count = %d, want 7", len(results))
+	}
+	byName := make(map[string]LongHorizonSensitivityResult, len(results))
+	for _, result := range results {
+		if !result.Shadow || result.Summary.Epochs != 3*cfg.EpochsPerYear ||
+			result.Summary.InitialTrackedCapital != result.Summary.FinalTrackedCapital {
+			t.Fatalf("invalid sensitivity result %q: %#v", result.Name, result)
+		}
+		byName[result.Name] = result
+	}
+
+	baseline := byName["baseline"].Summary
+	sparse := byName["sparse-evidence"].Summary
+	strict := byName["strict-zppi-coverage"].Summary
+	capped := byName["capped-scarcity"].Summary
+	if sparse.UnreliableZPPIEpochs <= baseline.UnreliableZPPIEpochs {
+		t.Fatalf("sparse-evidence case did not reduce ZPPI availability: baseline=%d sparse=%d",
+			baseline.UnreliableZPPIEpochs, sparse.UnreliableZPPIEpochs)
+	}
+	if strict.UnreliableZPPIEpochs < baseline.UnreliableZPPIEpochs ||
+		strict.ReliableZPPIEpochs > baseline.ReliableZPPIEpochs {
+		t.Fatalf("strict ZPPI coverage unexpectedly improved reliability: baseline=%#v strict=%#v", baseline, strict)
+	}
+	if capped.MaxAbsScarcityBps > 5_000 || capped.MaxAbsScarcityBps > baseline.MaxAbsScarcityBps {
+		t.Fatalf("scarcity cap was not respected: baseline=%d capped=%d",
+			baseline.MaxAbsScarcityBps, capped.MaxAbsScarcityBps)
+	}
+	if byName["prolonged-idle"].Summary.MaxStateCarryingCostUnits != baseline.MaxStateCarryingCostUnits {
+		t.Fatal("productive-regime sensitivity unexpectedly changed independent fragmentation cost pressure")
+	}
+}
+
+func TestLongHorizonSensitivityRejectsDuplicateCaseNames(t *testing.T) {
+	cfg := DefaultLongHorizonSimulationConfig()
+	profile := DefaultLongHorizonAdversarialProfile()
+	cases := []LongHorizonSensitivityCase{
+		{Name: "duplicate", Config: cfg, Profile: profile},
+		{Name: "duplicate", Config: cfg, Profile: profile},
+	}
+	if _, err := RunLongHorizonSensitivityMatrix(10, cases); err == nil {
+		t.Fatal("duplicate sensitivity case names accepted")
+	}
+}
