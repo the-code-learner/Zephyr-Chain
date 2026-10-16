@@ -17,6 +17,7 @@ type FinalityBenchmarkConfig struct {
 	BlockCadenceMS    uint64 `json:"block_cadence_ms"`
 	CrossShardBPS     uint32 `json:"cross_shard_bps"`
 	Workload          string `json:"workload"`
+	Topology          string `json:"topology,omitempty"`
 }
 
 type FinalityBenchmarkEnvironment struct {
