@@ -82,7 +82,6 @@ func TestFinalityHarnessRejectsUnrepresentableCrossShardRatio(t *testing.T) {
 	}
 }
 
-
 func TestV2LabFinalityMatrixFourShardCrossShardSmoke(t *testing.T) {
 	result, err := RunFinalityHarness(FinalityHarnessConfig{
 		ShardCount:           4,
