@@ -111,7 +111,6 @@ func longHorizonTestInput(reliable bool, price uint64) LongHorizonEpochInput {
 	}
 }
 
-
 func TestLongHorizonSensitivityMatrixExercisesParameterBands(t *testing.T) {
 	cfg := DefaultLongHorizonSimulationConfig()
 	results, err := RunLongHorizonSensitivityMatrix(3*cfg.EpochsPerYear, DefaultLongHorizonSensitivityCases())
