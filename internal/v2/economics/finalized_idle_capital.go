@@ -188,15 +188,23 @@ func ApplyFinalizedIdleCapitalImport(
 	if err := receipt.Validate(); err != nil {
 		return false, ErrFinalizedEconomics
 	}
-	if receipt.Output.Kind != object.KindCoin {
-		return false, nil
-	}
-	coin, err := object.ParseCoin(receipt.Output.Data)
+	amount, carriesNative, err := finalizedReceiptNativeValue(receipt, nativeToken)
 	if err != nil {
 		return false, err
 	}
-	if coin.Token != nativeToken {
+	if !carriesNative {
 		return false, nil
+	}
+	createdHeight := receipt.SourceHeight
+	if receipt.Output.Kind == object.KindCoin {
+		coin, err := object.ParseCoin(receipt.Output.Data)
+		if err != nil || coin.Token != nativeToken {
+			return false, err
+		}
+		createdHeight = coin.CreatedHeight
+		if createdHeight == 0 || createdHeight != receipt.SourceHeight {
+			return false, ErrFinalizedEconomics
+		}
 	}
 	transferID, err := receipt.Hash()
 	if err != nil {
@@ -212,8 +220,8 @@ func ApplyFinalizedIdleCapitalImport(
 		return false, ErrFinalizedEconomics
 	}
 	if lots, ok := preview.pendingTransfers[transferID]; ok {
-		amount, err := idleCapitalLotsAmount(lots)
-		if err != nil || amount != coin.Amount {
+		trackedAmount, err := idleCapitalLotsAmount(lots)
+		if err != nil || trackedAmount != amount {
 			return false, ErrFinalizedEconomics
 		}
 		if err := preview.MaterializeTransfer(transferID, destination.ID); err != nil {
@@ -222,13 +230,10 @@ func ApplyFinalizedIdleCapitalImport(
 		*tracker = *preview
 		return true, nil
 	}
-	if coin.CreatedHeight == 0 || coin.CreatedHeight != receipt.SourceHeight {
-		return false, ErrFinalizedEconomics
-	}
 	if _, exists := preview.objects[destination.ID]; exists {
 		return false, ErrFinalizedEconomics
 	}
-	if err := preview.BootstrapObject(destination.ID, coin.Amount, coin.CreatedHeight); err != nil {
+	if err := preview.BootstrapObject(destination.ID, amount, createdHeight); err != nil {
 		return false, err
 	}
 	*tracker = *preview
