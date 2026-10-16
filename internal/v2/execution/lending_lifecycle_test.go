@@ -1,6 +1,8 @@
 package execution
 
 import (
+	"crypto/ecdsa"
+	"crypto/elliptic"
 	"errors"
 	"testing"
 
@@ -56,6 +58,7 @@ func TestNativeLendingNegativeRateLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	loanObject := objectOfKind(t, acceptResult.Created, object.KindLoan)
+	borrowerChange := coinObjectByOwnerAmount(t, acceptResult.Created, borrower, 349)
 	principalCoin := coinObjectByOwnerAmount(t, acceptResult.Created, borrower, 300)
 	loan, err := lending.ParseLoan(loanObject.Data)
 	if err != nil {
@@ -79,25 +82,24 @@ func TestNativeLendingNegativeRateLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	coinObjectByOwnerAmount(t, repayResult.Created, lender, 270)
-	coinObjectByOwnerAmount(t, repayResult.Created, borrower, 150)
-	coinObjectByOwnerAmount(t, repayResult.Created, borrower, 29)
+	lenderRepayment := coinObjectByOwnerAmount(t, repayResult.Created, lender, 270)
+	returnedCollateral := coinObjectByOwnerAmount(t, repayResult.Created, borrower, 150)
+	repayChange := coinObjectByOwnerAmount(t, repayResult.Created, borrower, 29)
 	if _, ok := store.GetObject(loanObject.ID); ok {
 		t.Fatal("repaid loan object remained spendable")
 	}
 
 	// 699 lender change + 270 repayment = 969: lender funded the 30-ZPH
 	// negative-rate subsidy and paid the 1-ZPH offer fee.
-	lenderTotal := sumOwnerCoins(t, store, lender)
+	lenderTotal := coinAmount(t, lenderChange) + coinAmount(t, lenderRepayment)
 	if lenderTotal != 969 {
 		t.Fatalf("lender final balance = %d, want 969", lenderTotal)
 	}
 	// 349 untouched accept change + 150 returned collateral + 29 repay change.
-	borrowerTotal := sumOwnerCoins(t, store, borrower)
+	borrowerTotal := coinAmount(t, borrowerChange) + coinAmount(t, returnedCollateral) + coinAmount(t, repayChange)
 	if borrowerTotal != 528 {
 		t.Fatalf("borrower final balance = %d, want 528", borrowerTotal)
 	}
-	_ = lenderChange
 }
 
 func TestNativeLendingDefaultOnlyAfterMaturity(t *testing.T) {
@@ -194,14 +196,16 @@ func TestNativeLendingOfferCanBeCancelledByLender(t *testing.T) {
 	if _, err := store.Apply(cancelResult.Consumed, cancelResult.Created); err != nil {
 		t.Fatal(err)
 	}
-	coinObjectByOwnerAmount(t, cancelResult.Created, lender, 200)
-	if got := sumOwnerCoins(t, store, lender); got != 498 {
+	refund := coinObjectByOwnerAmount(t, cancelResult.Created, lender, 200)
+	cancelChange := coinObjectByOwnerAmount(t, cancelResult.Created, lender, 298)
+	if got := coinAmount(t, refund) + coinAmount(t, cancelChange); got != 498 {
 		t.Fatalf("lender balance after offer+cancel fees = %d, want 498", got)
 	}
 }
 
-func accountForKey(key interface{ Public() any }) types.AccountID {
-	panic("unreachable")
+func accountForKey(key *ecdsa.PrivateKey) types.AccountID {
+	pub := elliptic.Marshal(elliptic.P256(), key.PublicKey.X, key.PublicKey.Y)
+	return types.AccountIDFromPublicKey(pub)
 }
 
 func seedLendingCoin(t *testing.T, store *worldstate.Memory, owner types.AccountID, token types.TokenID, amount uint64, label string) types.ObjectID {
@@ -232,18 +236,11 @@ func coinObjectByOwnerAmount(t *testing.T, objects []object.Object, owner types.
 	return object.Object{}
 }
 
-func sumOwnerCoins(t *testing.T, store *worldstate.Memory, owner types.AccountID) uint64 {
+func coinAmount(t *testing.T, item object.Object) uint64 {
 	t.Helper()
-	var total uint64
-	for _, item := range store.Objects() {
-		if item.Kind != object.KindCoin || item.Owner != owner {
-			continue
-		}
-		coin, err := object.ParseCoin(item.Data)
-		if err != nil {
-			t.Fatal(err)
-		}
-		total += coin.Amount
+	coin, err := object.ParseCoin(item.Data)
+	if err != nil {
+		t.Fatal(err)
 	}
-	return total
+	return coin.Amount
 }
