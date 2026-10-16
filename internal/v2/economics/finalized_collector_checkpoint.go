@@ -9,9 +9,11 @@ import (
 )
 
 const (
-	collectorCheckpointVersion  uint16 = 1
-	maxCheckpointVerifiedWork          = 1_000_000
-	maxVelocityAccumulatorBytes        = 128
+	collectorCheckpointVersion       uint16 = 2
+	collectorCheckpointVersionLegacy uint16 = 1
+	maxCheckpointVerifiedWork               = 1_000_000
+	maxVelocityAccumulatorBytes             = 128
+	maxIdleCapitalCheckpointBytes           = 48 << 20
 )
 
 // CheckpointBytes serializes the exact mid-epoch collector state. The workload
@@ -77,13 +79,21 @@ func (c *EpochCollector) CheckpointBytes() ([]byte, error) {
 			return nil, err
 		}
 	}
+	w.Bool(c.idleCapital != nil)
+	if c.idleCapital != nil {
+		idleRaw, err := c.idleCapital.CheckpointBytes()
+		if err != nil || len(idleRaw) > maxIdleCapitalCheckpointBytes {
+			return nil, ErrFinalizedEconomics
+		}
+		w.Bytes(idleRaw)
+	}
 	return w.BytesCopy(), nil
 }
 
 func RestoreEpochCollector(data []byte, registry *compute.WorkRegistry) (*EpochCollector, error) {
 	r := codec.NewReader(data)
 	version, err := r.U16()
-	if err != nil || version != collectorCheckpointVersion {
+	if err != nil || (version != collectorCheckpointVersionLegacy && version != collectorCheckpointVersion) {
 		return nil, ErrFinalizedEconomics
 	}
 	epoch, err := r.U64()
@@ -260,6 +270,23 @@ func RestoreEpochCollector(data []byte, registry *compute.WorkRegistry) (*EpochC
 			return nil, err
 		}
 	}
+	var idleCapital *IdleCapitalTracker
+	if version == collectorCheckpointVersion {
+		hasIdleCapital, err := r.Bool()
+		if err != nil {
+			return nil, ErrFinalizedEconomics
+		}
+		if hasIdleCapital {
+			idleRaw, err := r.Bytes(maxIdleCapitalCheckpointBytes)
+			if err != nil {
+				return nil, ErrFinalizedEconomics
+			}
+			idleCapital, err = RestoreIdleCapitalTracker(idleRaw)
+			if err != nil {
+				return nil, err
+			}
+		}
+	}
 	if r.Done() != nil {
 		return nil, ErrFinalizedEconomics
 	}
@@ -277,7 +304,7 @@ func RestoreEpochCollector(data []byte, registry *compute.WorkRegistry) (*EpochC
 			FeePolicy:                feePolicy,
 			WorkRegistry:             ownedRegistry,
 		},
-		shards: shards, supply: supply, verifiedWork: verified, lastHeight: lastHeight,
+		shards: shards, supply: supply, verifiedWork: verified, idleCapital: idleCapital, lastHeight: lastHeight,
 	}, nil
 }
 

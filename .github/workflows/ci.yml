@@ -110,7 +110,7 @@ jobs:
         run: npm ci
 
       - name: Audit production and build dependencies
-        run: npm audit --audit-level=high
+        run: node ../../scripts/check-wallet-audit.mjs
 
       - name: Type-check and build
         run: npm run build

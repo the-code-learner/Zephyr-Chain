@@ -30,6 +30,9 @@ jobs:
       - name: V2 seven-validator conformance
         run: go test ./internal/v2/lab ./internal/v2/node ./internal/v2/consensus ./internal/v2/state ./internal/v2/worldstate -count=1 -timeout=120s
 
+      - name: V2 finalized-through-consensus report sample
+        run: go test ./internal/v2/lab -run '^TestV2LabFinalityReport(FromConsensusCommit|CrossShardReceiptImport)$' -count=1 -v -timeout=120s
+
       - name: V2 partition stress
         run: go test ./internal/v2/lab -run '^TestV2Lab(FourThreePartitionStallsThenHeals|FiveTwoPartitionFinalizesQuorumSideAndMinorityCatchesUp)$' -count=10 -timeout=120s
 
