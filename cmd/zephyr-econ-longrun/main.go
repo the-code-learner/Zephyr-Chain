@@ -90,7 +90,11 @@ func selectCheckpoints(
 	if len(epochs) == 0 || every == 0 {
 		return nil
 	}
-	out := make([]economics.LongHorizonEpochSnapshot, 0, len(epochs)/int(every)+2)
+	capacity := 2
+	if every <= uint64(len(epochs)) {
+		capacity += int(uint64(len(epochs)) / every)
+	}
+	out := make([]economics.LongHorizonEpochSnapshot, 0, capacity)
 	appendIndex := func(index int) {
 		if index < 0 || index >= len(epochs) {
 			return
