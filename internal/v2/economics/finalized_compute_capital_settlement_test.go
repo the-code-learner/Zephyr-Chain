@@ -252,7 +252,6 @@ func trackedLotsAtHeight(lots []CapitalLot, height uint64) uint64 {
 	return total
 }
 
-
 func TestEpochCollectorAppliesFinalizedComputeCapitalLineage(t *testing.T) {
 	native := types.TokenID{1}
 	cfg := testCollectorConfig(1, native)
