@@ -217,14 +217,14 @@ func TestV2LabFinalityReportFromConsensusCommit(t *testing.T) {
 		Environment: FinalityBenchmarkEnvironment{
 			CommitSHA: os.Getenv("GITHUB_SHA"),
 		},
-		WarmupFinalized:   warmupFinalized,
-		MeasuredStart:     measuredStart,
-		MeasuredEnd:       measuredEnd,
-		Samples:           samples,
-		SafetyFailures:    0,
-		LivenessFailures:  0,
+		WarmupFinalized:      warmupFinalized,
+		MeasuredStart:        measuredStart,
+		MeasuredEnd:          measuredEnd,
+		Samples:              samples,
+		SafetyFailures:       0,
+		LivenessFailures:     0,
 		RejectedTransactions: 0,
-		Errors:               0,
+		Errors:                0,
 	})
 	if err != nil {
 		t.Fatal(err)
