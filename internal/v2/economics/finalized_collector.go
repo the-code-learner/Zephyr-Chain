@@ -203,6 +203,9 @@ func (c *EpochCollector) observeFinalizedBlock(height uint64, observations map[u
 				if _, err := ApplyFinalizedComputeCapitalLineage(c.idleCapital, height, c.config.NativeToken, transaction, result, exports); err != nil {
 					return err
 				}
+				if _, err := ApplyFinalizedCrossLendingCapitalLineage(c.idleCapital, height, c.config.NativeToken, transaction, result, exports); err != nil {
+					return err
+				}
 			}
 		}
 		for _, receipt := range observation.Imports {
