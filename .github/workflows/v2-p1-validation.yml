@@ -1,0 +1,78 @@
+name: V2 P1 Validation
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: v2-p1-validation-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  finality-matrix:
+    name: Validate finality matrix artifact
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - name: Run 1/2/4/8 shard matrix
+        run: |
+          go run ./cmd/v2-finality-matrix \
+            -shards 1,2,4,8 \
+            -cross-shard-bps 0,1000,2500,5000 \
+            -transactions-per-block 40 \
+            -warmup-blocks 1 \
+            -measured-blocks 3 \
+            -block-cadence 1ms \
+            -validators 7 \
+            -commit "$GITHUB_SHA" \
+            -topology single-process-in-memory \
+            -workload native-transfer-receipt-import-matrix \
+            > finality-matrix.json
+
+      - name: Upload finality matrix
+        uses: actions/upload-artifact@v6
+        with:
+          name: p1-finality-matrix-${{ github.sha }}
+          path: finality-matrix.json
+          if-no-files-found: error
+          retention-days: 7
+
+  economics-longrun:
+    name: Validate long-horizon economics artifact
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - name: Run 3-year shadow simulation
+        run: |
+          go run ./cmd/zephyr-econ-longrun \
+            -epochs 1095 \
+            -checkpoint-every 365 \
+            -output economics-longrun.json
+
+      - name: Upload economics long run
+        uses: actions/upload-artifact@v6
+        with:
+          name: p1-economics-longrun-${{ github.sha }}
+          path: economics-longrun.json
+          if-no-files-found: error
+          retention-days: 7
