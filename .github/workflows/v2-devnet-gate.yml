@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
     inputs:
       validators:
-        description: Number of Protocol v2 validator nodes for the transaction/finality scenario.
+        description: Number of Protocol v2 validator nodes for the large transaction/finality smoke.
         required: true
         default: "20"
 
@@ -48,24 +48,17 @@ jobs:
         run: |
           set -o pipefail
           ZEPHYR_DEVNET_VALIDATORS="$ZEPHYR_DEVNET_SCALE_VALIDATORS" go test ./internal/v2/node \
-            -run '^TestProtocolV2DevnetTransactionVotingAndFinality        if: always()
+            -run '^TestProtocolV2DevnetTransactionVotingAndFinality$' \
+            -count=1 \
+            -v 2>&1 | tee v2-devnet-scale.log
+
+      - name: Upload devnet logs
+        if: always()
         uses: actions/upload-artifact@v6
         with:
           name: v2-devnet-gate-${{ github.sha }}
           path: |
             v2-devnet-gate.log
             v2-devnet-scale.log
-          if-no-files-found: warn
-          retention-days: 14
- \
-            -count=1 \
-            -v 2>&1 | tee v2-devnet-scale.log
-
-      - name: Upload devnet log
-        if: always()
-        uses: actions/upload-artifact@v6
-        with:
-          name: v2-devnet-gate-${{ github.sha }}
-          path: v2-devnet-gate.log
           if-no-files-found: warn
           retention-days: 14
