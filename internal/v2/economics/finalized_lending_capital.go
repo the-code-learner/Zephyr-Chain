@@ -62,15 +62,9 @@ func applyCrossLoanOfferCapital(
 	if err != nil || terms.Lender != transaction.Sender {
 		return false, ErrFinalizedEconomics
 	}
-	lenderShard := types.AccountShard(terms.Lender, uint32MaximumShardCount(transaction.ShardID, exports))
-	borrowerShard := types.AccountShard(terms.Borrower, uint32MaximumShardCount(transaction.ShardID, exports))
-	if lenderShard != transaction.ShardID || lenderShard == borrowerShard {
-		// Shard-count inference is only a structural sanity check here. The
-		// exact destination is authenticated by the finalized receipt below.
-		borrowerShard = uniqueExportDestination(result, lending.CrossOfferMessageIndex)
-		if borrowerShard == transaction.ShardID {
-			return false, ErrFinalizedEconomics
-		}
+	borrowerShard, ok := uniqueExportDestination(result, lending.CrossOfferMessageIndex)
+	if !ok || borrowerShard == transaction.ShardID {
+		return false, ErrFinalizedEconomics
 	}
 	offerID := types.ObjectIDForShard(transaction.ID(), lending.CrossOfferMessageIndex, borrowerShard)
 	message := lending.CrossOffer{
@@ -112,10 +106,9 @@ func applyCrossLoanAcceptCapital(
 	}
 	offer, err := lending.ParseCrossOffer(witness.Object.Data)
 	if err != nil || offer.OfferObject != witness.Object.ID || offer.Terms.Borrower != transaction.Sender ||
-		offer.BorrowerShard != transaction.ShardID || height != offer.OfferedHeight && height <= offer.OfferedHeight {
+		offer.BorrowerShard != transaction.ShardID || height <= offer.OfferedHeight {
 		return false, ErrFinalizedEconomics
 	}
-	acceptanceID := types.ObjectIDForShard(transaction.ID(), lending.CrossAcceptanceMessageIndex, offer.LenderShard)
 	activationID := types.ObjectIDForShard(transaction.ID(), lending.CrossActivationObjectIndex, offer.BorrowerShard)
 	acceptance := lending.CrossAcceptance{
 		OfferObject: offer.OfferObject, ActivationObject: activationID,
@@ -149,7 +142,6 @@ func applyCrossLoanAcceptCapital(
 		}
 		targets = append(targets, acceptanceTarget)
 	}
-	_ = acceptanceID
 	return applyLendingValueTransition(
 		tracker, nativeToken, transaction, result,
 		[]lendingValueInput{{id: witness.Object.ID, amount: offer.Terms.Principal}},
@@ -444,7 +436,7 @@ func finalizedLendingMessageTarget(
 	return CapitalTarget{TransferID: transferID, Amount: amount}, nil
 }
 
-func uniqueExportDestination(result execution.Result, outputIndex uint32) uint32 {
+func uniqueExportDestination(result execution.Result, outputIndex uint32) (uint32, bool) {
 	var destination uint32
 	found := false
 	for _, outbound := range result.Outbound {
@@ -452,29 +444,10 @@ func uniqueExportDestination(result execution.Result, outputIndex uint32) uint32
 			continue
 		}
 		if found {
-			return result.TxID[0] // deliberately invalid/non-authoritative fallback
+			return 0, false
 		}
 		destination = outbound.DestinationShard
 		found = true
 	}
-	if !found {
-		return 0
-	}
-	return destination
-}
-
-// uint32MaximumShardCount is not used as an authority. It only gives AccountShard
-// a non-zero count for a preliminary sanity check; finalized receipt destination
-// remains the canonical cross-shard routing evidence.
-func uint32MaximumShardCount(source uint32, exports []sharding.CrossShardReceipt) uint32 {
-	max := source
-	for _, receipt := range exports {
-		if receipt.SourceShard > max {
-			max = receipt.SourceShard
-		}
-		if receipt.DestinationShard > max {
-			max = receipt.DestinationShard
-		}
-	}
-	return max + 1
+	return destination, found
 }
