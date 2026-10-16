@@ -29,7 +29,9 @@ This tranche is **shadow-only**. It does not activate live monetary supply chang
 - exact paid-escrow productive reset at finalized settlement, while refund and collateral preserve their prior idle age; expired compute receives no productive reset;
 - tracked cross-shard compute coin receipts materialize from canonical receipt identity even when the execution coin has no CreatedHeight stamp, because the tracker already carries authoritative lineage age;
 - productive-evidence/component/lineage tests for exact replicated settlement, expiry, collector integration, stable escrow/collateral identities, duplicate-provider rejection, tampered receipts, generic-transfer exclusion and maximum-`uint64` capital values;
-- finalized-through-consensus benchmark report core with warm-up separation, measured finalized TPS, p50/p95/p99 finality, environment/config metadata, JSON output and safety/liveness invalidation.
+- restart/fault coverage for compute capital with byte-canonical collector checkpoint/restore over a larger tracker state, pending cross-shard compute settlement lineage, post-restore import continuation, truncated/trailing checkpoint rejection and rollback proving temporary settlement legs cannot leak after a failed finalized transition;
+- finalized-through-consensus benchmark report core with warm-up separation, measured finalized TPS, p50/p95/p99 finality, environment/config metadata, JSON output and safety/liveness invalidation;
+- V2 Lab wiring that derives a small machine-readable report from real single-process candidate build -> signed proposal -> 5-vote QC -> finalized commit across seven runtimes, with warm-up submissions excluded from the measured window.
 
 The pre-existing supply-growth controller remains a legacy **shadow simulator** until the ZPPI path is integrated into the monetary epoch path. ZCSI remains primarily a compute incentive/capacity-routing signal rather than the monetary anchor.
 
@@ -49,8 +51,6 @@ No live mint, burn policy, levy or reward-routing change is implied by the prese
 
 ## Remaining P1 work
 
-- expand restart/fault scenarios around collector/runtime checkpoints, compute settlement legs and cross-shard lineage as the shadow tracker accumulates larger state;
-- connect the finalized benchmark report to real V2 Lab finality/QC samples;
-- add a small deterministic CI benchmark scenario and a heavier manual shard/cross-shard matrix;
+- expand the finalized-through-consensus harness from the small single-process CI sample into a heavier documented manual shard/cross-shard matrix, including multiple shard counts and cross-shard ratios;
 - run long-horizon public/adversarial economic simulations before proposing any monetary or idle-capital activation;
-- publish no new chain-TPS claim until the finalized-through-consensus harness has actually run under a documented configuration.
+- do not treat the small CI finality sample as a production-capacity or chain-TPS claim; publish no capacity claim until representative finalized-through-consensus runs have documented hardware, topology, workload and safety/liveness results.
