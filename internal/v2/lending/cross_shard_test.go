@@ -8,8 +8,8 @@ import (
 
 func TestCrossShardMessagesRoundTripAndBindTerms(t *testing.T) {
 	terms := Terms{
-		Lender: types.AccountID(types.HashBytes("account", []byte("lender"))),
-		Borrower: types.AccountID(types.HashBytes("account", []byte("borrower"))),
+		Lender:    types.AccountID(types.HashBytes("account", []byte("lender"))),
+		Borrower:  types.AccountID(types.HashBytes("account", []byte("borrower"))),
 		Principal: 100, Collateral: 40, TermRateBps: -500, MaturityHeight: 100,
 	}
 	offerID := types.ObjectIDForShard(types.HashBytes("tx", []byte("offer")), CrossOfferMessageIndex, 1)
