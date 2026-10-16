@@ -84,6 +84,20 @@ Cross-shard configurations are skipped for one-shard runs because they are undef
 
 The repository also contains the manually triggered GitHub Actions workflow `.github/workflows/v2-finality-matrix.yml`. It runs the same 1/2/4/8-shard by 0/10/25/50%-cross-shard matrix and uploads `finality-matrix.json` as an artifact.
 
+## Reviewed P1 matrix artifact
+
+P1 validation executed the full single-process matrix through PR validation run `38956513211`.
+
+- artifact digest: `sha256:9560f454bb2e43021ba913618c2fc6e9f988ca7a85ef0cf28eae2d7698c829ce`;
+- 13 valid configurations completed;
+- all reports were `valid=true`;
+- rejected transactions, execution errors, safety failures and liveness failures were zero in every configuration;
+- generated and imported receipt counts matched exactly for every cross-shard configuration;
+- 1-shard cross-shard combinations were skipped as undefined;
+- the topology was `single-process-in-memory`.
+
+The recorded TPS/latency values are retained as engineering instrumentation only. They are not a production-capacity result and are not promoted as a chain-performance claim.
+
 ## Report metadata
 
 Each report includes:
