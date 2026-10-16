@@ -6,11 +6,10 @@ The gate is designed to catch regressions that package-level unit tests can miss
 
 ## Pull-request topology
 
-The default pull-request run creates:
+The default pull-request run has two layers:
 
-- 7 Protocol v2 validator nodes;
-- 1 non-validator full observer;
-- 1 transaction client.
+- a correctness scenario with 7 Protocol v2 validator nodes, 1 non-validator full observer and 1 transaction client;
+- a large validator-set smoke scenario with 20 Protocol v2 validators plus the same observer/client roles for transaction delivery and finalized consensus.
 
 All nodes use the real Protocol v2 libp2p transport on loopback QUIC addresses allocated by the GitHub-hosted runner. Each validator and the observer own an independent runtime and independent world state.
 
@@ -28,9 +27,9 @@ The gate verifies that:
 
 ## Manual scaling
 
-The workflow also supports manual runs with `ZEPHYR_DEVNET_VALIDATORS` from 4 through 20. The manual workflow input defaults to 20 validators.
+The pull-request gate always runs the 7-validator correctness/fault scenario and a 20-validator transaction/finality smoke. The workflow also supports manual runs with the large validator-set count configurable from 4 through 20; the manual input defaults to 20.
 
-This lets the repository exercise larger validator sets without changing the pull-request latency budget. The quorum-fault boundary test remains fixed at 7 validators because it explicitly checks the 5-of-7 quorum boundary.
+The quorum-fault boundary test remains fixed at 7 validators because it explicitly checks the 5-of-7 quorum boundary.
 
 ## GitHub-hosted topology boundary
 
