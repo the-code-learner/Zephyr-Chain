@@ -114,3 +114,22 @@ jobs:
 
       - name: Type-check and build
         run: npm run build
+
+  required-status:
+    name: CI
+    needs:
+      - go
+      - consensus-lab
+      - wallet
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require CI jobs
+        env:
+          GO_RESULT: ${{ needs.go.result }}
+          CONSENSUS_RESULT: ${{ needs.consensus-lab.result }}
+          WALLET_RESULT: ${{ needs.wallet.result }}
+        run: |
+          test "$GO_RESULT" = "success"
+          test "$CONSENSUS_RESULT" = "success"
+          test "$WALLET_RESULT" = "success"
