@@ -29,17 +29,17 @@ const (
 )
 
 type protocolV2Devnet struct {
-	network       types.NetworkID
-	native        types.TokenID
-	validators    v2consensus.ValidatorSet
-	keys          []*ecdsa.PrivateKey
-	nodes         []*p2p.Node
-	services      []*Service
-	stores        []*worldstate.Memory
-	observerNode  *p2p.Node
-	observer      *Service
-	observerStore *worldstate.Memory
-	clientNode    *p2p.Node
+	network                types.NetworkID
+	native                 types.TokenID
+	validators             v2consensus.ValidatorSet
+	keys                   []*ecdsa.PrivateKey
+	nodes                  []*p2p.Node
+	services               []*Service
+	stores                 []*worldstate.Memory
+	observerNode           *p2p.Node
+	observer               *Service
+	observerStore          *worldstate.Memory
+	clientNode             *p2p.Node
 	initialObject          object.Object
 	recipientInitialObject object.Object
 	senderKey              *ecdsa.PrivateKey
