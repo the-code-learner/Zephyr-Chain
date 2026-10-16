@@ -60,7 +60,6 @@ func TestBuildZPPIFailsClosedOnLowCoverage(t *testing.T) {
 	}
 }
 
-
 func TestBuildZPPIPreservesEWMAHistoryAcrossMissingComponent(t *testing.T) {
 	cfg := ZPPIBasketConfig{MinCoverageBps: 7_500, EWMABps: 5_000}
 	cfg.WeightsBps[ZPPICompute] = 5_000
