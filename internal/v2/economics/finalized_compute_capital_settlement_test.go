@@ -251,3 +251,40 @@ func trackedLotsAtHeight(lots []CapitalLot, height uint64) uint64 {
 	}
 	return total
 }
+
+
+func TestEpochCollectorAppliesFinalizedComputeCapitalLineage(t *testing.T) {
+	native := types.TokenID{1}
+	cfg := testCollectorConfig(1, native)
+	cfg.InitialCirculatingSupply[0] = 1_000
+	collector, err := NewEpochCollector(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := collector.EnableIdleCapitalTracking(NewIdleCapitalTracker()); err != nil {
+		t.Fatal(err)
+	}
+
+	record := finalizedComputeRecord(false)
+	collector.idleCapital = seededComputeComponentTracker(t, record)
+	transaction, result, outputs := finalizedComputeSettlementFixture(t, native, record, tx.OpComputeFinalize, 60)
+	if err := collector.ObserveFinalizedBlock(60, map[uint32]FinalizedShardObservation{
+		0: {Transactions: []tx.Transaction{transaction}, Results: []execution.Result{result}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	provider := record.Assignments[0].Provider
+	lots := mustTrackedLots(t, collector.idleCapital, outputs[provider])
+	if trackedLotsAtHeight(lots, 60) != record.Assignments[0].Price ||
+		trackedLotsAtHeight(lots, 6) != record.Job.CollateralRequired {
+		t.Fatalf("collector mixed productive payment with collateral lineage: %#v", lots)
+	}
+	snapshot, enabled, err := collector.IdleCapitalSnapshot(60, []uint64{1, 100})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !enabled || snapshot.ProductiveObservedCapital != record.Escrow || snapshot.ProductiveCoverageBps != 7_000 {
+		t.Fatalf("collector did not apply compute productive coverage: %#v enabled=%v", snapshot, enabled)
+	}
+}
