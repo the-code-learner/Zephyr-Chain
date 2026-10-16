@@ -49,10 +49,10 @@ func main() {
 	}
 
 	output := longRunOutput{
-		Version:     1,
-		Shadow:      result.Shadow,
-		Scenario:    "adversarial-stress-mix-v1",
-		Disclaimer:  "shadow-only simulation; no minting, levy, reward routing, fee split, supply mutation, or activation is performed",
+		Version:    1,
+		Shadow:     result.Shadow,
+		Scenario:   "adversarial-stress-mix-v1",
+		Disclaimer: "shadow-only simulation; no minting, levy, reward routing, fee split, supply mutation, or activation is performed",
 		Config: longRunConfigOutput{
 			Epochs:           *epochs,
 			EpochsPerYear:    config.EpochsPerYear,
