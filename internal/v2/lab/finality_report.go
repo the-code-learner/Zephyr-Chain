@@ -74,7 +74,8 @@ func BuildFinalityBenchmarkReport(in FinalityBenchmarkInput) (FinalityBenchmarkR
 	}
 	latencies := make([]time.Duration, len(in.Samples))
 	for i, sample := range in.Samples {
-		if sample.SubmittedAt.IsZero() || sample.FinalizedAt.Before(sample.SubmittedAt) || sample.FinalizedAt.After(in.MeasuredEnd) {
+		if sample.SubmittedAt.IsZero() || sample.SubmittedAt.Before(in.MeasuredStart) ||
+			sample.FinalizedAt.Before(sample.SubmittedAt) || sample.FinalizedAt.After(in.MeasuredEnd) {
 			return FinalityBenchmarkReport{}, ErrInvalidFinalityBenchmark
 		}
 		latencies[i] = sample.FinalizedAt.Sub(sample.SubmittedAt)
