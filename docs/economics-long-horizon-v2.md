@@ -126,6 +126,23 @@ The repository contains `.github/workflows/v2-economics-longrun.yml`, a `workflo
 
 The workflow summary repeats the shadow-only non-activation boundary.
 
+## Reviewed P1 long-horizon artifact
+
+P1 validation executed the 1,095-epoch three-year scenario with the seven-case sensitivity matrix. The reviewed artifact came from validation run `38956758511` with digest `sha256:e883d6dd072a689a9b1c6af2ce8cd679f810376c5aeb847146948bb4cda54899`.
+
+Observed validation properties:
+
+- every case remained `shadow=true`;
+- initial and final tracked capital were exactly 1,000,000 units in every case;
+- baseline mixed reliable and unreliable ZPPI epochs and positive/negative compute-scarcity regimes;
+- sparse-evidence increased unreliable ZPPI epochs from 95 to 361;
+- strict ZPPI coverage increased unreliable ZPPI epochs to 130;
+- the capped-scarcity case limited maximum absolute scarcity to 5,000 bps;
+- the prolonged-idle case moved final dormancy into the 31-180 block bucket while preserving capital;
+- no output activates monetary policy.
+
+These numbers describe the deterministic stress model only. They are not forecasts or parameter recommendations.
+
 ## Invariants covered by repository tests
 
 The three-year adversarial test requires:
