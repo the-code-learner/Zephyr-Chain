@@ -35,7 +35,11 @@ This tranche is **shadow-only**. It does not activate live monetary supply chang
 - reusable `FinalityHarness` with deterministic pre-measurement identities, independent per-validator/per-shard world states, exact cross-shard-ratio validation, canonical receipt proofs/imports, destination receipt-marker verification and an import-only drain outside the measured window;
 - CI coverage for 1-shard native transfer, 2-shard 50% cross-shard receipt/import and a 4-shard cross-shard smoke scenario;
 - `cmd/v2-finality-matrix` plus a manually triggered `V2 Finality Matrix` workflow covering 1/2/4/8 shards and 0/10/25/50% cross-shard configurations with JSON artifact output;
-- benchmark methodology documented in `docs/finality-benchmarking-v2.md`, including the explicit single-process topology boundary and publication gate.
+- benchmark methodology documented in `docs/finality-benchmarking-v2.md`, including the explicit single-process topology boundary and publication gate;
+- ZPPI component EWMA history now survives temporary missing/unreliable component epochs while the missing component remains excluded from active basket coverage;
+- reusable long-horizon shadow simulation for annual ZPPI direction, oscillating ZCSI, sparse evidence, productive/idle regime shifts and fragmentation/state-cost pressure;
+- deterministic three-year adversarial repository tests enforce capital conservation, reliable/unreliable signal gating, positive/negative scarcity regimes and fragmentation pressure without any live monetary action;
+- `cmd/zephyr-econ-longrun`, manual `V2 Economics Long Horizon` workflow and `docs/economics-long-horizon-v2.md` provide reproducible JSON summaries/checkpoints with an explicit non-activation boundary.
 
 The pre-existing supply-growth controller remains a legacy **shadow simulator** until the ZPPI path is integrated into the monetary epoch path. ZCSI remains primarily a compute incentive/capacity-routing signal rather than the monetary anchor.
 
@@ -56,5 +60,5 @@ No live mint, burn policy, levy or reward-routing change is implied by the prese
 ## Remaining P1 work
 
 - execute and review the manually triggered 1/2/4/8-shard finalized-through-consensus matrix and retain its machine-readable artifact; the matrix infrastructure is implemented, but no production-capacity claim follows from its single-process topology;
-- run long-horizon public/adversarial economic simulations before proposing any monetary or idle-capital activation;
-- keep CI/manual single-process finality outputs as instrumentation only; publish no capacity claim until representative distributed finalized-through-consensus runs have documented hardware, topology, workload and safety/liveness results.
+- execute/review the manual long-horizon economics workflow artifact and extend sensitivity coverage beyond the deterministic stress mix before any activation proposal, including alternative sparse-data schedules and parameter bands;
+- keep all long-horizon outputs shadow-only and keep CI/manual single-process finality outputs as instrumentation only; publish no capacity claim until representative distributed finalized-through-consensus runs have documented hardware, topology, workload and safety/liveness results.
