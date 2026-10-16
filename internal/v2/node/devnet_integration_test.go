@@ -340,13 +340,13 @@ func newProtocolV2Devnet(t *testing.T, validatorCount int) *protocolV2Devnet {
 	}
 
 	devnet := &protocolV2Devnet{
-		network:       network,
-		native:        native,
-		validators:    validators,
-		keys:          keys,
-		nodes:         make([]*p2p.Node, validatorCount),
-		services:      make([]*Service, validatorCount),
-		stores:        make([]*worldstate.Memory, validatorCount),
+		network:                network,
+		native:                 native,
+		validators:             validators,
+		keys:                   keys,
+		nodes:                  make([]*p2p.Node, validatorCount),
+		services:               make([]*Service, validatorCount),
+		stores:                 make([]*worldstate.Memory, validatorCount),
 		initialObject:          initial,
 		recipientInitialObject: recipientInitial,
 		senderKey:              senderKey,
