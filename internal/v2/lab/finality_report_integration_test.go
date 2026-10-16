@@ -119,7 +119,7 @@ func TestV2LabFinalityReportFromConsensusCommit(t *testing.T) {
 				Network:   network,
 				ShardID:   0,
 				StateRoot: root,
-				Inputs: []tx.InputRef{{
+				Inputs:     []tx.InputRef{{
 					ObjectID: signer.input.ID, Version: signer.input.Version, ObjectHash: witnessHash,
 				}},
 				Outputs:    []object.OutputSpec{payment, change},
