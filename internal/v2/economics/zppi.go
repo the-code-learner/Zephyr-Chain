@@ -77,7 +77,7 @@ func BuildZPPI(epoch uint64, observations []ZPPIObservation, prior ZPPISnapshot,
 		latest[observation.Component] = observation
 	}
 
-	out := ZPPISnapshot{Epoch: epoch}
+	out := ZPPISnapshot{Epoch: epoch, ComponentIndexQ9: prior.ComponentIndexQ9}
 	basket := new(big.Int)
 	var activeWeight uint64
 	for component := ZPPIComponent(1); component < ZPPIComponentCount; component++ {
