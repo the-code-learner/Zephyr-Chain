@@ -57,8 +57,12 @@ measure first -> simulate second -> activate last
 
 No live mint, burn policy, levy or reward-routing change is implied by the presence of telemetry or simulation code.
 
-## Remaining P1 work
+## P1 closure status
 
-- execute and review the manually triggered 1/2/4/8-shard finalized-through-consensus matrix and retain its machine-readable artifact; the matrix infrastructure is implemented, but no production-capacity claim follows from its single-process topology;
-- execute/review the manual long-horizon economics workflow artifact and extend sensitivity coverage beyond the deterministic stress mix before any activation proposal, including alternative sparse-data schedules and parameter bands;
-- keep all long-horizon outputs shadow-only and keep CI/manual single-process finality outputs as instrumentation only; publish no capacity claim until representative distributed finalized-through-consensus runs have documented hardware, topology, workload and safety/liveness results.
+Protocol Economics P1 implementation and repository validation are complete on this branch.
+
+The finalized-through-consensus matrix was executed and reviewed through temporary PR validation run `38956513211`. Its retained artifact digest is `sha256:9560f454bb2e43021ba913618c2fc6e9f988ca7a85ef0cf28eae2d7698c829ce`. All 13 valid single-process configurations passed with zero reported safety/liveness failures, rejected transactions or execution errors. Every cross-shard configuration materialized exactly the number of receipts it generated. One-shard cross-shard combinations were skipped as undefined rather than relabeled.
+
+The three-year long-horizon economics artifact was executed and reviewed with the seven-case sensitivity matrix through validation run `38956758511`. Its artifact digest is `sha256:e883d6dd072a689a9b1c6af2ce8cd679f810376c5aeb847146948bb4cda54899`. Every sensitivity case remained shadow-only and conserved tracked capital exactly; sparse/strict evidence reduced ZPPI availability as intended, the scarcity cap bounded the score at 5,000 bps, and the prolonged-idle case changed dormancy without changing capital.
+
+These validations close P1; they do **not** cross the activation or publication boundary. Distributed production-capacity measurement, public-data economic calibration and any live monetary/idle-capital activation remain future gated work. Single-process TPS values remain instrumentation only, and the 1,000,000 TPS figure remains a non-claim north-star.
