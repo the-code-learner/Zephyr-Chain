@@ -9,9 +9,9 @@ import (
 )
 
 const (
-	Version           uint16 = 1
-	MaxPositiveRateBps int32 = 100_000
-	MinNegativeRateBps int32 = -9_999
+	Version            uint16 = 1
+	MaxPositiveRateBps int32  = 100_000
+	MinNegativeRateBps int32  = -9_999
 )
 
 var (
