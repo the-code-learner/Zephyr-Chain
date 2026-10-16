@@ -38,3 +38,15 @@ jobs:
 
       - name: V2 finalized batch scaling
         run: go test ./internal/v2/node -run '^$' -bench '^BenchmarkV2FinalizedBatch32$' -benchtime=1x -count=1 -timeout=120s
+
+  required-status:
+    name: V2 Lab
+    needs:
+      - v2-lab
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require V2 Lab job
+        env:
+          LAB_RESULT: ${{ needs.v2-lab.result }}
+        run: test "$LAB_RESULT" = "success"
