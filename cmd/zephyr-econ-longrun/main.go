@@ -24,8 +24,9 @@ type longRunOutput struct {
 	Disclaimer  string                                 `json:"disclaimer"`
 	Config      longRunConfigOutput                    `json:"config"`
 	Summary     economics.LongHorizonSimulationSummary `json:"summary"`
-	Checkpoints []economics.LongHorizonEpochSnapshot   `json:"checkpoints"`
-	Epochs      []economics.LongHorizonEpochSnapshot   `json:"epochs,omitempty"`
+	Checkpoints []economics.LongHorizonEpochSnapshot     `json:"checkpoints"`
+	Sensitivity []economics.LongHorizonSensitivityResult `json:"sensitivity"`
+	Epochs      []economics.LongHorizonEpochSnapshot     `json:"epochs,omitempty"`
 }
 
 func main() {
@@ -47,6 +48,10 @@ func main() {
 	if err != nil {
 		fatal(err)
 	}
+	sensitivity, err := economics.RunLongHorizonSensitivityMatrix(*epochs, economics.DefaultLongHorizonSensitivityCases())
+	if err != nil {
+		fatal(err)
+	}
 
 	output := longRunOutput{
 		Version:    1,
@@ -61,6 +66,7 @@ func main() {
 		},
 		Summary:     result.Summary,
 		Checkpoints: selectCheckpoints(result.Epochs, *checkpointEvery),
+		Sensitivity: sensitivity,
 	}
 	if *includeEpochs {
 		output.Epochs = result.Epochs
