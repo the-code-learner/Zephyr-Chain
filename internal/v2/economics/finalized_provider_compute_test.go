@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/zephyr-chain/zephyr-chain/internal/v2/compute"
+	"github.com/zephyr-chain/zephyr-chain/internal/v2/execution"
 	"github.com/zephyr-chain/zephyr-chain/internal/v2/tx"
 	"github.com/zephyr-chain/zephyr-chain/internal/v2/types"
 )
@@ -46,10 +47,15 @@ func TestDeriveFinalizedProviderComputeEvidenceExactSettlement(t *testing.T) {
 			t.Fatalf("invalid provider evidence hash: %v %x", err, hash)
 		}
 	}
-	if first, _ := evidence[0].Hash(); first == func() types.Hash {
-		second, _ := evidence[1].Hash()
-		return second
-	}() {
+	firstHash, err := evidence[0].Hash()
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondHash, err := evidence[1].Hash()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if firstHash == secondHash {
 		t.Fatal("provider identity did not bind evidence hash")
 	}
 }
@@ -77,22 +83,15 @@ func TestDeriveFinalizedProviderComputeEvidenceMajorityExcludesMinority(t *testi
 	}
 }
 
-func TestDeriveFinalizedProviderComputeEvidenceRejectsRegistryMismatch(t *testing.T) {
+func TestDeriveFinalizedProviderComputeEvidenceRejectsUnregisteredWorkload(t *testing.T) {
 	record := finalizedComputeRecord(false)
 	transaction, result := finalizedComputeTransaction(t, record, tx.OpComputeFinalize)
-	wrong, err := compute.NewWorkRegistry([]compute.WorkSpec{{
-		Version:       compute.WorkSpecVersion,
-		Class:         compute.WorkCPUGeneral,
-		Units:         8,
-		WorkloadHash:  record.Job.WorkloadHash,
-		BenchmarkHash: types.Hash{6},
-		Vector:        compute.WorkVector{CPUUnits: 8},
-	}})
+	empty, err := compute.NewWorkRegistry(nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := DeriveFinalizedProviderComputeEvidence(transaction, result, wrong); err == nil {
-		t.Fatal("settlement was attributed using a mismatched WorkRegistry spec")
+	if _, _, err := DeriveFinalizedProviderComputeEvidence(transaction, result, empty); err == nil {
+		t.Fatal("settlement was attributed without a registered workload")
 	}
 }
 
