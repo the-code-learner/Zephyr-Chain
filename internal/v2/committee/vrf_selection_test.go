@@ -96,13 +96,13 @@ func TestCommitteeInputRoundTripAndContextBinding(t *testing.T) {
 		t.Fatal(err)
 	}
 	for name, mutate := range map[string]func(*Input){
-		"height": func(value *Input) { value.FinalizedHeight++ },
-		"header": func(value *Input) { value.FinalizedHeaderHash = types.HashBytes("committee/header", []byte("other")) },
+		"height":      func(value *Input) { value.FinalizedHeight++ },
+		"header":      func(value *Input) { value.FinalizedHeaderHash = types.HashBytes("committee/header", []byte("other")) },
 		"eligibility": func(value *Input) { value.EligibilityRoot = types.HashBytes("committee/root", []byte("other")) },
-		"key": func(value *Input) { value.VRFKeyHash = types.HashBytes("committee/key", []byte("other")) },
-		"purpose": func(value *Input) { value.Purpose = types.HashBytes("committee/purpose", []byte("other")) },
-		"round": func(value *Input) { value.Round++ },
-		"size": func(value *Input) { value.CommitteeSize++ },
+		"key":         func(value *Input) { value.VRFKeyHash = types.HashBytes("committee/key", []byte("other")) },
+		"purpose":     func(value *Input) { value.Purpose = types.HashBytes("committee/purpose", []byte("other")) },
+		"round":       func(value *Input) { value.Round++ },
+		"size":        func(value *Input) { value.CommitteeSize++ },
 	} {
 		t.Run(name, func(t *testing.T) {
 			changed := input
