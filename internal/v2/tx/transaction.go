@@ -37,6 +37,12 @@ const (
 	OpDeviceCredentialRegister uint16 = 21
 	OpDeviceCredentialUpdate   uint16 = 22
 	OpDeviceCredentialRevoke   uint16 = 23
+	OpCrossLoanOffer           uint16 = 24
+	OpCrossLoanAccept          uint16 = 25
+	OpCrossLoanRepay           uint16 = 26
+	OpCrossLoanSettle          uint16 = 27
+	OpCrossLoanDefault         uint16 = 28
+	OpCrossLoanExpire          uint16 = 29
 
 	MaxInputs      = 4096
 	MaxOutputs     = 4096
