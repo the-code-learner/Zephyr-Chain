@@ -21,23 +21,23 @@ import (
 // WorkSpec because replicas perform the same workload; callers must not sum
 // these records into an economic score without a separately specified policy.
 type FinalizedProviderComputeEvidence struct {
-	JobObjectID		   types.ObjectID
-	JobID			   types.JobID
-	JobOwner		   types.AccountID
-	Provider		   types.AccountID
-	WorkloadHash		   types.Hash
-	BenchmarkHash		   types.Hash
-	Class			   compute.WorkClass
-	Units			   uint64
-	Vector			   compute.WorkVector
-	PaidZPH			   uint64
-	Verification		   compute.VerificationMode
-	ResultRoot		   types.Hash
-	AssignedProviderCount	   uint32
-	PaidProviderCount	   uint32
-	JobStateHash		   types.Hash
-	SettlementReceiptHash	   types.Hash
-	WorkRegistryHash	   types.Hash
+	JobObjectID           types.ObjectID
+	JobID                 types.JobID
+	JobOwner              types.AccountID
+	Provider              types.AccountID
+	WorkloadHash          types.Hash
+	BenchmarkHash         types.Hash
+	Class                 compute.WorkClass
+	Units                 uint64
+	Vector                compute.WorkVector
+	PaidZPH               uint64
+	Verification          compute.VerificationMode
+	ResultRoot            types.Hash
+	AssignedProviderCount uint32
+	PaidProviderCount     uint32
+	JobStateHash          types.Hash
+	SettlementReceiptHash types.Hash
+	WorkRegistryHash      types.Hash
 }
 
 func (e FinalizedProviderComputeEvidence) Validate() error {
