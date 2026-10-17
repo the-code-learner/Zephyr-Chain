@@ -3,7 +3,6 @@ package committee
 import (
 	"bytes"
 	"errors"
-	"math"
 	"sort"
 
 	"github.com/zephyr-chain/zephyr-chain/internal/v2/codec"
@@ -149,7 +148,7 @@ func VRFPublicKeyHash(publicKey []byte) (types.Hash, error) {
 // caller ordering. Candidate authorization/eligibility is deliberately outside
 // this package and must come from finalized verifiable state.
 func EligibilityRoot(candidates []CandidateID) (types.Hash, error) {
-	if len(candidates) == 0 || uint64(len(candidates)) > math.MaxUint32 {
+	if len(candidates) == 0 || uint64(len(candidates)) > uint64(^uint32(0)) {
 		return types.Hash{}, ErrCommittee
 	}
 	ordered := append([]CandidateID(nil), candidates...)
