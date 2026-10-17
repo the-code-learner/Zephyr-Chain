@@ -47,7 +47,8 @@ func TestVRFCommitteeProofAndSelectionEndToEnd(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, want := hex.EncodeToString(verified.Output()[:]), "e2bcdab31497231e70e1dd1740e263ef5fd266c85ec204af70b37288dbe0d0f3"; got != want {
+	output := verified.Output()
+	if got, want := hex.EncodeToString(output[:]), "e2bcdab31497231e70e1dd1740e263ef5fd266c85ec204af70b37288dbe0d0f3"; got != want {
 		t.Fatalf("verified output = %s, want %s", got, want)
 	}
 
