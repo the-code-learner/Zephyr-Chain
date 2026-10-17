@@ -195,17 +195,6 @@ func ApplyFinalizedIdleCapitalImport(
 	if !carriesNative {
 		return false, nil
 	}
-	createdHeight := receipt.SourceHeight
-	if receipt.Output.Kind == object.KindCoin {
-		coin, err := object.ParseCoin(receipt.Output.Data)
-		if err != nil || coin.Token != nativeToken {
-			return false, err
-		}
-		createdHeight = coin.CreatedHeight
-		if createdHeight == 0 || createdHeight != receipt.SourceHeight {
-			return false, ErrFinalizedEconomics
-		}
-	}
 	transferID, err := receipt.Hash()
 	if err != nil {
 		return false, err
@@ -229,6 +218,18 @@ func ApplyFinalizedIdleCapitalImport(
 		}
 		*tracker = *preview
 		return true, nil
+	}
+
+	createdHeight := receipt.SourceHeight
+	if receipt.Output.Kind == object.KindCoin {
+		coin, err := object.ParseCoin(receipt.Output.Data)
+		if err != nil || coin.Token != nativeToken {
+			return false, err
+		}
+		createdHeight = coin.CreatedHeight
+		if createdHeight == 0 || createdHeight != receipt.SourceHeight {
+			return false, ErrFinalizedEconomics
+		}
 	}
 	if _, exists := preview.objects[destination.ID]; exists {
 		return false, ErrFinalizedEconomics
