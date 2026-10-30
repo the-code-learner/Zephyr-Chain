@@ -73,6 +73,65 @@ externally protected minimum pin as finality progresses. An old,
 authentic pin protects only up to its own height and **does not prove
 freshness, detect rollbacks above it, or authorize a consensus signer**.
 
+## Multi-witness signed minimum finalized checkpoint (experimental)
+
+An observer restart can now require a compact **canonical JSON** checkpoint
+attested by a supermajority of **independently pinned Ed25519 witness keys**.
+The witness keys must be obtained using a separate trusted release/ceremony
+channel, NOT from the checkpoint JSON, the node state, or an untrusted RPC.
+The policy requires 3–16 different pinned keys, more than two-thirds
+signatures (e.g. 3-of-4), one signature per known key, sorted ascending by
+lowercase hex public key. Every included signature must verify; an unknown,
+duplicate, malformed, or corrupt signer causes refusal.
+
+Canonical JSON fields in exact serialization order:
+
+```json
+{"networkId":"<64-lowercase-hex>","validatorRoot":"<64-lowercase-hex>","height":42,"headerHash":"<64-lowercase-hex>","signatures":[{"publicKey":"<64-lowercase-hex>","signature":"<128-lowercase-hex>"}]}
+```
+
+This is a **format illustration**, not a valid signed checkpoint. Produce the
+bytes with a canonical JSON encoder in the specified field order and without
+extraneous whitespace, duplications or additional fields. Each Ed25519 witness
+signs the **32-byte digest** returned by
+`node.WitnessCheckpointDigest(FinalityCheckpoint)`, which is
+`codec.DomainHash("zephyr/external-finalized-witness-checkpoint/v1", writerBytes)`;
+`writerBytes` is exactly the 32-byte NetworkID, 32-byte original genesis
+validator root, big-endian uint64 height and 32-byte consensus header hash.
+Never sign arbitrary JSON bytes or a different digest.
+
+For an already initialized observer with certified history covering the
+signed height:
+
+```sh
+go run ./cmd/v2-observer \
+  -genesis /private/genesis.json \
+  -expected-network-id '<independently-reviewed-network-id>' \
+  -expected-validator-root '<independently-reviewed-validator-root>' \
+  -data-dir /private/observer-data \
+  -witness-checkpoint-json /independent/witness-bundle.json \
+  -witness-public-keys '<key1-hex>,<key2-hex>,<key3-hex>,<key4-hex>'
+```
+
+Optionally combine with `-external-anchor-file
+/private/trusted-finality-anchor/minimum-finalized.log`. Both separately
+provided checkpoints MUST be verified as exact QC-certified historical
+ancestors independently; they need not be at the same height. A mismatch,
+missing history or forged signature fails closed **before the network
+listener opens**. A fresh empty observer intentionally refuses a positive
+externally witnessed checkpoint until production-grade authenticated state
+sync from that height exists.
+
+**Crucial limits:** this verifies signed message provenance, not that
+witnesses are deployed independently, follow the correct finalized chain,
+remain online, hold uncompromised keys, have a fresh view, or keep their own
+checkpoint counter monotonic. A stale but honestly signed checkpoint cannot
+prove the most recent finalized block. The actual public-mainnet GO gate
+requires separately deployed authenticated witness operators, published
+witness key ceremony/rotation, secured monotonic storage and verified
+freshness/availability drills; witness attestations are not a substitute
+for native validator QCs or an independent protocol audit.
+
 ## Separately held monotonic high-water ledger (experimental)
 
 A more automated local anti-rollback guard is available on **Linux/macOS**
