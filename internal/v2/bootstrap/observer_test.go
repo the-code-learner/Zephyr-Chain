@@ -285,13 +285,19 @@ func TestPinnedObserverReplaysTwoQCFinalizedHeightsIncludingEmptyBlocks(t *testi
 	if restarted.Runtime.Height != 2 || restarted.Runtime.ParentHash != expectedParent || restarted.Runtime.RecoveryRequired() {
 		t.Fatalf("wrong recovered finality anchor at height %d", restarted.Runtime.Height)
 	}
-	if err := restarted.Close(); err != nil { t.Fatal(err) }
+	if err := restarted.Close(); err != nil {
+		t.Fatal(err)
+	}
 	again, err := OpenObserver(cfg)
-	if err != nil { t.Fatalf("second multiheight restart failed: %v", err) }
+	if err != nil {
+		t.Fatalf("second multiheight restart failed: %v", err)
+	}
 	if again.Runtime.Height != 2 || again.Runtime.ParentHash != expectedParent {
 		t.Fatal("second restart changed certified finality anchor")
 	}
-	if err := again.Close(); err != nil { t.Fatal(err) }
+	if err := again.Close(); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestPinnedObserverRejectsTamperedCertifiedJournal(t *testing.T) {
@@ -350,31 +356,44 @@ func TestPinnedObserverRejectsPostCommitStateRootTampering(t *testing.T) {
 }
 
 func TestPinnedObserverRefusesDeletedOrTruncatedCertifiedHistory(t *testing.T) {
-	for _, mutate := range []struct { name string; fn func(string) error }{
+	for _, mutate := range []struct {
+		name string
+		fn   func(string) error
+	}{
 		{"missing", func(path string) error { return os.Remove(path) }},
 		{"truncated", func(path string) error {
-			f,err := os.OpenFile(path, os.O_WRONLY, 0)
-			if err != nil { return err }
+			f, err := os.OpenFile(path, os.O_WRONLY, 0)
+			if err != nil {
+				return err
+			}
 			defer f.Close()
 			return f.Truncate(111)
 		}},
 		{"checksum", func(path string) error {
-			raw,err := os.ReadFile(path)
-			if err != nil { return err }
+			raw, err := os.ReadFile(path)
+			if err != nil {
+				return err
+			}
 			raw[len(raw)-1] ^= 1
 			return os.WriteFile(path, raw, 0600)
 		}},
 	} {
-		t.Run(mutate.name,func(t *testing.T) {
-			cfg := observerFixture(t,filepath.Join(t.TempDir(),"operator"))
-			obs,err := OpenObserver(cfg)
-			if err != nil { t.Fatal(err) }
-			appendSingleValidatorCertifiedEmptyBlock(t,obs)
-			appendSingleValidatorCertifiedEmptyBlock(t,obs)
-			if err := obs.Close(); err != nil { t.Fatal(err) }
-			if err := mutate.fn(filepath.Join(cfg.DataDir,"certified-history.log")); err != nil { t.Fatal(err) }
-			if _,err := OpenObserver(cfg); !errors.Is(err,ErrObserverRecovery) {
-				t.Fatalf("unverifiable multiheight history accepted: %v",err)
+		t.Run(mutate.name, func(t *testing.T) {
+			cfg := observerFixture(t, filepath.Join(t.TempDir(), "operator"))
+			obs, err := OpenObserver(cfg)
+			if err != nil {
+				t.Fatal(err)
+			}
+			appendSingleValidatorCertifiedEmptyBlock(t, obs)
+			appendSingleValidatorCertifiedEmptyBlock(t, obs)
+			if err := obs.Close(); err != nil {
+				t.Fatal(err)
+			}
+			if err := mutate.fn(filepath.Join(cfg.DataDir, "certified-history.log")); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := OpenObserver(cfg); !errors.Is(err, ErrObserverRecovery) {
+				t.Fatalf("unverifiable multiheight history accepted: %v", err)
 			}
 		})
 	}
@@ -383,19 +402,27 @@ func TestPinnedObserverRefusesDeletedOrTruncatedCertifiedHistory(t *testing.T) {
 func TestPinnedObserverRejectsHistoryWithForgedIntermediateQC(t *testing.T) {
 	// The lower-level history regression can rewrite a valid file checksum;
 	// this startup test covers absent/incomplete intermediary history.
-	cfg := observerFixture(t,filepath.Join(t.TempDir(),"operator"))
-	obs,err := OpenObserver(cfg)
-	if err != nil { t.Fatal(err) }
-	appendSingleValidatorCertifiedEmptyBlock(t,obs)
-	appendSingleValidatorCertifiedEmptyBlock(t,obs)
-	if err := obs.Close(); err != nil { t.Fatal(err) }
-	historyPath := filepath.Join(cfg.DataDir,"certified-history.log")
-	data,err := os.ReadFile(historyPath)
-	if err != nil { t.Fatal(err) }
+	cfg := observerFixture(t, filepath.Join(t.TempDir(), "operator"))
+	obs, err := OpenObserver(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	appendSingleValidatorCertifiedEmptyBlock(t, obs)
+	appendSingleValidatorCertifiedEmptyBlock(t, obs)
+	if err := obs.Close(); err != nil {
+		t.Fatal(err)
+	}
+	historyPath := filepath.Join(cfg.DataDir, "certified-history.log")
+	data, err := os.ReadFile(historyPath)
+	if err != nil {
+		t.Fatal(err)
+	}
 	// Full history is not the latest single-commit journal: removing its
 	// intermediate record must never re-anchor at the latest height alone.
-	if err := os.WriteFile(historyPath,data[:len(data)/2],0600); err != nil { t.Fatal(err) }
-	if _,err := OpenObserver(cfg); !errors.Is(err,ErrObserverRecovery) {
-		t.Fatalf("missing intermediate QC was accepted: %v",err)
+	if err := os.WriteFile(historyPath, data[:len(data)/2], 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := OpenObserver(cfg); !errors.Is(err, ErrObserverRecovery) {
+		t.Fatalf("missing intermediate QC was accepted: %v", err)
 	}
 }
