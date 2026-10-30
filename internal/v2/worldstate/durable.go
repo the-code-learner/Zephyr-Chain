@@ -28,23 +28,23 @@ const (
 )
 
 var (
-	ErrPersistenceNetwork = errors.New("v2 persisted state belongs to another network")
-	ErrPersistenceCorrupt = errors.New("v2 persisted state is corrupt")
-	ErrPersistenceClosed  = errors.New("v2 persisted state is closed")
-	ErrPersistenceBusy    = errors.New("v2 persisted state directory already has an active writer")
+	ErrPersistenceNetwork     = errors.New("v2 persisted state belongs to another network")
+	ErrPersistenceCorrupt     = errors.New("v2 persisted state is corrupt")
+	ErrPersistenceClosed      = errors.New("v2 persisted state is closed")
+	ErrPersistenceBusy        = errors.New("v2 persisted state directory already has an active writer")
 	ErrPersistenceUnsupported = errors.New("v2 durable writer locking unavailable on this operating system")
 )
 
 type Disk struct {
-	mu      sync.Mutex
-	dir     string
-	network types.NetworkID
-	mem     *Memory
-	objects map[types.ObjectID]object.Object
-	seq     uint64
-	wal     *os.File
+	mu         sync.Mutex
+	dir        string
+	network    types.NetworkID
+	mem        *Memory
+	objects    map[types.ObjectID]object.Object
+	seq        uint64
+	wal        *os.File
 	writerLock *os.File
-	closed  bool
+	closed     bool
 }
 
 func OpenDisk(dir string, network types.NetworkID) (result *Disk, err error) {
@@ -67,7 +67,7 @@ func OpenDisk(dir string, network types.NetworkID) (result *Disk, err error) {
 	}()
 	d := &Disk{
 		dir: dir, network: network, mem: NewMemory(),
-		objects: make(map[types.ObjectID]object.Object),
+		objects:    make(map[types.ObjectID]object.Object),
 		writerLock: lock,
 	}
 	if err := d.loadCheckpoint(); err != nil {
