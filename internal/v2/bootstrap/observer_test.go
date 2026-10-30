@@ -11,7 +11,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/libp2p/go-libp2p/core/peer"
+	p2p "github.com/zephyr-chain/zephyr-chain/internal/v2/network/p2p"
 	"github.com/zephyr-chain/zephyr-chain/internal/v2/genesis"
 	"github.com/zephyr-chain/zephyr-chain/internal/v2/object"
 	"github.com/zephyr-chain/zephyr-chain/internal/v2/types"
@@ -167,6 +167,19 @@ func TestPinnedPeerParsingRejectsAnonymousOrDuplicate(t *testing.T) {
 	if got, err := ParsePinnedPeers(nil); err != nil || len(got) != 0 {
 		t.Fatal("empty offline peer list failed:", err)
 	}
-	// A fully pinned peer ID and transport address is acceptable.
-	_ = peer.ID("")
+	// A fully pinned peer ID and QUIC transport address is acceptable.
+	network := types.NetworkID{1}
+	transport, err := p2p.New(p2p.Config{Network: network, ListenAddrs: []string{"/ip4/127.0.0.1/udp/0/quic-v1"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer transport.Close()
+	addr := fmt.Sprintf("%s/p2p/%s", transport.Addrs()[0], transport.ID())
+	got, err := ParsePinnedPeers([]string{addr})
+	if err != nil || len(got) != 1 || got[0].ID != transport.ID() {
+		t.Fatalf("pinned peer was rejected: %v", err)
+	}
+	if _, err := ParsePinnedPeers([]string{addr, addr}); !errors.Is(err, ErrObserverPeers) {
+		t.Fatalf("duplicate peer was accepted: %v", err)
+	}
 }
