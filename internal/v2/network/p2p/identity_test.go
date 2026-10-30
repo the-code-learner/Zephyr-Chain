@@ -46,7 +46,7 @@ func TestPersistentTransportIdentityRejectsCorruptionAndPermissions(t *testing.T
 	network := types.NetworkID{1}
 	for _, corrupt := range []string{"", "invalid", "ZPK1"} {
 		t.Run("corrupt-"+corrupt, func(t *testing.T) {
-			dir := t.TempDir()
+			dir := privateIdentityTestDir(t)
 			if err := os.WriteFile(filepath.Join(dir, transportIdentityFile), []byte(corrupt), 0600); err != nil {
 				t.Fatal(err)
 			}
@@ -56,7 +56,7 @@ func TestPersistentTransportIdentityRejectsCorruptionAndPermissions(t *testing.T
 		})
 	}
 	t.Run("world-readable-key", func(t *testing.T) {
-		dir := t.TempDir()
+		dir := privateIdentityTestDir(t)
 		if _, err := LoadOrCreateIdentity(dir, network); err != nil {
 			t.Fatal(err)
 		}
@@ -68,7 +68,7 @@ func TestPersistentTransportIdentityRejectsCorruptionAndPermissions(t *testing.T
 		}
 	})
 	t.Run("world-readable-directory", func(t *testing.T) {
-		dir := t.TempDir()
+		dir := privateIdentityTestDir(t)
 		if _, err := LoadOrCreateIdentity(dir, network); err != nil {
 			t.Fatal(err)
 		}
@@ -80,7 +80,7 @@ func TestPersistentTransportIdentityRejectsCorruptionAndPermissions(t *testing.T
 		}
 	})
 	t.Run("symlinked-key", func(t *testing.T) {
-		dir := t.TempDir()
+		dir := privateIdentityTestDir(t)
 		target := filepath.Join(dir, "other")
 		if err := os.WriteFile(target, []byte("secret"), 0600); err != nil {
 			t.Fatal(err)
@@ -97,4 +97,13 @@ func TestPersistentTransportIdentityRejectsCorruptionAndPermissions(t *testing.T
 			t.Fatal("zero network accepted")
 		}
 	})
+}
+
+func privateIdentityTestDir(t *testing.T) string {
+	t.Helper()
+	dir := filepath.Join(t.TempDir(), "operator")
+	if err := os.Mkdir(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	return dir
 }
