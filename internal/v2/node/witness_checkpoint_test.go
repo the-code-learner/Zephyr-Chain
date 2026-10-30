@@ -1,3 +1,5 @@
+//go:build linux || darwin
+
 package node
 
 import (
@@ -5,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"os"
 	"path/filepath"
 	"sort"
 	"testing"
@@ -63,8 +66,8 @@ func TestWitnessCheckpointSupermajorityVerificationAndRejection(t *testing.T) {
 	bad("substituted trusted keys",valid,keys[1:],network,root)
 	bad("duplicate trusted key",valid,[][]byte{keys[0],keys[0],keys[1],keys[2]},network,root)
 	bad("too few independent witness keys",valid,keys[:2],network,root)
-	bad("unknown JSON field",append(valid[:len(valid)-1],[]byte(`,"extra":true}`)...),keys,network,root)
-	bad("noncanonical duplicate JSON",append([]byte("{"),valid[1:]...),keys,network,root)
+	bad("unknown JSON field",append(append([]byte(nil),valid[:len(valid)-1]...),[]byte(`,"extra":true}`)...),keys,network,root)
+	bad("noncanonical duplicate JSON height",append([]byte(`{"height":1,`),valid[1:]...),keys,network,root)
  	// Build valid JSON for an altered header (the signature stays old).
 	modified:=cp
 	modified.HeaderHash=types.Hash{5}
@@ -78,7 +81,8 @@ func TestWitnessCheckpointSupermajorityVerificationAndRejection(t *testing.T) {
 	env.Signatures[0].Signature=hex.EncodeToString(make([]byte,ed25519.SignatureSize))
 	mutated,_=json.Marshal(env)
 	bad("forged individual signature",mutated,keys,network,root)
-	env.Signatures=append(env.Signatures[:1],env.Signatures[0])
+	env.Signatures=append(env.Signatures,env.Signatures[0])
+	sort.Slice(env.Signatures,func(i,j int)bool{return env.Signatures[i].PublicKey<env.Signatures[j].PublicKey})
 	mutated,_=json.Marshal(env)
 	bad("replayed witness signature",mutated,keys,network,root)
 	// Canonical signing bytes cannot be retargeted by changing the network or height.
@@ -102,6 +106,7 @@ func TestWitnessAndExternalHighWaterRequireTwoCertifiedAncestors(t *testing.T) {
 	}
 	if err:=r.CloseCertifiedHistory();err!=nil{t.Fatal(err)}
  	anchorDir:=t.TempDir()
+	if err:=os.Chmod(anchorDir,0700);err!=nil{t.Fatal(err)}
 	anchorPath:=filepath.Join(anchorDir,"high-water")
 	anchor,err:=OpenFinalityAnchorStore(anchorPath,network,root,true)
 	if err!=nil{t.Fatal(err)}
