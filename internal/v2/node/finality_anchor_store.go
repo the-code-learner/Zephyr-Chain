@@ -136,10 +136,10 @@ func (s *FinalityAnchorStore) Current() (FinalityCheckpoint, error) {
 	return FinalityCheckpoint{Network: s.network, ValidatorRoot: s.validatorRoot, Height: s.height, HeaderHash: s.hash}, nil
 }
 
-// Advance is called ONLY with a header authenticated through the normal
+// advance is called ONLY with a header authenticated through the normal
 // QC-backed finality path. Forbids equivocation at equal height and rollback
 // to a lower height. Never truncate or rewrite an older durable record.
-func (s *FinalityAnchorStore) Advance(checkpoint FinalityCheckpoint) error {
+func (s *FinalityAnchorStore) advance(checkpoint FinalityCheckpoint) error {
 	if s == nil {
 		return ErrFinalityAnchor
 	}
