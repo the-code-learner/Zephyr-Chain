@@ -26,6 +26,53 @@ Use operator-pinned full `/p2p/<peer-ID>` transport addresses for
 experimental connectivity. Transport authentication does not replace
 cryptographic header+QC verification. The default listener is local.
 
+## Independent minimum-finality checkpoint (rollback guard)
+
+A second, independent anchor is now supported when restarting an
+**already initialized** non-voting observer. The operator supplies **both**
+a minimum finalized height and the corresponding canonical **consensus
+header hash** from an independent, QC-verified source. The program
+verifies that exact pair occurred in its own QC-validated local
+genesis-to-tip history before it reconciles any on-disk state:
+
+```sh
+go run ./cmd/v2-observer \
+  -genesis /private/genesis.json \
+  -expected-network-id '<independent-genesis-network-id>' \
+  -expected-validator-root '<independent-genesis-validator-root>' \
+  -data-dir /private/existing-observer-data \
+  -trusted-finalized-height 123 \
+  -trusted-finalized-hash '<independently-verified-consensus-header-hash-at-height-123>'
+```
+
+This is a **minimum ancestor** pin, not a claim the local tip is current.
+The history must contain the exact certified height and hash even when
+the tip is higher. A coherent but older restored backup ending below
+that height, or a different fork at that height, **fails closed**.
+The pin must be obtained and retained independently of the observer's
+WAL, history, journal, data directory, and any untrusted RPC. In
+particular the same machine's rolled-back file, or a single unaudited
+peer reporting a hash, is **not** an independent trust source. A
+future mechanism should persist a monotonic minimum through a
+separately secured device/service with authenticated updates and
+multi-peer quorum-backed proofs.
+
+The CLI requires the height/hash pair; malformed, missing, zero and
+foreign-network pins are rejected. The startup JSON explicitly reports
+`finalizedHeight`, `finalizedHeaderHash`,
+`trustedFinalizedHeight`, and `rollbackGuard`.
+Without the pair, the program marks itself **UNANCHORED** and remains
+suitable only for an experimental devnet.
+
+Importantly, a brand-new empty observer has no certified history to
+prove an existing external finalized height. It **refuses startup**
+with an external positive-height pin rather than silently starting at
+genesis; safe state-sync/bootstrap from certified snapshots is a
+separate unfinished release gate. Operators must refresh their
+externally protected minimum pin as finality progresses. An old,
+authentic pin protects only up to its own height and **does not prove
+freshness, detect rollbacks above it, or authorize a consensus signer**.
+
 ## New durable history safety boundary
 
 The observer creates a private, exclusive, **append-only, fsynced**
@@ -101,6 +148,12 @@ recomputed valid file checksum, truncated/deleted history, mismatched
 final journal and incorrect state roots. Correctly replayed historical
 events are **not** validation of independent multi-host consensus,
 long-running production liveness or safe backup restore.
+
+The external minimum checkpoint is a **trust assertion** supplied by
+the operator, not a signed checkpoint protocol. Release GO additionally
+requires authenticated monotonic checkpoint publication and storage,
+independent verification of the validator-root transitions, robust
+multi-host recovery, real validator key custody and external audits.
 
 **Public mainnet remains NO-GO.** Independent security audit,
 monotonic cross-host anti-rollback, distributed signer key custody,
