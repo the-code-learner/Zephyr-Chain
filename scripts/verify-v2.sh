@@ -21,6 +21,7 @@ done
 
 printf '[1/6] Static Go checks\n'
 go vet ./...
+
 printf '[2/6] Go test suite\n'
 go test ./...
 
@@ -37,20 +38,23 @@ if [[ "$mode" == "quick" ]]; then
   exit 0
 fi
 
-printf '[4/6] Race-detect security-sensitive v2 packages'\ngo test -race ./internal/v2/genesis ./internal/v2/network/p2p ./internal/v2/provider ./internal/v2/committee ./internal/v2/worldstate ./internal/v2/consensus ./cmd/compute-provider ./cmd/zephyr-genesis-audit -count=1 -timeout=8m\n\ngo test -race ./internal/v2/node -run '^TestProtectedValidatorServicePersistsSigningIntent\n'
-go test ./internal/v2/lab \
-  -run '^TestV2Lab(FourThreePartitionStallsThenHeals|FiveTwoPartitionFinalizesQuorumSideAndMinorityCatchesUp)$' \
-  -count=10 -timeout=120s
+printf '[4/6] Race-detect security-sensitive v2 packages\n'
+go test -race \
+  ./internal/v2/genesis \
+  ./internal/v2/network/p2p \
+  ./internal/v2/provider \
+  ./internal/v2/committee \
+  ./internal/v2/worldstate \
+  ./internal/v2/consensus \
+  ./internal/v2/bootstrap \
+  ./cmd/compute-provider \
+  ./cmd/zephyr-genesis-audit \
+  ./cmd/v2-observer \
+  -count=1 -timeout=8m
 
-printf '[6/6] Real QUIC/libp2p ephemeral devnet on one local host\n'
-ZEPHYR_DEVNET_VALIDATORS=7 go test ./internal/v2/node \
-  -run '^TestProtocolV2Devnet' -count=1 -timeout=300s
-
-ZEPHYR_DEVNET_VALIDATORS=20 go test ./internal/v2/node \
-  -run '^TestProtocolV2DevnetTransactionVotingAndFinality$' -count=1 -timeout=300s
-
-printf 'Full local correctness gate passed. No multi-host/production capacity guarantee.\n'
- -count=1 -timeout=3m
+go test -race ./internal/v2/node \
+  -run '^TestProtectedValidatorServicePersistsSigningIntent$' \
+  -count=1 -timeout=3m
 
 printf '[5/6] Repeated v2 consensus partition and recovery tests\n'
 go test ./internal/v2/lab \
