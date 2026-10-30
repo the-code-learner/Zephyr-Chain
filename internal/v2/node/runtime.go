@@ -408,7 +408,7 @@ func (r *Runtime) Commit(candidate Candidate, certificate v2consensus.Certificat
 	// successful commit is returned. Failure after WAL state writes is a
 	// fail-closed recovery-required state, not an unanchored success.
 	if r.anchorStore != nil {
-		if err := r.anchorStore.Advance(FinalityCheckpoint{
+		if err := r.anchorStore.advance(FinalityCheckpoint{
 			Network: r.Network, ValidatorRoot: r.ValidatorRoot,
 			Height: finalized.Height, HeaderHash: postParent,
 		}); err != nil {
