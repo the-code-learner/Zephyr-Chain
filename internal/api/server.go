@@ -284,7 +284,6 @@ func (s *Server) Handler() http.Handler {
 	return s.mux
 }
 
-
 // peerURLsSnapshot returns an independent immutable view of the currently
 // configured peer set. The old direct config.PeerURLs reads raced with
 // consensus test partition-healing and could use a partially replaced slice.
