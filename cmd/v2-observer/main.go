@@ -19,6 +19,7 @@ import (
 
 	"github.com/zephyr-chain/zephyr-chain/internal/v2/bootstrap"
 	"github.com/zephyr-chain/zephyr-chain/internal/v2/genesis"
+	v2node "github.com/zephyr-chain/zephyr-chain/internal/v2/node"
 	"github.com/zephyr-chain/zephyr-chain/internal/v2/types"
 )
 
@@ -68,6 +69,8 @@ type startInfo struct {
 	InitialShards   uint32   `json:"initialShards"`
 	FinalizedHeight uint64   `json:"finalizedHeight"`
 	RecoveryMode    string   `json:"recoveryMode"`
+	RollbackGuard    string   `json:"rollbackGuard"`
+	TrustedHeight    uint64   `json:"trustedFinalizedHeight,omitempty"`
 }
 
 func run(ctx context.Context, args []string, output io.Writer) error {
@@ -80,6 +83,8 @@ func run(ctx context.Context, args []string, output io.Writer) error {
 	listen := flags.String("listen", "/ip4/127.0.0.1/udp/0/quic-v1", "QUIC listen multiaddr (loopback by default)")
 	peerList := flags.String("peers", "", "comma-separated full /p2p/<ID> trusted bootstrap multiaddrs")
 	workers := flags.Int("workers", 2, "deterministic state executor workers")
+	trustedHeight := flags.Uint64("trusted-finalized-height", 0, "independently obtained minimum finalized height (requires trusted-finalized-hash)")
+	trustedHash := flags.String("trusted-finalized-hash", "", "independently obtained 64-hex consensus header hash (requires trusted-finalized-height)")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
@@ -93,6 +98,24 @@ func run(ctx context.Context, args []string, output io.Writer) error {
 	rootHash, err := parsePinned32(*expectedRoot)
 	if err != nil {
 		return err
+	}
+	// Requiring both fields prevents claiming a minimum checkpoint while
+	// only its unverified height, or only an unrelated digest, was provided.
+	if (*trustedHeight == 0) != (*trustedHash == "") {
+		return bootstrap.ErrObserverConfig
+	}
+	var checkpoint *v2node.FinalityCheckpoint
+	if *trustedHeight > 0 {
+		h, err := parsePinned32(*trustedHash)
+		if err != nil {
+			return err
+		}
+		checkpoint = &v2node.FinalityCheckpoint{
+			Network: types.NetworkID(netHash),
+			ValidatorRoot: rootHash,
+			Height: *trustedHeight,
+			HeaderHash: h,
+		}
 	}
 	g, err := parseGenesisFile(*genesisPath)
 	if err != nil {
@@ -108,7 +131,7 @@ func run(ctx context.Context, args []string, output io.Writer) error {
 	}
 	obs, err := bootstrap.OpenObserver(bootstrap.Config{
 		Genesis: g, ExpectedNetwork: types.NetworkID(netHash),
-		ExpectedValidatorRoot: rootHash, DataDir: *dataDir,
+		ExpectedValidatorRoot: rootHash, TrustedCheckpoint: checkpoint, DataDir: *dataDir,
 		ListenAddrs: []string{*listen}, Workers: *workers,
 	})
 	if err != nil {
@@ -126,10 +149,18 @@ func run(ctx context.Context, args []string, output io.Writer) error {
 	for _, addr := range obs.Transport.Addrs() {
 		addresses = append(addresses, fmt.Sprintf("%s/p2p/%s", addr.String(), obs.Transport.ID()))
 	}
+	rollbackGuard := "UNANCHORED: devnet-only; locally valid backup rollback may be undetected"
+	var anchorHeight uint64
+	if checkpoint != nil {
+		rollbackGuard = "operator-pinned QC-certified ancestor; freshness depends on independent external custody"
+		anchorHeight = checkpoint.Height
+	}
 	info := startInfo{Mode: "observer-only", NetworkID: obs.Network.String(),
 		ValidatorRoot: rootHash.String(), PeerID: obs.Transport.ID().String(),
 		Addresses: addresses, InitialShards: g.InitialShardCount,
-		FinalizedHeight: obs.Runtime.Height, RecoveryMode: "bounded genesis-to-tip QC history replay; no independent anti-rollback anchor"}
+		FinalizedHeight: obs.Runtime.Height,
+		RecoveryMode: "bounded QC-certified genesis-to-tip history replay",
+		RollbackGuard: rollbackGuard, TrustedHeight: anchorHeight}
 	if err := json.NewEncoder(output).Encode(info); err != nil {
 		return err
 	}
