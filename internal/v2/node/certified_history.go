@@ -211,9 +211,14 @@ func (h *CertifiedHistory) Append(intent globalCommitIntent, validators v2consen
 // delta to genesis-seeded in-memory state, then binds the terminal record to
 // the latest on-disk global commit journal. It does not infer missing history
 // from an RPC or permit validator-set changes.
-func (h *CertifiedHistory) Replay(validators v2consensus.ValidatorSet, genesis map[uint32]worldstate.Backend, latestJournalPath string) (globalCommitIntent, error) {
+func (h *CertifiedHistory) Replay(validators v2consensus.ValidatorSet, genesis map[uint32]worldstate.Backend, latestJournalPath string, checkpoint *FinalityCheckpoint) (globalCommitIntent, error) {
 	if h == nil || len(genesis) != int(h.shards) || latestJournalPath == "" {
 		return globalCommitIntent{}, ErrCertifiedHistory
+	}
+	// Fail before reading or applying any historical state if the operator
+	// supplied a checkpoint for another network, committee, or zero height.
+	if checkpoint != nil && checkpoint.Validate(h.network, h.validatorRoot) != nil {
+		return globalCommitIntent{}, ErrFinalityCheckpoint
 	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -230,6 +235,7 @@ func (h *CertifiedHistory) Replay(validators v2consensus.ValidatorSet, genesis m
 	}
 	var last globalCommitIntent
 	var previous types.Hash
+	checkpointMatched := false
 	for {
 		var size [4]byte
 		_, err := io.ReadFull(h.file, size[:])
@@ -261,6 +267,15 @@ func (h *CertifiedHistory) Replay(validators v2consensus.ValidatorSet, genesis m
 		if err != nil || intent.Status != globalCommitPreparing || h.checkIntent(intent, validators) != nil {
 			return globalCommitIntent{}, ErrCertifiedHistory
 		}
+		// The full QC is independently verified above. Match the operator's
+		// checkpoint against this *exact certified historical ancestor*, not
+		// merely the latest height or a peer-supplied state root.
+		if checkpoint != nil && intent.Header.Height == checkpoint.Height {
+			if v2consensus.HeaderConsensusHash(intent.Header) != checkpoint.HeaderHash {
+				return globalCommitIntent{}, ErrFinalityCheckpoint
+			}
+			checkpointMatched = true
+		}
 		deltas := make(map[uint32]journalShardDelta, len(intent.Deltas))
 		for _, d := range intent.Deltas {
 			deltas[d.ShardID] = d
@@ -286,6 +301,11 @@ func (h *CertifiedHistory) Replay(validators v2consensus.ValidatorSet, genesis m
 	}
 	if h.count == 0 {
 		return globalCommitIntent{}, ErrCertifiedHistory
+	}
+	if checkpoint != nil && !checkpointMatched {
+		// Includes a locally coherent but older backup whose final height
+		// predates the independently pinned minimum finalized checkpoint.
+		return globalCommitIntent{}, ErrFinalityCheckpoint
 	}
 	// Global journal may be PREPARING (recoverable power loss) or
 	// COMMITTED. Its full transition must match the final history event.
@@ -344,6 +364,14 @@ func (r *Runtime) CloseCertifiedHistory() error {
 }
 
 func (r *Runtime) RecoverCertifiedHistory(validators v2consensus.ValidatorSet, genesis map[uint32]worldstate.Backend) error {
+	return r.RecoverCertifiedHistoryWithCheckpoint(validators, genesis, nil)
+}
+
+// RecoverCertifiedHistoryWithCheckpoint proves the operator's separately
+// obtained minimum finalized anchor is an ancestor in the *entire*
+// cryptographically verified genesis-to-tip history. This must pass BEFORE
+// the latest PREPARING global journal may modify disk state.
+func (r *Runtime) RecoverCertifiedHistoryWithCheckpoint(validators v2consensus.ValidatorSet, genesis map[uint32]worldstate.Backend, checkpoint *FinalityCheckpoint) error {
 	if r == nil {
 		return ErrCertifiedHistory
 	}
@@ -353,7 +381,7 @@ func (r *Runtime) RecoverCertifiedHistory(validators v2consensus.ValidatorSet, g
 	if h == nil {
 		return ErrCertifiedHistory
 	}
-	last, err := h.Replay(validators, genesis, path)
+	last, err := h.Replay(validators, genesis, path, checkpoint)
 	if err != nil {
 		return fmt.Errorf("%w: %v", ErrCertifiedHistory, err)
 	}
