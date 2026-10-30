@@ -122,6 +122,9 @@ func OpenObserver(cfg Config) (out *Observer, err error) {
 		dir := filepath.Join(cfg.DataDir, fmt.Sprintf("shard-%04d", shard))
 		disk, openErr := worldstate.OpenDisk(dir, cfg.ExpectedNetwork)
 		if openErr != nil {
+			if existingSession {
+				return nil, fmt.Errorf("%w: %v", ErrObserverRecovery, openErr)
+			}
 			return nil, openErr
 		}
 		stores = append(stores, disk)
