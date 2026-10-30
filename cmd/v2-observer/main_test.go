@@ -128,7 +128,9 @@ func TestV2ObserverCLIRequiresPairedExternalCheckpointAndRejectsFreshGenesis(t *
 func TestV2ObserverExternalHighWaterStoreCLI(t *testing.T) {
 	genesisPath, network, root := observerCLIConfig(t)
 	dataDir := filepath.Join(t.TempDir(), "observer")
-	anchor := filepath.Join(t.TempDir(), "minimum-finalized.anchor")
+	anchorParent := t.TempDir()
+	if err := os.Chmod(anchorParent, 0700); err != nil { t.Fatal(err) }
+	anchor := filepath.Join(anchorParent, "minimum-finalized.anchor")
 	base := []string{"-genesis", genesisPath, "-expected-network-id", network, "-expected-validator-root", root,
 		"-data-dir", dataDir, "-external-anchor-file", anchor}
 	ctx, cancel := context.WithCancel(context.Background())
