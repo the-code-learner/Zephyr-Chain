@@ -192,9 +192,13 @@ func OpenObserver(cfg Config) (out *Observer, err error) {
 		anchorStore, err = v2node.OpenFinalityAnchorStore(
 			cfg.ExternalAnchorPath, cfg.ExpectedNetwork, cfg.ExpectedValidatorRoot, !existingSession,
 		)
-		if err != nil { return nil, fmt.Errorf("%w: %v", ErrObserverRecovery, err) }
+		if err != nil {
+			return nil, fmt.Errorf("%w: %v", ErrObserverRecovery, err)
+		}
 		defer func() {
-			if err != nil { _ = anchorStore.Close() }
+			if err != nil {
+				_ = anchorStore.Close()
+			}
 		}()
 		if err := runtime.EnableFinalityAnchorStore(anchorStore); err != nil {
 			return nil, fmt.Errorf("%w: %v", ErrObserverRecovery, err)
@@ -332,16 +336,22 @@ func ParsePinnedPeers(values []string) ([]peer.AddrInfo, error) {
 }
 
 func validateExternalAnchorLocation(dataDir, anchorPath string) error {
-	if !filepath.IsAbs(anchorPath) || filepath.Clean(anchorPath)!=anchorPath {
+	if !filepath.IsAbs(anchorPath) || filepath.Clean(anchorPath) != anchorPath {
 		return ErrObserverConfig
 	}
 	stateReal, err := filepath.EvalSymlinks(dataDir)
-	if err != nil { return ErrObserverConfig }
+	if err != nil {
+		return ErrObserverConfig
+	}
 	anchorParentReal, err := filepath.EvalSymlinks(filepath.Dir(anchorPath))
-	if err != nil { return ErrObserverConfig }
+	if err != nil {
+		return ErrObserverConfig
+	}
 	rel, err := filepath.Rel(stateReal, anchorParentReal)
-	if err != nil { return ErrObserverConfig }
-	if rel=="." || (rel!=".." && !strings.HasPrefix(rel,".."+string(os.PathSeparator))) {
+	if err != nil {
+		return ErrObserverConfig
+	}
+	if rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(os.PathSeparator))) {
 		// The guard must never share the mutable snapshot/rollback tree.
 		return ErrObserverConfig
 	}

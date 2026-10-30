@@ -126,23 +126,31 @@ func TestV2ObserverCLIRequiresPairedExternalCheckpointAndRejectsFreshGenesis(t *
 }
 
 func TestV2ObserverExternalHighWaterStoreCLI(t *testing.T) {
- genesisPath,network,root:=observerCLIConfig(t)
- dataDir:=filepath.Join(t.TempDir(),"observer")
- anchor:=filepath.Join(t.TempDir(),"minimum-finalized.anchor")
- base:=[]string{"-genesis",genesisPath,"-expected-network-id",network,"-expected-validator-root",root,
-  "-data-dir",dataDir,"-external-anchor-file",anchor}
- ctx,cancel:=context.WithCancel(context.Background())
- cancel()
- var out bytes.Buffer
- if err:=run(ctx,base,&out);err!=nil{t.Fatalf("separately held anchor CLI startup failed: %v",err)}
- var info startInfo
- if err:=json.Unmarshal(out.Bytes(),&info);err!=nil{t.Fatal(err)}
- if strings.Contains(info.RollbackGuard,"UNANCHORED")||info.FinalizedHeight!=0||info.TrustedHeight!=0{
-  t.Fatalf("incorrect external anchor status: %+v",info)
- }
- if _,err:=os.Stat(anchor);err!=nil{t.Fatalf("CLI did not persist private separate guard: %v",err)}
- if err:=os.Remove(anchor);err!=nil{t.Fatal(err)}
- if err:=run(ctx,base,&bytes.Buffer{});err==nil{
-  t.Fatal("CLI recreated missing externally held anchor on observer restart")
- }
+	genesisPath, network, root := observerCLIConfig(t)
+	dataDir := filepath.Join(t.TempDir(), "observer")
+	anchor := filepath.Join(t.TempDir(), "minimum-finalized.anchor")
+	base := []string{"-genesis", genesisPath, "-expected-network-id", network, "-expected-validator-root", root,
+		"-data-dir", dataDir, "-external-anchor-file", anchor}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	var out bytes.Buffer
+	if err := run(ctx, base, &out); err != nil {
+		t.Fatalf("separately held anchor CLI startup failed: %v", err)
+	}
+	var info startInfo
+	if err := json.Unmarshal(out.Bytes(), &info); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(info.RollbackGuard, "UNANCHORED") || info.FinalizedHeight != 0 || info.TrustedHeight != 0 {
+		t.Fatalf("incorrect external anchor status: %+v", info)
+	}
+	if _, err := os.Stat(anchor); err != nil {
+		t.Fatalf("CLI did not persist private separate guard: %v", err)
+	}
+	if err := os.Remove(anchor); err != nil {
+		t.Fatal(err)
+	}
+	if err := run(ctx, base, &bytes.Buffer{}); err == nil {
+		t.Fatal("CLI recreated missing externally held anchor on observer restart")
+	}
 }

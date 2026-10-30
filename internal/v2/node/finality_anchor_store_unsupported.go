@@ -4,4 +4,4 @@ package node
 
 import "os"
 
-func openLockedFinalityAnchor(string,bool)(*os.File,error){return nil,ErrFinalityAnchor}
+func openLockedFinalityAnchor(string, bool) (*os.File, error) { return nil, ErrFinalityAnchor }
