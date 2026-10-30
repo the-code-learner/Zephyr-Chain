@@ -122,30 +122,42 @@ func run(ctx context.Context, args []string, output io.Writer) error {
 			HeaderHash:    h,
 		}
 	}
-	if (*witnessBundle=="")!=(*witnessKeys=="") || (*witnessBundle!="" && checkpoint!=nil) {
+	if (*witnessBundle == "") != (*witnessKeys == "") || (*witnessBundle != "" && checkpoint != nil) {
 		return bootstrap.ErrObserverConfig
 	}
-	if *witnessBundle!="" {
-		keyStrings:=strings.Split(*witnessKeys,",")
-		if len(keyStrings)<3 || len(keyStrings)>16 {return bootstrap.ErrObserverConfig}
-		keys:=make([][]byte,0,len(keyStrings))
-		for _,value:=range keyStrings {
-			if len(value)!=ed25519.PublicKeySize*2 {return bootstrap.ErrObserverConfig}
-			raw,err:=hex.DecodeString(value)
-			if err!=nil || len(raw)!=ed25519.PublicKeySize || value!=hex.EncodeToString(raw) {
+	if *witnessBundle != "" {
+		keyStrings := strings.Split(*witnessKeys, ",")
+		if len(keyStrings) < 3 || len(keyStrings) > 16 {
+			return bootstrap.ErrObserverConfig
+		}
+		keys := make([][]byte, 0, len(keyStrings))
+		for _, value := range keyStrings {
+			if len(value) != ed25519.PublicKeySize*2 {
 				return bootstrap.ErrObserverConfig
 			}
-			keys=append(keys,raw)
+			raw, err := hex.DecodeString(value)
+			if err != nil || len(raw) != ed25519.PublicKeySize || value != hex.EncodeToString(raw) {
+				return bootstrap.ErrObserverConfig
+			}
+			keys = append(keys, raw)
 		}
-		file,err:=os.Open(*witnessBundle)
-		if err!=nil{return err}
-		raw,readErr:=io.ReadAll(io.LimitReader(file,(16<<10)+1))
-		closeErr:=file.Close()
-		if readErr!=nil{return readErr}
-		if closeErr!=nil{return closeErr}
-		cp,err:=v2node.ParseSignedWitnessCheckpoint(raw,keys,types.NetworkID(netHash),rootHash)
-		if err!=nil{return err}
-		checkpoint=cp
+		file, err := os.Open(*witnessBundle)
+		if err != nil {
+			return err
+		}
+		raw, readErr := io.ReadAll(io.LimitReader(file, (16<<10)+1))
+		closeErr := file.Close()
+		if readErr != nil {
+			return readErr
+		}
+		if closeErr != nil {
+			return closeErr
+		}
+		cp, err := v2node.ParseSignedWitnessCheckpoint(raw, keys, types.NetworkID(netHash), rootHash)
+		if err != nil {
+			return err
+		}
+		checkpoint = cp
 	}
 	g, err := parseGenesisFile(*genesisPath)
 	if err != nil {
@@ -184,14 +196,14 @@ func run(ctx context.Context, args []string, output io.Writer) error {
 	var anchorHeight uint64
 	if checkpoint != nil {
 		rollbackGuard = "operator-pinned QC-certified ancestor; freshness depends on independent external custody"
-		if *witnessBundle!="" {
+		if *witnessBundle != "" {
 			rollbackGuard = "witness-supermajority-signed QC-certified ancestor; witness freshness and key custody not independently proven"
 		}
 		anchorHeight = checkpoint.Height
 	}
 	if *externalAnchor != "" {
 		rollbackGuard = "external private monotonic ledger: QC-certified tip fsynced each commit; file rollback remains possible"
-		if *witnessBundle!="" {
+		if *witnessBundle != "" {
 			rollbackGuard = "both QC-verified witness-supermajority checkpoint and private external high-water; remote freshness and file rollback still require independent safeguards"
 			anchorHeight = checkpoint.Height
 		} else {
