@@ -49,27 +49,31 @@ insufficient: finalized empty blocks can advance height without
 changing any object. Resetting runtime height to 0 would be unsafe.
 
 Therefore `cmd/v2-observer` has an intentionally conservative
-**one-session** lifecycle:
+**genesis + single-certified-successor** lifecycle:
 - it verifies independent genesis roots for every shard before binding
   a network listener;
 - it synchronizes an irreversible `observer-session-started` marker
   before creating the libp2p listener;
-- it **refuses any subsequent startup on the same data directory**,
-  even after clean shutdown, until an audited QC-verified finalized
-  checkpoint recovery procedure is implemented;
-- it refuses preexisting shard roots different from exact canonical
-  genesis, without making changes or silently resetting to genesis;
+- it **allows a restart only if** the latest durable global-commit journal
+  proves a single QC-certified height-1 successor directly from genesis;
+  it verifies all independent genesis predecessor roots, current shard
+  post-roots, and the original validator set before resuming;
+- it refuses preexisting shard roots different from canonical genesis
+  on first launch, or different from the certified height-1 journal on
+  a recoverable restart;
 - it uses owner-only private directories, separate exclusive state WAL
   locks and a persistent network-bound transport identity;
 - it supports up to 16 genesis shards for bounded experimental startup;
-- it enables the global commit journal, but cannot yet rebuild an
-  anchored runtime from that journal alone.
+- it refuses all multi-height recoveries, unknown validator rotations,
+  missing/corrupt journals and unverified state. The global commit
+  journal currently retains only the most recent certified commit.
 
 Never delete the marker, restore an older copy of the marker/state,
 manually rewrite height or reset a signer journal to bypass the guard.
-The safe next milestone is a **QC-authenticated durable finality
-checkpoint and replay/recovery implementation** with negative
-partition/crash tests. Existing v2 test-only in-memory services remain
+The safe next milestone is a **QC-authenticated append-only multi-height
+finality history and checkpoint replay** with negative partition/crash
+and rollback tests. Certified height-1 recovery does not suffice for
+production mainnet, backup restore or validator restart. Existing v2 test-only in-memory services remain
 separate and are not an alternative production startup procedure.
 
 ## Validation
