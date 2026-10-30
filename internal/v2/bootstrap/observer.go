@@ -44,9 +44,9 @@ type Config struct {
 	// ExternalAnchorPath is a private, separately secured absolute file path
 	// outside the mutable observer data directory. Optional for devnet only.
 	ExternalAnchorPath string
-	DataDir           string
-	ListenAddrs       []string
-	Workers           int
+	DataDir            string
+	ListenAddrs        []string
+	Workers            int
 }
 
 type Observer struct {
