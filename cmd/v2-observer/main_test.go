@@ -17,6 +17,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/zephyr-chain/zephyr-chain/internal/v2/bootstrap"
 	"github.com/zephyr-chain/zephyr-chain/internal/v2/genesis"
 	v2node "github.com/zephyr-chain/zephyr-chain/internal/v2/node"
 	"github.com/zephyr-chain/zephyr-chain/internal/v2/types"
