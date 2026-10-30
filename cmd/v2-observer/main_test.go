@@ -5,16 +5,22 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/ed25519"
 	"crypto/elliptic"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 
+	"github.com/zephyr-chain/zephyr-chain/internal/v2/bootstrap"
 	"github.com/zephyr-chain/zephyr-chain/internal/v2/genesis"
+	v2node "github.com/zephyr-chain/zephyr-chain/internal/v2/node"
+	"github.com/zephyr-chain/zephyr-chain/internal/v2/types"
 )
 
 func observerCLIConfig(t *testing.T) (string, string, string) {
@@ -156,5 +162,74 @@ func TestV2ObserverExternalHighWaterStoreCLI(t *testing.T) {
 	}
 	if err := run(ctx, base, &bytes.Buffer{}); err == nil {
 		t.Fatal("CLI recreated missing externally held anchor on observer restart")
+	}
+}
+
+func TestV2ObserverCLIVerifiesWitnessQuorumBeforeStorage(t *testing.T) {
+	genesisPath, networkHex, rootHex := observerCLIConfig(t)
+	n, err := parsePinned32(networkHex)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, err := parsePinned32(rootHex)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cp := v2node.FinalityCheckpoint{Network: types.NetworkID(n), ValidatorRoot: r, Height: 2, HeaderHash: types.Hash{4}}
+	digest, err := v2node.WitnessCheckpointDigest(cp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	keys := make([]string, 4)
+	privates := make([]ed25519.PrivateKey, 4)
+	bundle := v2node.SignedWitnessCheckpoint{NetworkID: networkHex, ValidatorRoot: rootHex, Height: 2, HeaderHash: hex.EncodeToString(cp.HeaderHash[:])}
+	for i := 0; i < 4; i++ {
+		seed := make([]byte, ed25519.SeedSize)
+		seed[0] = byte(i + 1)
+		privates[i] = ed25519.NewKeyFromSeed(seed)
+		keys[i] = hex.EncodeToString(privates[i].Public().(ed25519.PublicKey))
+		if i < 3 {
+			bundle.Signatures = append(bundle.Signatures, v2node.WitnessSignature{
+				PublicKey: keys[i], Signature: hex.EncodeToString(ed25519.Sign(privates[i], digest[:])),
+			})
+		}
+	}
+	sort.Slice(bundle.Signatures, func(i, j int) bool { return bundle.Signatures[i].PublicKey < bundle.Signatures[j].PublicKey })
+	raw, err := json.Marshal(bundle)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "trusted.json")
+	if err := os.WriteFile(path, raw, 0600); err != nil {
+		t.Fatal(err)
+	}
+	dataDir := filepath.Join(t.TempDir(), "fresh")
+	args := []string{"-genesis", genesisPath, "-expected-network-id", networkHex, "-expected-validator-root", rootHex,
+		"-data-dir", dataDir, "-witness-checkpoint-json", path, "-witness-public-keys", strings.Join(keys, ",")}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := run(ctx, args, &bytes.Buffer{}); !errors.Is(err, bootstrap.ErrObserverRecovery) {
+		t.Fatalf("correctly signed already-finalized checkpoint should refuse empty genesis and reach recovery gate: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dataDir, "observer-session-started")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("signed existing-height checkpoint incorrectly marked an unverified genesis session")
+	}
+	missingKeys := args[:len(args)-2]
+	missingKeys = append(append([]string{}, missingKeys...), "-witness-checkpoint-json", path)
+	if err := run(ctx, missingKeys, &bytes.Buffer{}); !errors.Is(err, bootstrap.ErrObserverConfig) {
+		t.Fatalf("witness bundle without independent keys accepted: %v", err)
+	}
+	forged := bundle
+	forged.Signatures = append([]v2node.WitnessSignature(nil), bundle.Signatures...)
+	forged.Signatures[0].Signature = hex.EncodeToString(make([]byte, ed25519.SignatureSize))
+	mutated, err := json.Marshal(forged)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, mutated, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := run(ctx, args, &bytes.Buffer{}); !errors.Is(err, v2node.ErrWitnessCheckpoint) {
+		t.Fatalf("forged witness quorum accepted: %v", err)
 	}
 }

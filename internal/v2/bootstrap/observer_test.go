@@ -524,7 +524,7 @@ func TestObserverWithSeparateFinalityAnchorPreservesHighWaterOnRestart(t *testin
 	}
 }
 
-func TestObserverRejectsNonIndependentAnchorPathAndMixedTrust(t *testing.T) {
+func TestObserverRejectsNonIndependentAnchorPathAndUnprovenDualTrust(t *testing.T) {
 	cfg := observerFixture(t, filepath.Join(t.TempDir(), "state"))
 	cfg.ExternalAnchorPath = filepath.Join(cfg.DataDir, "finality.anchor")
 	if _, err := OpenObserver(cfg); !errors.Is(err, ErrObserverConfig) {
@@ -538,8 +538,8 @@ func TestObserverRejectsNonIndependentAnchorPathAndMixedTrust(t *testing.T) {
 	cfg.TrustedCheckpoint = &v2node.FinalityCheckpoint{
 		Network: cfg.ExpectedNetwork, ValidatorRoot: cfg.ExpectedValidatorRoot, Height: 1, HeaderHash: types.Hash{9},
 	}
-	if _, err := OpenObserver(cfg); !errors.Is(err, ErrObserverConfig) {
-		t.Fatalf("two non-comparable trust pins accepted without checking both: %v", err)
+	if _, err := OpenObserver(cfg); !errors.Is(err, ErrObserverRecovery) {
+		t.Fatalf("positive external trust anchors allowed unverified genesis startup: %v", err)
 	}
 }
 

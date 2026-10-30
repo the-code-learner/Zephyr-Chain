@@ -80,11 +80,9 @@ func OpenObserver(cfg Config) (out *Observer, err error) {
 	if cfg.TrustedCheckpoint != nil && cfg.TrustedCheckpoint.Validate(cfg.ExpectedNetwork, cfg.ExpectedValidatorRoot) != nil {
 		return nil, ErrObserverConfig
 	}
-	if cfg.TrustedCheckpoint != nil && cfg.ExternalAnchorPath != "" {
-		// Only one checkpoint trust source is supported until both can
-		// be verified independently as ancestors in the same QC history.
-		return nil, ErrObserverConfig
-	}
+	// An independently trusted checkpoint AND separately held monotonic
+	// ledger are both verified as QC-certified ancestors on restart.
+	// Neither may override, downgrade or silently replace the other.
 	native, err := cfg.Genesis.NativeTokenID()
 	if err != nil {
 		return nil, err

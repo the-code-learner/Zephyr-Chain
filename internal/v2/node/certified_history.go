@@ -210,14 +210,31 @@ func (h *CertifiedHistory) Append(intent globalCommitIntent, validators v2consen
 // delta to genesis-seeded in-memory state, then binds the terminal record to
 // the latest on-disk global commit journal. It does not infer missing history
 // from an RPC or permit validator-set changes.
+// Replay is the legacy single-ancestor wrapper for development and tests.
 func (h *CertifiedHistory) Replay(validators v2consensus.ValidatorSet, genesis map[uint32]worldstate.Backend, latestJournalPath string, checkpoint *FinalityCheckpoint) (globalCommitIntent, error) {
+	var checkpoints []*FinalityCheckpoint
+	if checkpoint != nil {
+		checkpoints = append(checkpoints, checkpoint)
+	}
+	return h.ReplayWithCheckpoints(validators, genesis, latestJournalPath, checkpoints)
+}
+
+// ReplayWithCheckpoints proves EACH independently supplied checkpoint as an
+// exact QC-certified historical ancestor before any on-disk WAL recovery.
+// A valid external ledger must never mask a conflicting signed witness pin.
+func (h *CertifiedHistory) ReplayWithCheckpoints(validators v2consensus.ValidatorSet, genesis map[uint32]worldstate.Backend, latestJournalPath string, checkpoints []*FinalityCheckpoint) (globalCommitIntent, error) {
 	if h == nil || len(genesis) != int(h.shards) || latestJournalPath == "" {
 		return globalCommitIntent{}, ErrCertifiedHistory
 	}
 	// Fail before reading or applying any historical state if the operator
 	// supplied a checkpoint for another network, committee, or zero height.
-	if checkpoint != nil && checkpoint.Validate(h.network, h.validatorRoot) != nil {
+	if len(checkpoints) > 2 {
 		return globalCommitIntent{}, ErrFinalityCheckpoint
+	}
+	for _, checkpoint := range checkpoints {
+		if checkpoint == nil || checkpoint.Validate(h.network, h.validatorRoot) != nil {
+			return globalCommitIntent{}, ErrFinalityCheckpoint
+		}
 	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -234,7 +251,7 @@ func (h *CertifiedHistory) Replay(validators v2consensus.ValidatorSet, genesis m
 	}
 	var last globalCommitIntent
 	var previous types.Hash
-	checkpointMatched := false
+	checkpointMatched := make([]bool, len(checkpoints))
 	for {
 		var size [4]byte
 		_, err := io.ReadFull(h.file, size[:])
@@ -269,11 +286,13 @@ func (h *CertifiedHistory) Replay(validators v2consensus.ValidatorSet, genesis m
 		// The full QC is independently verified above. Match the operator's
 		// checkpoint against this *exact certified historical ancestor*, not
 		// merely the latest height or a peer-supplied state root.
-		if checkpoint != nil && intent.Header.Height == checkpoint.Height {
-			if v2consensus.HeaderConsensusHash(intent.Header) != checkpoint.HeaderHash {
-				return globalCommitIntent{}, ErrFinalityCheckpoint
+		for i, checkpoint := range checkpoints {
+			if intent.Header.Height == checkpoint.Height {
+				if v2consensus.HeaderConsensusHash(intent.Header) != checkpoint.HeaderHash {
+					return globalCommitIntent{}, ErrFinalityCheckpoint
+				}
+				checkpointMatched[i] = true
 			}
-			checkpointMatched = true
 		}
 		deltas := make(map[uint32]journalShardDelta, len(intent.Deltas))
 		for _, d := range intent.Deltas {
@@ -301,10 +320,12 @@ func (h *CertifiedHistory) Replay(validators v2consensus.ValidatorSet, genesis m
 	if h.count == 0 {
 		return globalCommitIntent{}, ErrCertifiedHistory
 	}
-	if checkpoint != nil && !checkpointMatched {
-		// Includes a locally coherent but older backup whose final height
-		// predates the independently pinned minimum finalized checkpoint.
-		return globalCommitIntent{}, ErrFinalityCheckpoint
+	for _, matched := range checkpointMatched {
+		if !matched {
+			// Local history is older than at least one independently
+			// authenticated minimum, or lacks its exact certified ancestor.
+			return globalCommitIntent{}, ErrFinalityCheckpoint
+		}
 	}
 	// Global journal may be PREPARING (recoverable power loss) or
 	// COMMITTED. Its full transition must match the final history event.
@@ -380,23 +401,20 @@ func (r *Runtime) RecoverCertifiedHistoryWithCheckpoint(validators v2consensus.V
 	if h == nil {
 		return ErrCertifiedHistory
 	}
+	var checkpoints []*FinalityCheckpoint
+	if checkpoint != nil {
+		checkpoints = append(checkpoints, checkpoint)
+	}
 	if anchor != nil {
 		highWater, err := anchor.Current()
 		if err != nil {
 			return errors.Join(ErrCertifiedHistory, ErrFinalityAnchor)
 		}
-		if checkpoint != nil {
-			// Do not silently drop either of two independent trust assertions.
-			// The current interface supports just one exact checkpoint.
-			if highWater.Height != checkpoint.Height || highWater.HeaderHash != checkpoint.HeaderHash ||
-				highWater.Network != checkpoint.Network || highWater.ValidatorRoot != checkpoint.ValidatorRoot {
-				return ErrFinalityCheckpoint
-			}
-		} else if highWater.Height > 0 {
-			checkpoint = &highWater
+		if highWater.Height > 0 {
+			checkpoints = append(checkpoints, &highWater)
 		}
 	}
-	last, err := h.Replay(validators, genesis, path, checkpoint)
+	last, err := h.ReplayWithCheckpoints(validators, genesis, path, checkpoints)
 	if err != nil {
 		return errors.Join(ErrCertifiedHistory, err)
 	}
