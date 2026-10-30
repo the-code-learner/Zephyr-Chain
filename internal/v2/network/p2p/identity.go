@@ -14,8 +14,8 @@ import (
 )
 
 const (
-	transportIdentityFile = "transport-identity.key"
-	transportIdentityVersion uint16 = 1
+	transportIdentityFile            = "transport-identity.key"
+	transportIdentityVersion  uint16 = 1
 	maxTransportIdentityBytes uint32 = 4096
 )
 

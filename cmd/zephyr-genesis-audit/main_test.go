@@ -15,11 +15,15 @@ func validGenesisAuditFixture(t *testing.T) ([]byte, string, string) {
 	key := elliptic.Marshal(elliptic.P256(), elliptic.P256().Params().Gx, elliptic.P256().Params().Gy)
 	owner := make([]byte, 32)
 	owner[0] = 7
-	raw := []byte(fmt.Sprintf(`{"version":2,"chainName":"zephyr-test","genesisUnix":1,"initialShardCount":1,"maxShardCount":1,"nativeSymbol":"ZPH","validators":[{"consensusPublicKey":"%s","votingPower":"10"}],"allocations":[{"owner":"%s","amount":"1000"}]}`,hex.EncodeToString(key),hex.EncodeToString(owner)))
+	raw := []byte(fmt.Sprintf(`{"version":2,"chainName":"zephyr-test","genesisUnix":1,"initialShardCount":1,"maxShardCount":1,"nativeSymbol":"ZPH","validators":[{"consensusPublicKey":"%s","votingPower":"10"}],"allocations":[{"owner":"%s","amount":"1000"}]}`, hex.EncodeToString(key), hex.EncodeToString(owner)))
 	cfg, err := genesis.ParseJSON(raw)
-	if err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
 	anchor, err := cfg.TrustAnchor()
-	if err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
 	return raw, hex.EncodeToString(anchor.Network[:]), anchor.ValidatorRoot.String()
 }
 

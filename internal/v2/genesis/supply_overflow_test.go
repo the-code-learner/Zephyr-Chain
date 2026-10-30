@@ -10,18 +10,18 @@ import (
 
 func TestGenesisRejectsInitialSupplyOverflow(t *testing.T) {
 	validator := Validator{
-		ID: types.ValidatorID{1},
+		ID:                 types.ValidatorID{1},
 		ConsensusPublicKey: []byte("validator-fixture"),
-		VotingPower: 1,
+		VotingPower:        1,
 	}
 	base := Config{
-		Version: ProtocolVersion,
-		ChainName: "supply-overflow-check",
-		GenesisUnix: 1,
+		Version:           ProtocolVersion,
+		ChainName:         "supply-overflow-check",
+		GenesisUnix:       1,
 		InitialShardCount: 1,
-		MaxShardCount: 1,
-		NativeSymbol: "ZPH",
-		Validators: []Validator{validator},
+		MaxShardCount:     1,
+		NativeSymbol:      "ZPH",
+		Validators:        []Validator{validator},
 		Allocations: []Allocation{
 			{Owner: types.AccountID{1}, Amount: math.MaxUint64},
 		},

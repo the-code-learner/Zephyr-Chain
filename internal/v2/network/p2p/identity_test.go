@@ -14,11 +14,17 @@ func TestPersistentTransportIdentityStableAndNetworkBound(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "operator")
 	network := types.NetworkID(types.HashBytes("network", []byte("persistent-test")))
 	first, err := LoadOrCreateIdentity(dir, network)
-	if err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
 	second, err := LoadOrCreateIdentity(dir, network)
-	if err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
 	firstPeer, err := peer.IDFromPrivateKey(first)
-	if err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
 	secondPeer, err := peer.IDFromPrivateKey(second)
 	if err != nil || firstPeer != secondPeer {
 		t.Fatalf("peer identity changed across restart: %q, %q, %v", firstPeer, secondPeer, err)
@@ -41,7 +47,9 @@ func TestPersistentTransportIdentityRejectsCorruptionAndPermissions(t *testing.T
 	for _, corrupt := range []string{"", "invalid", "ZPK1"} {
 		t.Run("corrupt-"+corrupt, func(t *testing.T) {
 			dir := t.TempDir()
-			if err := os.WriteFile(filepath.Join(dir, transportIdentityFile), []byte(corrupt), 0600); err != nil { t.Fatal(err) }
+			if err := os.WriteFile(filepath.Join(dir, transportIdentityFile), []byte(corrupt), 0600); err != nil {
+				t.Fatal(err)
+			}
 			if _, err := LoadOrCreateIdentity(dir, network); err == nil {
 				t.Fatal("malformed secret was silently regenerated")
 			}
@@ -49,24 +57,44 @@ func TestPersistentTransportIdentityRejectsCorruptionAndPermissions(t *testing.T
 	}
 	t.Run("world-readable-key", func(t *testing.T) {
 		dir := t.TempDir()
-		if _, err := LoadOrCreateIdentity(dir, network); err != nil { t.Fatal(err) }
-		if err := os.Chmod(filepath.Join(dir, transportIdentityFile), 0644); err != nil { t.Fatal(err) }
-		if _, err := LoadOrCreateIdentity(dir, network); err == nil { t.Fatal("insecure key accepted") }
+		if _, err := LoadOrCreateIdentity(dir, network); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(filepath.Join(dir, transportIdentityFile), 0644); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := LoadOrCreateIdentity(dir, network); err == nil {
+			t.Fatal("insecure key accepted")
+		}
 	})
 	t.Run("world-readable-directory", func(t *testing.T) {
 		dir := t.TempDir()
-		if _, err := LoadOrCreateIdentity(dir, network); err != nil { t.Fatal(err) }
-		if err := os.Chmod(dir, 0755); err != nil { t.Fatal(err) }
-		if _, err := LoadOrCreateIdentity(dir, network); err == nil { t.Fatal("insecure directory accepted") }
+		if _, err := LoadOrCreateIdentity(dir, network); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(dir, 0755); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := LoadOrCreateIdentity(dir, network); err == nil {
+			t.Fatal("insecure directory accepted")
+		}
 	})
 	t.Run("symlinked-key", func(t *testing.T) {
 		dir := t.TempDir()
 		target := filepath.Join(dir, "other")
-		if err := os.WriteFile(target, []byte("secret"), 0600); err != nil { t.Fatal(err) }
-		if err := os.Symlink(target, filepath.Join(dir, transportIdentityFile)); err != nil { t.Skip(err) }
-		if _, err := LoadOrCreateIdentity(dir, network); err == nil { t.Fatal("symlink key accepted") }
+		if err := os.WriteFile(target, []byte("secret"), 0600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(target, filepath.Join(dir, transportIdentityFile)); err != nil {
+			t.Skip(err)
+		}
+		if _, err := LoadOrCreateIdentity(dir, network); err == nil {
+			t.Fatal("symlink key accepted")
+		}
 	})
 	t.Run("zero-network", func(t *testing.T) {
-		if _, err := LoadOrCreateIdentity(t.TempDir(), types.NetworkID{}); err == nil { t.Fatal("zero network accepted") }
+		if _, err := LoadOrCreateIdentity(t.TempDir(), types.NetworkID{}); err == nil {
+			t.Fatal("zero network accepted")
+		}
 	})
 }

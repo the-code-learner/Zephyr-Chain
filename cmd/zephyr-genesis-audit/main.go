@@ -23,15 +23,15 @@ const maxGenesisAuditBytes = 1 << 20
 var ErrAuditGenesis = errors.New("invalid or untrusted Zephyr genesis audit input")
 
 type auditReport struct {
-	NetworkID       string `json:"networkId"`
-	ValidatorRoot   string `json:"validatorRoot"`
-	NativeTokenID   string `json:"nativeTokenId"`
-	NativeSymbol    string `json:"nativeSymbol"`
-	InitialSupply   uint64 `json:"initialSupply"`
-	ValidatorCount  int    `json:"validatorCount"`
-	InitialShards   uint32 `json:"initialShardCount"`
-	MaxShards       uint32 `json:"maxShardCount"`
-	AnchorsMatched  bool   `json:"anchorsMatched"`
+	NetworkID      string `json:"networkId"`
+	ValidatorRoot  string `json:"validatorRoot"`
+	NativeTokenID  string `json:"nativeTokenId"`
+	NativeSymbol   string `json:"nativeSymbol"`
+	InitialSupply  uint64 `json:"initialSupply"`
+	ValidatorCount int    `json:"validatorCount"`
+	InitialShards  uint32 `json:"initialShardCount"`
+	MaxShards      uint32 `json:"maxShardCount"`
+	AnchorsMatched bool   `json:"anchorsMatched"`
 }
 
 func auditGenesis(raw []byte, expectedNetwork, expectedRoot string, inspectOnly bool) (auditReport, error) {
@@ -74,14 +74,14 @@ func auditGenesis(raw []byte, expectedNetwork, expectedRoot string, inspectOnly 
 		}
 	}
 	return auditReport{
-		NetworkID: hex.EncodeToString(anchor.Network[:]),
-		ValidatorRoot: anchor.ValidatorRoot.String(),
-		NativeTokenID: hex.EncodeToString(native[:]),
-		NativeSymbol: cfg.NativeSymbol,
-		InitialSupply: initialSupply,
+		NetworkID:      hex.EncodeToString(anchor.Network[:]),
+		ValidatorRoot:  anchor.ValidatorRoot.String(),
+		NativeTokenID:  hex.EncodeToString(native[:]),
+		NativeSymbol:   cfg.NativeSymbol,
+		InitialSupply:  initialSupply,
 		ValidatorCount: len(cfg.Validators),
-		InitialShards: cfg.InitialShardCount,
-		MaxShards: cfg.MaxShardCount,
+		InitialShards:  cfg.InitialShardCount,
+		MaxShards:      cfg.MaxShardCount,
 		AnchorsMatched: !inspectOnly,
 	}, nil
 }
