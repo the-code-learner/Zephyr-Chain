@@ -37,13 +37,14 @@ type voteSlot struct {
 }
 
 type Service struct {
-	mu         sync.Mutex
-	proposeMu  sync.Mutex
-	Runtime    *Runtime
-	Validators v2consensus.ValidatorSet
-	Key        *ecdsa.PrivateKey
-	P2P        *p2p.Node
-	Peers      []peer.ID
+	mu           sync.Mutex
+	proposeMu    sync.Mutex
+	Runtime      *Runtime
+	Validators   v2consensus.ValidatorSet
+	Key          *ecdsa.PrivateKey
+	signingGuard *v2consensus.DurableSigningGuard
+	P2P          *p2p.Node
+	Peers        []peer.ID
 
 	mempool       map[uint32][]tx.Transaction
 	mempoolInputs map[types.ObjectID]types.Hash
@@ -73,6 +74,26 @@ func NewService(runtime *Runtime, validators v2consensus.ValidatorSet, key *ecds
 	}
 	transport.SetConsensusHandler(service.HandleConsensus)
 	transport.SetTransactionHandler(service.HandleTransaction)
+	return service, nil
+}
+
+// NewProtectedService is the security-sensitive constructor for validator
+// processes. The durable signer journal MUST be held for the lifetime of
+// this service, and its path MUST be unique per network/validator key across
+// all deployments. In-memory NewService remains for ephemeral lab tests.
+func NewProtectedService(runtime *Runtime, validators v2consensus.ValidatorSet, key *ecdsa.PrivateKey, transport *p2p.Node, guard *v2consensus.DurableSigningGuard) (*Service, error) {
+	if runtime == nil || key == nil || guard == nil {
+		return nil, ErrServiceConfig
+	}
+	id, err := validatorID(key)
+	if err != nil || !guard.Matches(runtime.Network, id) {
+		return nil, ErrServiceConfig
+	}
+	service, err := NewService(runtime, validators, key, transport)
+	if err != nil {
+		return nil, err
+	}
+	service.signingGuard = guard
 	return service, nil
 }
 
@@ -190,6 +211,12 @@ func (s *Service) Propose(ctx context.Context) (lightapi.Snapshot, error) {
 	if err != nil {
 		s.mu.Unlock()
 		return lightapi.Snapshot{}, err
+	}
+	if s.signingGuard != nil {
+		if err := s.signingGuard.Authorize(s.Runtime.Network, localID, height, round, v2consensus.HeaderConsensusHash(candidate.Header)); err != nil {
+			s.mu.Unlock()
+			return lightapi.Snapshot{}, err
+		}
 	}
 	proposal, err := v2consensus.SignProposal(s.Key, candidate.Header, round)
 	if err != nil {
@@ -313,6 +340,15 @@ func (s *Service) signVoteLocked(proposal v2consensus.Proposal) (v2consensus.Vot
 			return v2consensus.Vote{}, ErrDoubleVote
 		}
 		return prior, nil
+	}
+	if s.signingGuard != nil {
+		id, err := validatorID(s.Key)
+		if err != nil {
+			return v2consensus.Vote{}, err
+		}
+		if err := s.signingGuard.Authorize(s.Runtime.Network, id, proposal.Header.Height, proposal.Round, target); err != nil {
+			return v2consensus.Vote{}, err
+		}
 	}
 	vote, err := v2consensus.SignVote(s.Key, s.Runtime.Network, proposal.Header.Height, proposal.Round, target)
 	if err != nil {
