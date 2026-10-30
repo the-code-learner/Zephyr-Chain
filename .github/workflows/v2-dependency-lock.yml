@@ -25,9 +25,10 @@ jobs:
         run: |
           go get go.starlark.net@5395d018f003e2a08bfbca6dcb2562acee700f62
           go get github.com/tetratelabs/wazero@v1.11.0
-          go get github.com/klauspost/reedsolomon@latest
-          go get github.com/libp2p/go-libp2p@latest
-          go get github.com/libp2p/go-libp2p-pubsub@latest
+          go get github.com/klauspost/reedsolomon@v1.14.1
+          go get github.com/libp2p/go-libp2p@v0.49.0
+          go get github.com/libp2p/go-libp2p-pubsub@v0.17.0
+          go mod verify
           echo '--- go.mod ---'
           cat go.mod
           echo '--- go.sum ---'
