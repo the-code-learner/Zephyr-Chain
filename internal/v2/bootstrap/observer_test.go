@@ -488,3 +488,69 @@ func TestPinnedObserverRefusesExternalCheckpointWithoutExistingVerifiedHistory(t
 		t.Fatalf("foreign-network external anchor accepted: %v", err)
 	}
 }
+
+func TestObserverWithSeparateFinalityAnchorPreservesHighWaterOnRestart(t *testing.T) {
+	cfg := observerFixture(t, filepath.Join(t.TempDir(), "state"))
+	external := t.TempDir()
+	if err := os.Chmod(external, 0700); err != nil {
+		t.Fatal(err)
+	}
+	cfg.ExternalAnchorPath = filepath.Join(external, "finality.anchor")
+	obs, err := OpenObserver(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	appendSingleValidatorCertifiedEmptyBlock(t, obs)
+	appendSingleValidatorCertifiedEmptyBlock(t, obs)
+	tip := obs.Runtime.ParentHash
+	if err := obs.Close(); err != nil {
+		t.Fatal(err)
+	}
+	restarted, err := OpenObserver(cfg)
+	if err != nil {
+		t.Fatalf("separately preserved anchor refused certified restart: %v", err)
+	}
+	if restarted.Runtime.Height != 2 || restarted.Runtime.ParentHash != tip {
+		t.Fatalf("unexpected restored tip: %d %x", restarted.Runtime.Height, restarted.Runtime.ParentHash)
+	}
+	if err := restarted.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(cfg.ExternalAnchorPath); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := OpenObserver(cfg); !errors.Is(err, ErrObserverRecovery) {
+		t.Fatalf("missing external high-water mark silently recreated: %v", err)
+	}
+}
+
+func TestObserverRejectsNonIndependentAnchorPathAndMixedTrust(t *testing.T) {
+	cfg := observerFixture(t, filepath.Join(t.TempDir(), "state"))
+	cfg.ExternalAnchorPath = filepath.Join(cfg.DataDir, "finality.anchor")
+	if _, err := OpenObserver(cfg); !errors.Is(err, ErrObserverConfig) {
+		t.Fatalf("anchor inside rollback directory accepted: %v", err)
+	}
+	cfg.ExternalAnchorPath = "relative-anchor"
+	if _, err := OpenObserver(cfg); !errors.Is(err, ErrObserverConfig) {
+		t.Fatalf("relative ambiguous anchor accepted: %v", err)
+	}
+	cfg.ExternalAnchorPath = filepath.Join(t.TempDir(), "outside")
+	cfg.TrustedCheckpoint = &v2node.FinalityCheckpoint{
+		Network: cfg.ExpectedNetwork, ValidatorRoot: cfg.ExpectedValidatorRoot, Height: 1, HeaderHash: types.Hash{9},
+	}
+	if _, err := OpenObserver(cfg); !errors.Is(err, ErrObserverConfig) {
+		t.Fatalf("two non-comparable trust pins accepted without checking both: %v", err)
+	}
+}
+
+func TestObserverRejectsWorldReadableAnchorParent(t *testing.T) {
+	cfg := observerFixture(t, filepath.Join(t.TempDir(), "state"))
+	public := filepath.Join(t.TempDir(), "public")
+	if err := os.Mkdir(public, 0755); err != nil {
+		t.Fatal(err)
+	}
+	cfg.ExternalAnchorPath = filepath.Join(public, "finality.anchor")
+	if _, err := OpenObserver(cfg); !errors.Is(err, ErrObserverRecovery) {
+		t.Fatalf("publicly readable external anchor parent accepted: %v", err)
+	}
+}

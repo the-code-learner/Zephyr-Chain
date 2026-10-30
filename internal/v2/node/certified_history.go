@@ -375,10 +375,26 @@ func (r *Runtime) RecoverCertifiedHistoryWithCheckpoint(validators v2consensus.V
 		return ErrCertifiedHistory
 	}
 	r.mu.Lock()
-	h, path := r.history, r.globalCommitJournalPath
+	h, path, anchor := r.history, r.globalCommitJournalPath, r.anchorStore
 	r.mu.Unlock()
 	if h == nil {
 		return ErrCertifiedHistory
+	}
+	if anchor != nil {
+		highWater, err := anchor.Current()
+		if err != nil {
+			return errors.Join(ErrCertifiedHistory, ErrFinalityAnchor)
+		}
+		if checkpoint != nil {
+			// Do not silently drop either of two independent trust assertions.
+			// The current interface supports just one exact checkpoint.
+			if highWater.Height != checkpoint.Height || highWater.HeaderHash != checkpoint.HeaderHash ||
+				highWater.Network != checkpoint.Network || highWater.ValidatorRoot != checkpoint.ValidatorRoot {
+				return ErrFinalityCheckpoint
+			}
+		} else if highWater.Height > 0 {
+			checkpoint = &highWater
+		}
 	}
 	last, err := h.Replay(validators, genesis, path, checkpoint)
 	if err != nil {
@@ -392,6 +408,17 @@ func (r *Runtime) RecoverCertifiedHistoryWithCheckpoint(validators v2consensus.V
 	}
 	if r.Height != last.Header.Height || r.ParentHash != v2consensus.HeaderConsensusHash(last.Header) || r.RecoveryRequired() {
 		return ErrCertifiedHistory
+	}
+	if anchor != nil {
+		if err := anchor.advance(FinalityCheckpoint{
+			Network: r.Network, ValidatorRoot: r.ValidatorRoot,
+			Height: r.Height, HeaderHash: r.ParentHash,
+		}); err != nil {
+			r.mu.Lock()
+			r.recoveryRequired = true
+			r.mu.Unlock()
+			return errors.Join(ErrRuntimeRecoveryRequired, ErrFinalityAnchor, err)
+		}
 	}
 	return nil
 }

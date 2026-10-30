@@ -73,6 +73,68 @@ externally protected minimum pin as finality progresses. An old,
 authentic pin protects only up to its own height and **does not prove
 freshness, detect rollbacks above it, or authorize a consensus signer**.
 
+## Separately held monotonic high-water ledger (experimental)
+
+A more automated local anti-rollback guard is available on **Linux/macOS**
+with the optional `-external-anchor-file` flag. Provision a dedicated
+**operator-controlled 0700 directory outside the node's data directory**.
+Its file must remain in a **separate backup/failure domain** from all
+observer state/WAL/history snapshots. For example:
+
+```sh
+mkdir -p /private/trusted-finality-anchor
+chmod 700 /private/trusted-finality-anchor
+
+go run ./cmd/v2-observer \
+  -genesis /private/genesis.json \
+  -expected-network-id '<independently-reviewed-network-id>' \
+  -expected-validator-root '<independently-reviewed-validator-root>' \
+  -data-dir /private/observer-data \
+  -external-anchor-file /private/trusted-finality-anchor/minimum-finalized.log
+```
+
+During **first startup**, the guard creates an exclusive, 0600
+identity-bound file with no finalized height. After each commit passes
+the normal QC checks and its shard WALs and global journal reach the
+COMMITTED state, the node appends the exact finalized height and
+consensus header hash with a domain-separated hash link and **fsyncs
+the external ledger before returning successful finality**. Failure
+to update the ledger is a mandatory **recovery-required stop**, never
+an unanchored success. Repeating a known height with a different hash
+or lowering the recorded height is rejected. Concurrent writers,
+symlinks, insecure parent permissions and torn or altered records
+are refused rather than repaired silently.
+
+On restart the program **requires** the previously created external
+file, replays and verifies every recorded QC and state delta from
+genesis, proves the last external high-water checkpoint is an exact
+historical ancestor, reconciles WAL state and only then advances the
+external ledger if needed. Deleting the file after an earlier session,
+putting it inside the state directory or restoring a locally coherent
+but older node backup below its protected high-water mark prevents
+startup. Existing v2 observer directories are **not** silently
+migrated: provisioning a high-water mark for already finalized
+history needs an explicit separately verified ceremony.
+
+A separate operator-supplied `-trusted-finalized-height`/
+`-trusted-finalized-hash` pair is an alternative mode. The prototype
+does not allow mixing that pair with the high-water file, because
+both independently held commitments must be checked rather than
+blindly choosing one. The ledger has a conservative **4096-record**
+limit; exhaustion fails closed until independently verified
+compaction is implemented.
+
+**This is NOT an HSM/TPM or remotely witnessed monotonic register.**
+The separate file's integrity can be checked for accidental truncation
+and unauthorized edits, but anyone with the ability to replace or
+roll back the guard itself together with the node state can still
+replay an older, internally consistent history. Filesystem
+append/locking and ordinary `fsync` do not imply write-once storage
+or rollback resistance against a privileged attacker. Before public
+mainnet GO, a truly **independent authenticated and monotonic**
+operator/remote-witness/hardware anchor, freshness policy,
+quorum-backed publication, and failover drills are still mandatory.
+
 ## New durable history safety boundary
 
 The observer creates a private, exclusive, **append-only, fsynced**

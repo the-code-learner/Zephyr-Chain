@@ -84,6 +84,7 @@ func run(ctx context.Context, args []string, output io.Writer) error {
 	listen := flags.String("listen", "/ip4/127.0.0.1/udp/0/quic-v1", "QUIC listen multiaddr (loopback by default)")
 	peerList := flags.String("peers", "", "comma-separated full /p2p/<ID> trusted bootstrap multiaddrs")
 	workers := flags.Int("workers", 2, "deterministic state executor workers")
+	externalAnchor := flags.String("external-anchor-file", "", "optional separate private append-only finalized high-water store (absolute path outside data-dir)")
 	trustedHeight := flags.Uint64("trusted-finalized-height", 0, "independently obtained minimum finalized height (requires trusted-finalized-hash)")
 	trustedHash := flags.String("trusted-finalized-hash", "", "independently obtained 64-hex consensus header hash (requires trusted-finalized-height)")
 	if err := flags.Parse(args); err != nil {
@@ -132,7 +133,8 @@ func run(ctx context.Context, args []string, output io.Writer) error {
 	}
 	obs, err := bootstrap.OpenObserver(bootstrap.Config{
 		Genesis: g, ExpectedNetwork: types.NetworkID(netHash),
-		ExpectedValidatorRoot: rootHash, TrustedCheckpoint: checkpoint, DataDir: *dataDir,
+		ExpectedValidatorRoot: rootHash, TrustedCheckpoint: checkpoint,
+		ExternalAnchorPath: *externalAnchor, DataDir: *dataDir,
 		ListenAddrs: []string{*listen}, Workers: *workers,
 	})
 	if err != nil {
@@ -155,6 +157,10 @@ func run(ctx context.Context, args []string, output io.Writer) error {
 	if checkpoint != nil {
 		rollbackGuard = "operator-pinned QC-certified ancestor; freshness depends on independent external custody"
 		anchorHeight = checkpoint.Height
+	}
+	if *externalAnchor != "" {
+		rollbackGuard = "external private monotonic ledger: QC-certified tip fsynced each commit; file rollback remains possible"
+		anchorHeight = obs.Runtime.Height
 	}
 	info := startInfo{Mode: "observer-only", NetworkID: obs.Network.String(),
 		ValidatorRoot: rootHash.String(), PeerID: obs.Transport.ID().String(),

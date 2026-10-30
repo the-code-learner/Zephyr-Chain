@@ -18,7 +18,7 @@ persistent network identity, exclusive shard WAL state and explicit recovery
 refusal is available as `go run ./cmd/v2-observer`. See
 [Observer bootstrap and safe restart limitations](./docs/v2-observer-bootstrap-m1.md).
 It now replays bounded, append-only QC-certified history from a pinned genesis
-before restart, and supports independently supplied minimum finalized height/hash pins on restart; without a fresh external pin it cannot detect rollback of an entire valid state/history backup,
+before restart, and supports independently supplied finalized height/hash pins or an optional private external-directory high-water ledger; neither guarantees rollback resistance if the independent trust store is also restored or compromised,
 verify validator-set rotations or replace independent security audits. It is **not a
 mainnet validator**.
 

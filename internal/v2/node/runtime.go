@@ -73,6 +73,7 @@ type Runtime struct {
 	pendingEconomic         *economics.ShadowEpochPreview
 	globalCommitJournalPath string
 	history                 *CertifiedHistory
+	anchorStore             *FinalityAnchorStore
 	recoveryRequired        bool
 }
 
@@ -400,6 +401,19 @@ func (r *Runtime) Commit(candidate Candidate, certificate v2consensus.Certificat
 		if err := writeGlobalCommitJournal(r.globalCommitJournalPath, *journalIntent); err != nil {
 			r.recoveryRequired = true
 			return sharding.GlobalHeader{}, errors.Join(ErrRuntimeRecoveryRequired, err)
+		}
+	}
+
+	// The independently held high-water mark must be durable before a
+	// successful commit is returned. Failure after WAL state writes is a
+	// fail-closed recovery-required state, not an unanchored success.
+	if r.anchorStore != nil {
+		if err := r.anchorStore.advance(FinalityCheckpoint{
+			Network: r.Network, ValidatorRoot: r.ValidatorRoot,
+			Height: finalized.Height, HeaderHash: postParent,
+		}); err != nil {
+			r.recoveryRequired = true
+			return sharding.GlobalHeader{}, errors.Join(ErrRuntimeRecoveryRequired, ErrFinalityAnchor, err)
 		}
 	}
 
