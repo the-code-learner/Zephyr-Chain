@@ -234,6 +234,8 @@ type Server struct {
 	stopCh         chan struct{}
 	wg             sync.WaitGroup
 	closeOnce      sync.Once
+	asyncMu        sync.Mutex
+	asyncClosed    bool
 }
 
 func NewServer() *Server {
@@ -303,10 +305,30 @@ func (s *Server) setPeerURLs(peers []string) {
 	s.peerURLsMu.Unlock()
 }
 
+// runAsync ensures peer broadcasts finish before storage cleanup; Close prevents
+// new tasks and drains all previously accepted tasks without WaitGroup Add/Wait races.
+func (s *Server) runAsync(fn func()) {
+	s.asyncMu.Lock()
+	if s.asyncClosed {
+		s.asyncMu.Unlock()
+		return
+	}
+	s.wg.Add(1)
+	s.asyncMu.Unlock()
+	go func() {
+		defer s.wg.Done()
+		fn()
+	}()
+}
+
 func (s *Server) Close() {
 	s.closeOnce.Do(func() {
+		s.asyncMu.Lock()
+		s.asyncClosed = true
 		close(s.stopCh)
+		s.asyncMu.Unlock()
 		s.wg.Wait()
+		s.httpClient.CloseIdleConnections()
 	})
 }
 
@@ -542,7 +564,7 @@ func (s *Server) handleBroadcastTransaction(w http.ResponseWriter, r *http.Reque
 	})
 
 	if propagate {
-		go s.broadcastTransaction(request)
+		s.runAsync(func() { s.broadcastTransaction(request) })
 	}
 }
 
@@ -634,7 +656,7 @@ func (s *Server) handleFaucet(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, FaucetResponse{Account: s.ledger.View(request.Address)})
 
 	if requestSourceNode(r) == "" {
-		go s.broadcastFaucet(request)
+		s.runAsync(func() { s.broadcastFaucet(request) })
 	}
 }
 
@@ -759,7 +781,7 @@ func (s *Server) produceLocalBlock(producedAt time.Time) (ledger.Block, error) {
 		s.recordLocalCertifiedCommit(consensus, block)
 	}
 
-	go s.broadcastBlock(block)
+	s.runAsync(func() { s.broadcastBlock(block) })
 	return block, nil
 }
 
