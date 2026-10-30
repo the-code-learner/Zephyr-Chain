@@ -5,7 +5,6 @@ import (
 	"path/filepath"
 	"testing"
 
-	p2pcrypto "github.com/libp2p/go-libp2p/core/crypto"
 	"github.com/libp2p/go-libp2p/core/peer"
 
 	"github.com/zephyr-chain/zephyr-chain/internal/v2/types"
@@ -69,12 +68,5 @@ func TestPersistentTransportIdentityRejectsCorruptionAndPermissions(t *testing.T
 	})
 	t.Run("zero-network", func(t *testing.T) {
 		if _, err := LoadOrCreateIdentity(t.TempDir(), types.NetworkID{}); err == nil { t.Fatal("zero network accepted") }
-	})
-	t.Run("different-key-type", func(t *testing.T) {
-		dir := t.TempDir()
-		key, _, err := p2pcrypto.GenerateSecp256k1Key(nil)
-		if err == nil && key != nil { _ = key }
-		// Ed25519 is the only accepted transport identity type.
-		if _, err := LoadOrCreateIdentity(dir, network); err != nil { t.Fatal(err) }
 	})
 }
