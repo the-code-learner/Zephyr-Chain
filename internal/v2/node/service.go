@@ -37,14 +37,14 @@ type voteSlot struct {
 }
 
 type Service struct {
-	mu         sync.Mutex
-	proposeMu  sync.Mutex
-	Runtime    *Runtime
-	Validators v2consensus.ValidatorSet
-	Key        *ecdsa.PrivateKey
+	mu           sync.Mutex
+	proposeMu    sync.Mutex
+	Runtime      *Runtime
+	Validators   v2consensus.ValidatorSet
+	Key          *ecdsa.PrivateKey
 	signingGuard *v2consensus.DurableSigningGuard
-	P2P        *p2p.Node
-	Peers      []peer.ID
+	P2P          *p2p.Node
+	Peers        []peer.ID
 
 	mempool       map[uint32][]tx.Transaction
 	mempoolInputs map[types.ObjectID]types.Hash

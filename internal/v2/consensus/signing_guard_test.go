@@ -145,7 +145,7 @@ func TestDurableSigningGuardCorruptionFailsClosed(t *testing.T) {
 		}
 		_ = g.Close()
 		for _, id := range []struct {
-			network types.NetworkID
+			network   types.NetworkID
 			validator types.ValidatorID
 		}{{types.NetworkID{3}, validator}, {network, types.ValidatorID{4}}} {
 			if _, err := OpenDurableSigningGuard(dir, id.network, id.validator); !errors.Is(err, ErrSigningGuard) {

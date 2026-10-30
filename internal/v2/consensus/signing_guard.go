@@ -13,17 +13,17 @@ import (
 )
 
 const (
-	signingJournalMagic = "ZSG2"
-	signingJournalVersion uint8 = 1
-	signingJournalHeaderBytes = 69
-	signingJournalRecordBytes = 112
+	signingJournalMagic             = "ZSG2"
+	signingJournalVersion     uint8 = 1
+	signingJournalHeaderBytes       = 69
+	signingJournalRecordBytes       = 112
 )
 
 var (
-	ErrSigningGuard = errors.New("invalid or unavailable durable consensus signing guard")
-	ErrSigningConflict = errors.New("conflicting or stale consensus signing intent")
-	ErrSigningJournal = errors.New("corrupt or truncated consensus signing journal")
-	ErrSigningGuardBusy = errors.New("consensus signing journal already held by another writer")
+	ErrSigningGuard            = errors.New("invalid or unavailable durable consensus signing guard")
+	ErrSigningConflict         = errors.New("conflicting or stale consensus signing intent")
+	ErrSigningJournal          = errors.New("corrupt or truncated consensus signing journal")
+	ErrSigningGuardBusy        = errors.New("consensus signing journal already held by another writer")
 	ErrSigningGuardUnsupported = errors.New("durable consensus signing guard unsupported on this operating system")
 )
 
@@ -32,17 +32,17 @@ var (
 // MUST be shared by every process holding this validator key. It is not
 // safe to use independent copies of the same key with separate journals.
 type DurableSigningGuard struct {
-	mu sync.Mutex
-	file *os.File
-	network types.NetworkID
-	validator types.ValidatorID
-	height uint64
-	round uint64
-	target types.Hash
+	mu             sync.Mutex
+	file           *os.File
+	network        types.NetworkID
+	validator      types.ValidatorID
+	height         uint64
+	round          uint64
+	target         types.Hash
 	lastRecordHash types.Hash
-	hasRecord bool
-	closed bool
-	poisoned bool
+	hasRecord      bool
+	closed         bool
+	poisoned       bool
 }
 
 // OpenDurableSigningGuard verifies the journal's network, validator and
