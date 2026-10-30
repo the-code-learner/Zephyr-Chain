@@ -257,9 +257,9 @@ func (r *Runtime) CloseCertifiedHistory() error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.history == nil { return nil }
-	h := r.history
-	r.history = nil
-	return h.Close()
+	// Keep the closed guard attached so the runtime cannot resume
+	// committing without a history file after close.
+	return r.history.Close()
 }
 
 func (r *Runtime) RecoverCertifiedHistory(validators v2consensus.ValidatorSet, genesis map[uint32]worldstate.Backend) error {
