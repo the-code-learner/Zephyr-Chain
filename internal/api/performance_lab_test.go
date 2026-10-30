@@ -116,7 +116,7 @@ func newLabCluster(tb testing.TB, validatorCount int) *labCluster {
 			}
 			peers = append(peers, peer.http.URL)
 		}
-		node.server.config.PeerURLs = peers
+		node.server.setPeerURLs(peers)
 		node.faults = newLabFaultTransport(node.server.transport)
 		node.server.transport = node.faults
 		if _, err := node.server.ledger.SetValidators(validators, dpos.ElectionConfig{
