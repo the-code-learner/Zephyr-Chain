@@ -11,6 +11,16 @@ The long-term mission is described in [Zaphyr-chain_manifesto.md](./Zaphyr-chain
 
 > Zephyr's aspirational performance target is **1,000,000 transactions per second finalized through consensus**. It is a benchmark target, not a claim about current capacity.
 
+## Protocol v2 observer bootstrap (development only)
+
+A non-voting v2 QUIC observer with independently pinned genesis and validator root,
+persistent network identity, exclusive shard WAL state and explicit recovery
+refusal is available as `go run ./cmd/v2-observer`. See
+[Observer bootstrap and safe restart limitations](./docs/v2-observer-bootstrap-m1.md).
+It deliberately refuses a second session on the same state directory until
+authenticated finalized checkpoint recovery is implemented. It is **not a
+mainnet validator**.
+
 ## Public-mainnet readiness: currently blocked
 
 The codebase contains multiple **tested Protocol v2 foundations**, but does
