@@ -19,12 +19,12 @@ for tool in go node npm; do
   fi
 done
 
-printf '[1/5] Static Go checks\n'
+printf '[1/6] Static Go checks\n'
 go vet ./...
-printf '[2/5] Go test suite\n'
+printf '[2/6] Go test suite\n'
 go test ./...
 
-printf '[3/5] Wallet lock/audit/typecheck/build\n'
+printf '[3/6] Wallet lock/audit/typecheck/build\n'
 (
   cd apps/wallet
   npm ci
@@ -37,12 +37,12 @@ if [[ "$mode" == "quick" ]]; then
   exit 0
 fi
 
-printf '[4/5] Repeated v2 consensus partition and recovery tests\n'
+printf '[4/6] Race-detect security-sensitive v2 packages'\ngo test -race ./internal/v2/genesis ./internal/v2/network/p2p ./internal/v2/provider ./internal/v2/committee ./internal/v2/worldstate ./internal/v2/consensus ./cmd/compute-provider ./cmd/zephyr-genesis-audit -count=1 -timeout=8m\n\nprintf '[5/6] Repeated v2 consensus partition and recovery tests\n'
 go test ./internal/v2/lab \
   -run '^TestV2Lab(FourThreePartitionStallsThenHeals|FiveTwoPartitionFinalizesQuorumSideAndMinorityCatchesUp)$' \
   -count=10 -timeout=120s
 
-printf '[5/5] Real QUIC/libp2p ephemeral devnet on one local host\n'
+printf '[6/6] Real QUIC/libp2p ephemeral devnet on one local host\n'
 ZEPHYR_DEVNET_VALIDATORS=7 go test ./internal/v2/node \
   -run '^TestProtocolV2Devnet' -count=1 -timeout=300s
 
