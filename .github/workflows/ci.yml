@@ -55,6 +55,9 @@ jobs:
             exit 1
           fi
 
+      - name: Check local v2 verification script syntax
+        run: bash -n scripts/verify-v2.sh
+
       - name: Vet
         run: go vet ./...
 
