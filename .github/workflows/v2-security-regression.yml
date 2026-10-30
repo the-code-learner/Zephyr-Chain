@@ -54,5 +54,9 @@ jobs:
           go test -race ./internal/api -run '^TestAsyncPeerBroadcastConcurrentClose$' -count=20 -timeout=4m
       - name: Threshold-witness checkpoint and dual independent-ancestor regressions
         run: go test -race ./internal/v2/node -run '^Test(WitnessCheckpoint|WitnessAndExternalHighWater)' -count=1 -timeout=3m
+      - name: Witness durability, equivocation and QC-tip adapter regressions
+        run: |
+          go test -race ./internal/v2/node -run '^Test(WitnessIntent|WitnessEvidenceSet|WitnessQuorumConsistency|RuntimeWitnessVerifier)' -count=5 -timeout=4m
+          go test -race ./internal/v2/node -run '^Test(FinalityAnchorStore|CertifiedHistory)' -count=2 -timeout=4m
       - name: Protected validator signing restart regression under race detector
         run: go test -race ./internal/v2/node -run '^TestProtectedValidatorServicePersistsSigningIntent$' -count=1 -timeout=3m
