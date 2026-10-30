@@ -47,6 +47,6 @@ jobs:
       - name: Repeated cross-peer consensus shutdown and TempDir lifecycle regression
         run: |
           go test ./internal/api -run '^TestConsensusAutomationRebroadcastsVoteAfterPeerLinkRestored$' -count=80 -timeout=4m
-          go test -race ./internal/api -run '^TestConsensusAutomationRebroadcastsVoteAfterPeerLinkRestored$' -count=12 -timeout=4m
+          go test -race ./internal/api -run '^(TestConsensusAutomationRebroadcastsVoteAfterPeerLinkRestored|TestPeerURLsSnapshotConcurrentReplacement)$' -count=12 -timeout=4m
       - name: Protected validator signing restart regression under race detector
         run: go test -race ./internal/v2/node -run '^TestProtectedValidatorServicePersistsSigningIntent$' -count=1 -timeout=3m
