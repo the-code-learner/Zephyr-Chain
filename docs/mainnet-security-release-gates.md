@@ -42,7 +42,7 @@ decentralized production network.
 | Governance | Proposal/timelock hash foundations | Canonical validator-authorized voting, conflict resolution, quorum proof, security timelock, rollback/upgrade rules without overriding existing QC root |
 | ZPH economics | ZECI/ZCSI/ZPPI simulations and shadow economic state | Canonical verifiable production parameters, replay-safe epoch activation, invariant-preserving simulation and audited accounting, explicit community/governance approval |
 | Mobile and accessibility | Reference wallet, Citizen light proofs | Independent low-end mobile hardware validation, offline/verifier-first UX, light proof transport coverage and signed builds |
-| Deployment and operations | CI, v2 lab, one-host devnet, pinned one-session non-voting observer bootstrap and operator health/alert foundations | Production runbooks, off-host encrypted recovery/backup, telemetry/privacy review, fire drills, security contact, incident response and SLOs |
+| Deployment and operations | CI, v2 lab, one-host devnet, pinned non-voting observer bootstrap with height-1 QC-verified recovery and operator health/alert foundations | Production runbooks, off-host encrypted recovery/backup, telemetry/privacy review, fire drills, security contact, incident response and SLOs |
 
 ## Required external evidence
 

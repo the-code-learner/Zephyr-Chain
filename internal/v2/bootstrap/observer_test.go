@@ -4,13 +4,16 @@ package bootstrap
 
 import (
 	"context"
+	"crypto/ecdsa"
 	"crypto/elliptic"
 	"errors"
 	"fmt"
+	"math/big"
 	"os"
 	"path/filepath"
 	"testing"
 
+	v2consensus "github.com/zephyr-chain/zephyr-chain/internal/v2/consensus"
 	"github.com/zephyr-chain/zephyr-chain/internal/v2/genesis"
 	p2p "github.com/zephyr-chain/zephyr-chain/internal/v2/network/p2p"
 	v2node "github.com/zephyr-chain/zephyr-chain/internal/v2/node"
@@ -182,5 +185,154 @@ func TestPinnedPeerParsingRejectsAnonymousOrDuplicate(t *testing.T) {
 	}
 	if _, err := ParsePinnedPeers([]string{addr, addr}); !errors.Is(err, ErrObserverPeers) {
 		t.Fatalf("duplicate peer was accepted: %v", err)
+	}
+}
+
+func appendSingleValidatorCertifiedEmptyBlock(t *testing.T, obs *Observer) {
+	t.Helper()
+	// Only the deterministic test fixture owns D=1 (base-point public key).
+	// Production validators must never derive keys from public fixtures.
+	curve := elliptic.P256()
+	key := &ecdsa.PrivateKey{
+		PublicKey: ecdsa.PublicKey{Curve: curve, X: curve.Params().Gx, Y: curve.Params().Gy},
+		D:         big.NewInt(1),
+	}
+	height := obs.Runtime.Height + 1
+	candidate, err := obs.Runtime.BuildCandidate(height, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	proposal, err := v2consensus.SignProposal(key, candidate.Header, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	vote, err := v2consensus.SignVote(key, obs.Network, height, 0, v2consensus.HeaderConsensusHash(candidate.Header))
+	if err != nil {
+		t.Fatal(err)
+	}
+	set := obs.Service.Validators
+	cert, err := set.BuildCertificate(proposal, []v2consensus.Vote{vote})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := obs.Runtime.Commit(candidate, cert, set); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestPinnedObserverRecoversOnlyCertifiedGenesisSuccessor(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "operator")
+	cfg := observerFixture(t, dir)
+	obs, err := OpenObserver(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	appendSingleValidatorCertifiedEmptyBlock(t, obs)
+	wantParent := obs.Runtime.ParentHash
+	if obs.Runtime.Height != 1 {
+		t.Fatal("first quorum-certified height missing")
+	}
+	if err := obs.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	recovered, err := OpenObserver(cfg)
+	if err != nil {
+		t.Fatalf("valid genesis-successor recovery rejected: %v", err)
+	}
+	if recovered.Runtime.Height != 1 || recovered.Runtime.ParentHash != wantParent ||
+		recovered.Runtime.RecoveryRequired() {
+		t.Fatalf("inconsistent height/parent after QC recovery: %d %x", recovered.Runtime.Height, recovered.Runtime.ParentHash)
+	}
+	if _, err := recovered.Service.Propose(context.Background()); !errors.Is(err, v2node.ErrNotValidator) {
+		t.Fatalf("recovered observer acquired voting authority: %v", err)
+	}
+	if err := recovered.Close(); err != nil {
+		t.Fatal(err)
+	}
+	again, err := OpenObserver(cfg)
+	if err != nil {
+		t.Fatalf("idempotent recoverable anchor refused: %v", err)
+	}
+	if again.Runtime.Height != 1 || again.Runtime.ParentHash != wantParent {
+		t.Fatal("idempotent recovery moved the finality anchor")
+	}
+	if err := again.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestPinnedObserverRefusesUnverifiableMultiHeightRecovery(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "operator")
+	cfg := observerFixture(t, dir)
+	obs, err := OpenObserver(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	appendSingleValidatorCertifiedEmptyBlock(t, obs)
+	appendSingleValidatorCertifiedEmptyBlock(t, obs)
+	if obs.Runtime.Height != 2 {
+		t.Fatal("fixture did not reach height two")
+	}
+	if err := obs.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := OpenObserver(cfg); !errors.Is(err, ErrObserverRecovery) {
+		t.Fatalf("unverified multi-height journal accepted: %v", err)
+	}
+}
+
+func TestPinnedObserverRejectsTamperedCertifiedJournal(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "operator")
+	cfg := observerFixture(t, dir)
+	obs, err := OpenObserver(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	appendSingleValidatorCertifiedEmptyBlock(t, obs)
+	if err := obs.Close(); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "global-commit.journal")
+	raw, err := os.ReadFile(path)
+	if err != nil || len(raw) < 40 {
+		t.Fatalf("invalid test journal: %v", err)
+	}
+	raw[len(raw)-1] ^= 0x01
+	if err := os.WriteFile(path, raw, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := OpenObserver(cfg); !errors.Is(err, ErrObserverRecovery) {
+		t.Fatalf("tampered QC journal accepted: %v", err)
+	}
+}
+
+func TestPinnedObserverRejectsPostCommitStateRootTampering(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "operator")
+	cfg := observerFixture(t, dir)
+	obs, err := OpenObserver(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	appendSingleValidatorCertifiedEmptyBlock(t, obs)
+	if err := obs.Close(); err != nil {
+		t.Fatal(err)
+	}
+	disk, err := worldstate.OpenDisk(filepath.Join(dir, "shard-0000"), cfg.ExpectedNetwork)
+	if err != nil {
+		t.Fatal(err)
+	}
+	added := object.Object{
+		ID:   types.ObjectIDForShard(types.Hash{44}, 1, 0),
+		Kind: object.KindSystem, Version: 1, Data: []byte("invalid-uncommitted-state"),
+	}
+	if _, err := disk.Apply(nil, []object.Object{added}); err != nil {
+		t.Fatal(err)
+	}
+	if err := disk.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := OpenObserver(cfg); !errors.Is(err, ErrObserverRecovery) {
+		t.Fatalf("uncommitted state was accepted as certified: %v", err)
 	}
 }
