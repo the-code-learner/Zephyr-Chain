@@ -200,8 +200,8 @@ func TestV2ObserverCLIVerifiesWitnessQuorumBeforeStorage(t *testing.T) {
 	if err:=run(ctx,args,&bytes.Buffer{});!errors.Is(err,bootstrap.ErrObserverRecovery) {
 		t.Fatalf("correctly signed already-finalized checkpoint should refuse empty genesis and reach recovery gate: %v",err)
 	}
-	if _,err:=os.Stat(dataDir);!errors.Is(err,os.ErrNotExist){
-		t.Fatal("fresh observer created data directory after positive signed checkpoint")
+	if _,err:=os.Stat(filepath.Join(dataDir,"observer-session-started"));!errors.Is(err,os.ErrNotExist){
+		t.Fatal("signed existing-height checkpoint incorrectly marked an unverified genesis session")
 	}
 	missingKeys:=args[:len(args)-2]
 	missingKeys=append(append([]string{},missingKeys...),"-witness-checkpoint-json",path)
