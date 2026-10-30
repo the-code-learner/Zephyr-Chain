@@ -1283,6 +1283,14 @@ func TestConsensusAutomationRebroadcastsVoteAfterPeerLinkRestored(t *testing.T) 
 	})
 	voterHTTP := httptest.NewServer(voterServer.Handler())
 	defer voterHTTP.Close()
+	// Both nodes share a live consensus exchange. Shut down both automation
+	// loops before Go's TempDir cleanup for either node can run: otherwise
+	// the first node can still write while the second directory is removed.
+	// The helper's own server.Close cleanups remain idempotent.
+	t.Cleanup(func() {
+		voterServer.Close()
+		proposerServer.Close()
+	})
 	proposerServer.config.PeerURLs = []string{voterHTTP.URL}
 
 	validators := []dpos.Validator{
