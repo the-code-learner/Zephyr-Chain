@@ -12,8 +12,8 @@ import (
 	"testing"
 
 	"github.com/zephyr-chain/zephyr-chain/internal/v2/genesis"
- v2node "github.com/zephyr-chain/zephyr-chain/internal/v2/node"
 	p2p "github.com/zephyr-chain/zephyr-chain/internal/v2/network/p2p"
+	v2node "github.com/zephyr-chain/zephyr-chain/internal/v2/node"
 	"github.com/zephyr-chain/zephyr-chain/internal/v2/object"
 	"github.com/zephyr-chain/zephyr-chain/internal/v2/types"
 	"github.com/zephyr-chain/zephyr-chain/internal/v2/worldstate"
