@@ -11,6 +11,24 @@ The long-term mission is described in [Zaphyr-chain_manifesto.md](./Zaphyr-chain
 
 > Zephyr's aspirational performance target is **1,000,000 transactions per second finalized through consensus**. It is a benchmark target, not a claim about current capacity.
 
+## Public-mainnet readiness: currently blocked
+
+The codebase contains multiple **tested Protocol v2 foundations**, but does
+not have an independently audited, multi-operator production mainnet.
+The exact outstanding release criteria are maintained in
+[Mainnet security and release gates](./docs/mainnet-security-release-gates.md).
+
+For offline genesis trust-anchor checks, use
+`go run ./cmd/zephyr-genesis-audit -genesis genesis.json -expected-network-id <pinned-64-hex> -expected-validator-root <pinned-64-hex>`.
+The expected hashes must be obtained **independently**, not copied from
+the file being audited. `-inspect-only` produces unauthenticated diagnostics.
+
+The reference compute provider is experimental and **requires** an exact
+operator peer allowlist and `ZEPHYR_PROVIDER_EXPERIMENTAL_EXECUTION=true`.
+See [provider identity and admission](./docs/compute-provider-security-v2.md).
+It does not authenticate finalized compute jobs or provide production
+execution isolation, quota enforcement or economic proof.
+
 ## Integrated v2 development baseline
 
 The P2/P3 lending, credential, Citizen challenge, contribution evidence,
