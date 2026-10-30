@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/libp2p/go-libp2p/core/peer"
 	ma "github.com/multiformats/go-multiaddr"
@@ -50,6 +51,7 @@ type Observer struct {
 	Transport *p2p.Node
 	Service   *v2node.Service
 	Runtime   *v2node.Runtime
+	anchor    *v2node.FinalityAnchorStore
 	stores    []*worldstate.Disk
 }
 
@@ -75,6 +77,11 @@ func OpenObserver(cfg Config) (out *Observer, err error) {
 	if cfg.TrustedCheckpoint != nil && cfg.TrustedCheckpoint.Validate(cfg.ExpectedNetwork, cfg.ExpectedValidatorRoot) != nil {
 		return nil, ErrObserverConfig
 	}
+	if cfg.TrustedCheckpoint != nil && cfg.ExternalAnchorPath != "" {
+		// Only one checkpoint trust source is supported until both can
+		// be verified independently as ancestors in the same QC history.
+		return nil, ErrObserverConfig
+	}
 	native, err := cfg.Genesis.NativeTokenID()
 	if err != nil {
 		return nil, err
@@ -86,6 +93,11 @@ func OpenObserver(cfg Config) (out *Observer, err error) {
 	if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 ||
 		info.Mode().Perm()&0077 != 0 {
 		return nil, ErrObserverConfig
+	}
+	if cfg.ExternalAnchorPath != "" {
+		if err := validateExternalAnchorLocation(cfg.DataDir, cfg.ExternalAnchorPath); err != nil {
+			return nil, ErrObserverConfig
+		}
 	}
 	markerPath := filepath.Join(cfg.DataDir, sessionMarkerName)
 	existingSession := false
@@ -175,6 +187,19 @@ func OpenObserver(cfg Config) (out *Observer, err error) {
 			_ = runtime.CloseCertifiedHistory()
 		}
 	}()
+	var anchorStore *v2node.FinalityAnchorStore
+	if cfg.ExternalAnchorPath != "" {
+		anchorStore, err = v2node.OpenFinalityAnchorStore(
+			cfg.ExternalAnchorPath, cfg.ExpectedNetwork, cfg.ExpectedValidatorRoot, !existingSession,
+		)
+		if err != nil { return nil, fmt.Errorf("%w: %v", ErrObserverRecovery, err) }
+		defer func() {
+			if err != nil { _ = anchorStore.Close() }
+		}()
+		if err := runtime.EnableFinalityAnchorStore(anchorStore); err != nil {
+			return nil, fmt.Errorf("%w: %v", ErrObserverRecovery, err)
+		}
+	}
 	if existingSession {
 		if err := runtime.RecoverCertifiedHistoryWithCheckpoint(validators, memory, cfg.TrustedCheckpoint); err != nil {
 			return nil, fmt.Errorf("%w: %v", ErrObserverRecovery, err)
@@ -243,7 +268,7 @@ func OpenObserver(cfg Config) (out *Observer, err error) {
 	}
 	return &Observer{
 		Network: cfg.ExpectedNetwork, Transport: transport,
-		Service: service, Runtime: runtime, stores: stores,
+		Service: service, Runtime: runtime, anchor: anchorStore, stores: stores,
 	}, nil
 }
 
@@ -257,6 +282,9 @@ func (o *Observer) Close() error {
 	}
 	if o.Runtime != nil {
 		err = errors.Join(err, o.Runtime.CloseCertifiedHistory())
+	}
+	if o.anchor != nil {
+		err = errors.Join(err, o.anchor.Close())
 	}
 	for _, store := range o.stores {
 		err = errors.Join(err, store.Close())
@@ -301,4 +329,21 @@ func ParsePinnedPeers(values []string) ([]peer.AddrInfo, error) {
 		peers = append(peers, *info)
 	}
 	return peers, nil
+}
+
+func validateExternalAnchorLocation(dataDir, anchorPath string) error {
+	if !filepath.IsAbs(anchorPath) || filepath.Clean(anchorPath)!=anchorPath {
+		return ErrObserverConfig
+	}
+	stateReal, err := filepath.EvalSymlinks(dataDir)
+	if err != nil { return ErrObserverConfig }
+	anchorParentReal, err := filepath.EvalSymlinks(filepath.Dir(anchorPath))
+	if err != nil { return ErrObserverConfig }
+	rel, err := filepath.Rel(stateReal, anchorParentReal)
+	if err != nil { return ErrObserverConfig }
+	if rel=="." || (rel!=".." && !strings.HasPrefix(rel,".."+string(os.PathSeparator))) {
+		// The guard must never share the mutable snapshot/rollback tree.
+		return ErrObserverConfig
+	}
+	return nil
 }
