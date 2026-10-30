@@ -16,10 +16,10 @@ var ErrFinalityCheckpoint = errors.New("untrusted or unproven external finalized
 // recoverable state directory. This struct is NOT a proof of freshness,
 // external signature, remote agreement or monotonic checkpoint storage.
 type FinalityCheckpoint struct {
-	Network types.NetworkID
+	Network       types.NetworkID
 	ValidatorRoot types.Hash
-	Height uint64
-	HeaderHash types.Hash
+	Height        uint64
+	HeaderHash    types.Hash
 }
 
 func (c FinalityCheckpoint) Validate(network types.NetworkID, validatorRoot types.Hash) error {

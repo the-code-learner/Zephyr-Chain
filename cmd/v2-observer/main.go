@@ -61,17 +61,17 @@ func parseGenesisFile(path string) (genesis.Config, error) {
 }
 
 type startInfo struct {
-	Mode            string   `json:"mode"`
-	NetworkID       string   `json:"networkId"`
-	ValidatorRoot   string   `json:"validatorRoot"`
-	PeerID          string   `json:"peerId"`
-	Addresses       []string `json:"addresses"`
-	InitialShards   uint32   `json:"initialShards"`
-	FinalizedHeight uint64   `json:"finalizedHeight"`
-	FinalizedHeaderHash string `json:"finalizedHeaderHash"`
-	RecoveryMode    string   `json:"recoveryMode"`
-	RollbackGuard    string   `json:"rollbackGuard"`
-	TrustedHeight    uint64   `json:"trustedFinalizedHeight,omitempty"`
+	Mode                string   `json:"mode"`
+	NetworkID           string   `json:"networkId"`
+	ValidatorRoot       string   `json:"validatorRoot"`
+	PeerID              string   `json:"peerId"`
+	Addresses           []string `json:"addresses"`
+	InitialShards       uint32   `json:"initialShards"`
+	FinalizedHeight     uint64   `json:"finalizedHeight"`
+	FinalizedHeaderHash string   `json:"finalizedHeaderHash"`
+	RecoveryMode        string   `json:"recoveryMode"`
+	RollbackGuard       string   `json:"rollbackGuard"`
+	TrustedHeight       uint64   `json:"trustedFinalizedHeight,omitempty"`
 }
 
 func run(ctx context.Context, args []string, output io.Writer) error {
@@ -112,10 +112,10 @@ func run(ctx context.Context, args []string, output io.Writer) error {
 			return err
 		}
 		checkpoint = &v2node.FinalityCheckpoint{
-			Network: types.NetworkID(netHash),
+			Network:       types.NetworkID(netHash),
 			ValidatorRoot: rootHash,
-			Height: *trustedHeight,
-			HeaderHash: h,
+			Height:        *trustedHeight,
+			HeaderHash:    h,
 		}
 	}
 	g, err := parseGenesisFile(*genesisPath)
@@ -160,7 +160,7 @@ func run(ctx context.Context, args []string, output io.Writer) error {
 		ValidatorRoot: rootHash.String(), PeerID: obs.Transport.ID().String(),
 		Addresses: addresses, InitialShards: g.InitialShardCount,
 		FinalizedHeight: obs.Runtime.Height, FinalizedHeaderHash: obs.Runtime.ParentHash.String(),
-		RecoveryMode: "bounded QC-certified genesis-to-tip history replay",
+		RecoveryMode:  "bounded QC-certified genesis-to-tip history replay",
 		RollbackGuard: rollbackGuard, TrustedHeight: anchorHeight}
 	if err := json.NewEncoder(output).Encode(info); err != nil {
 		return err

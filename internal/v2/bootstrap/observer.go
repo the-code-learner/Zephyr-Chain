@@ -39,10 +39,10 @@ type Config struct {
 	ExpectedValidatorRoot types.Hash
 	// TrustedCheckpoint is supplied independently of this node's local WAL,
 	// history and commit journal. A missing checkpoint is devnet-only.
-	TrustedCheckpoint    *v2node.FinalityCheckpoint
-	DataDir               string
-	ListenAddrs           []string
-	Workers               int
+	TrustedCheckpoint *v2node.FinalityCheckpoint
+	DataDir           string
+	ListenAddrs       []string
+	Workers           int
 }
 
 type Observer struct {

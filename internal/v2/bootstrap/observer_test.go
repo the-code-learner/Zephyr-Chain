@@ -428,53 +428,63 @@ func TestPinnedObserverRejectsHistoryWithForgedIntermediateQC(t *testing.T) {
 }
 
 func TestPinnedObserverRefusesOldValidHistoryAgainstExternalCheckpoint(t *testing.T) {
-	cfg := observerFixture(t,filepath.Join(t.TempDir(),"operator"))
-	obs,err:=OpenObserver(cfg)
-	if err!=nil{t.Fatal(err)}
-	appendSingleValidatorCertifiedEmptyBlock(t,obs)
-	appendSingleValidatorCertifiedEmptyBlock(t,obs)
-	pinnedTwo:=obs.Runtime.ParentHash
-	if err:=obs.Close();err!=nil{t.Fatal(err)}
-	cfg.TrustedCheckpoint=&v2node.FinalityCheckpoint{
-		Network:cfg.ExpectedNetwork,ValidatorRoot:cfg.ExpectedValidatorRoot,
-		Height:2,HeaderHash:pinnedTwo,
+	cfg := observerFixture(t, filepath.Join(t.TempDir(), "operator"))
+	obs, err := OpenObserver(cfg)
+	if err != nil {
+		t.Fatal(err)
 	}
-	verified,err:=OpenObserver(cfg)
-	if err!=nil{t.Fatalf("externally pinned QC ancestor rejected: %v",err)}
-	if verified.Runtime.Height!=2||verified.Runtime.ParentHash!=pinnedTwo{t.Fatal("checkpoint did not bind recovered height and hash")}
-	if err:=verified.Close();err!=nil{t.Fatal(err)}
-	older:=cfg
-	older.TrustedCheckpoint=&v2node.FinalityCheckpoint{
-		Network:cfg.ExpectedNetwork,ValidatorRoot:cfg.ExpectedValidatorRoot,
-		Height:3,HeaderHash:types.Hash{7},
+	appendSingleValidatorCertifiedEmptyBlock(t, obs)
+	appendSingleValidatorCertifiedEmptyBlock(t, obs)
+	pinnedTwo := obs.Runtime.ParentHash
+	if err := obs.Close(); err != nil {
+		t.Fatal(err)
 	}
-	if _,err:=OpenObserver(older);!errors.Is(err,ErrObserverRecovery){
-		t.Fatalf("stale but valid QC history bypassed external checkpoint: %v",err)
+	cfg.TrustedCheckpoint = &v2node.FinalityCheckpoint{
+		Network: cfg.ExpectedNetwork, ValidatorRoot: cfg.ExpectedValidatorRoot,
+		Height: 2, HeaderHash: pinnedTwo,
 	}
-	forged:=cfg
-	forged.TrustedCheckpoint=&v2node.FinalityCheckpoint{
-		Network:cfg.ExpectedNetwork,ValidatorRoot:cfg.ExpectedValidatorRoot,
-		Height:2,HeaderHash:types.Hash{8},
+	verified, err := OpenObserver(cfg)
+	if err != nil {
+		t.Fatalf("externally pinned QC ancestor rejected: %v", err)
 	}
-	if _,err:=OpenObserver(forged);!errors.Is(err,ErrObserverRecovery){
-		t.Fatalf("same-height forked checkpoint accepted: %v",err)
+	if verified.Runtime.Height != 2 || verified.Runtime.ParentHash != pinnedTwo {
+		t.Fatal("checkpoint did not bind recovered height and hash")
+	}
+	if err := verified.Close(); err != nil {
+		t.Fatal(err)
+	}
+	older := cfg
+	older.TrustedCheckpoint = &v2node.FinalityCheckpoint{
+		Network: cfg.ExpectedNetwork, ValidatorRoot: cfg.ExpectedValidatorRoot,
+		Height: 3, HeaderHash: types.Hash{7},
+	}
+	if _, err := OpenObserver(older); !errors.Is(err, ErrObserverRecovery) {
+		t.Fatalf("stale but valid QC history bypassed external checkpoint: %v", err)
+	}
+	forged := cfg
+	forged.TrustedCheckpoint = &v2node.FinalityCheckpoint{
+		Network: cfg.ExpectedNetwork, ValidatorRoot: cfg.ExpectedValidatorRoot,
+		Height: 2, HeaderHash: types.Hash{8},
+	}
+	if _, err := OpenObserver(forged); !errors.Is(err, ErrObserverRecovery) {
+		t.Fatalf("same-height forked checkpoint accepted: %v", err)
 	}
 }
 
 func TestPinnedObserverRefusesExternalCheckpointWithoutExistingVerifiedHistory(t *testing.T) {
-	cfg:=observerFixture(t,filepath.Join(t.TempDir(),"new-observer"))
-	cfg.TrustedCheckpoint=&v2node.FinalityCheckpoint{
-		Network:cfg.ExpectedNetwork,ValidatorRoot:cfg.ExpectedValidatorRoot,
-		Height:1,HeaderHash:types.Hash{9},
+	cfg := observerFixture(t, filepath.Join(t.TempDir(), "new-observer"))
+	cfg.TrustedCheckpoint = &v2node.FinalityCheckpoint{
+		Network: cfg.ExpectedNetwork, ValidatorRoot: cfg.ExpectedValidatorRoot,
+		Height: 1, HeaderHash: types.Hash{9},
 	}
-	if _,err:=OpenObserver(cfg);!errors.Is(err,ErrObserverRecovery){
-		t.Fatalf("fresh genesis was allowed despite externally pinned finalized height: %v",err)
+	if _, err := OpenObserver(cfg); !errors.Is(err, ErrObserverRecovery) {
+		t.Fatalf("fresh genesis was allowed despite externally pinned finalized height: %v", err)
 	}
-	if _,err:=os.Stat(filepath.Join(cfg.DataDir,sessionMarkerName));!errors.Is(err,os.ErrNotExist){
+	if _, err := os.Stat(filepath.Join(cfg.DataDir, sessionMarkerName)); !errors.Is(err, os.ErrNotExist) {
 		t.Fatal("unverified fresh session incorrectly marked active")
 	}
-	cfg.TrustedCheckpoint.Network=types.NetworkID{4}
-	if _,err:=OpenObserver(cfg);!errors.Is(err,ErrObserverConfig){
-		t.Fatalf("foreign-network external anchor accepted: %v",err)
+	cfg.TrustedCheckpoint.Network = types.NetworkID{4}
+	if _, err := OpenObserver(cfg); !errors.Is(err, ErrObserverConfig) {
+		t.Fatalf("foreign-network external anchor accepted: %v", err)
 	}
 }
