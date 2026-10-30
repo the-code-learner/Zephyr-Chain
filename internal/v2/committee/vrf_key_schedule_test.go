@@ -13,7 +13,7 @@ func testScheduledVRFEpoch(t *testing.T) VRFKeyEpoch {
 	key := mustHex(t, "0360fed4ba255a9d31c961eb74c6356d68c049b8923b61fa6ce669622e60f29fb6")
 	var publicKey [vrf.P256PublicKeySize]byte
 	copy(publicKey[:], key)
-	return VRFKeyEpoch{
+	epoch := VRFKeyEpoch{
 		Network:            types.NetworkID{1},
 		Producer:           types.AccountID{7},
 		PublicKey:          publicKey,
@@ -21,6 +21,10 @@ func testScheduledVRFEpoch(t *testing.T) VRFKeyEpoch {
 		RegistrationHeight: 50,
 		ActiveFromHeight:   80,
 	}
+	for i := range epoch.Network {
+		epoch.Network[i] = 0x01
+	}
+	return epoch
 }
 
 func testScheduledVRFInput(t *testing.T, e VRFKeyEpoch) Input {
