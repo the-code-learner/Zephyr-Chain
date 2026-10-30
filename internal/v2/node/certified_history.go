@@ -3,7 +3,6 @@ package node
 import (
 	"bytes"
 	"errors"
-	"fmt"
 	"io"
 	"os"
 	"sync"
@@ -383,7 +382,7 @@ func (r *Runtime) RecoverCertifiedHistoryWithCheckpoint(validators v2consensus.V
 	}
 	last, err := h.Replay(validators, genesis, path, checkpoint)
 	if err != nil {
-		return fmt.Errorf("%w: %v", ErrCertifiedHistory, err)
+		return errors.Join(ErrCertifiedHistory, err)
 	}
 	// The last on-disk PREPARING intent is idempotently reconciled with its
 	// exact pre/post state. The full chain and genesis roots were verified
