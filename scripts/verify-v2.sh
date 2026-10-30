@@ -53,7 +53,7 @@ go test -race \
   -count=1 -timeout=8m
 
 go test -race ./internal/v2/node \
-  -run '^(TestProtectedValidatorServicePersistsSigningIntent|TestCertifiedHistory.*|TestPinnedFinalityCheckpoint.*)$' \
+  -run '^(TestProtectedValidatorServicePersistsSigningIntent|TestCertifiedHistory.*|TestPinnedFinalityCheckpoint.*|TestFinalityAnchorStore.*|TestExternalFinalityAnchor.*)$' \
   -count=1 -timeout=3m
 
 printf '[5/6] Repeated v2 consensus partition and recovery tests\n'
