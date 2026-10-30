@@ -48,10 +48,10 @@ func TestHashFinalizedProviderComputeEvidenceSetCanonicalOrder(t *testing.T) {
 func TestHashFinalizedProviderComputeEvidenceSetFailsClosed(t *testing.T) {
 	items := finalizedProviderEvidenceSetFixture(t, false)
 	cases := map[string][]FinalizedProviderComputeEvidence{
-		"nil":       nil,
-		"empty":     {},
+		"nil":        nil,
+		"empty":      {},
 		"incomplete": {items[0]},
-		"duplicate": {items[0], items[0]},
+		"duplicate":  {items[0], items[0]},
 	}
 	for name, records := range cases {
 		t.Run(name, func(t *testing.T) {
