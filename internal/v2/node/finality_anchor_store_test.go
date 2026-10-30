@@ -25,21 +25,21 @@ func TestFinalityAnchorStoreRejectsRollbackEquivocationAndTornRecord(t *testing.
 	}
 	c1 := FinalityCheckpoint{Network: network, ValidatorRoot: root, Height: 1, HeaderHash: types.Hash{1}}
 	c2 := FinalityCheckpoint{Network: network, ValidatorRoot: root, Height: 2, HeaderHash: types.Hash{2}}
-	if err := s.Advance(c1); err != nil {
+	if err := s.advance(c1); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.Advance(c1); err != nil {
+	if err := s.advance(c1); err != nil {
 		t.Fatalf("idempotent anchor rejected: %v", err)
 	}
-	if err := s.Advance(c2); err != nil {
+	if err := s.advance(c2); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.Advance(c1); !errors.Is(err, ErrFinalityAnchor) {
+	if err := s.advance(c1); !errors.Is(err, ErrFinalityAnchor) {
 		t.Fatalf("lower checkpoint accepted: %v", err)
 	}
 	equivocation := c2
 	equivocation.HeaderHash = types.Hash{9}
-	if err := s.Advance(equivocation); !errors.Is(err, ErrFinalityAnchor) {
+	if err := s.advance(equivocation); !errors.Is(err, ErrFinalityAnchor) {
 		t.Fatalf("same-height equivocation accepted: %v", err)
 	}
 	latest, err := s.Current()
