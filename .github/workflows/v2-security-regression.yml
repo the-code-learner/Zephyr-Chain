@@ -36,3 +36,5 @@ jobs:
             ./cmd/compute-provider \
             ./cmd/zephyr-genesis-audit \
             -count=1 -timeout=8m
+      - name: Protected validator signing restart regression under race detector
+        run: go test -race ./internal/v2/node -run '^TestProtectedValidatorServicePersistsSigningIntent$' -count=1 -timeout=3m
