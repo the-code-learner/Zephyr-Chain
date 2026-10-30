@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+ "strings"
 
 	"github.com/zephyr-chain/zephyr-chain/internal/v2/genesis"
 )
@@ -84,5 +85,30 @@ func TestV2ObserverCLIRejectsMalformedHashesAndHugeGenesis(t *testing.T) {
 	}
 	if _, err := parseGenesisFile(path); err == nil {
 		t.Fatal("unbounded genesis file accepted")
+	}
+}
+
+func TestV2ObserverCLIRequiresPairedExternalCheckpointAndRejectsFreshGenesis(t *testing.T) {
+	path,network,root:=observerCLIConfig(t)
+	dataDir:=filepath.Join(t.TempDir(),"anchored-observer")
+	base:=[]string{"-genesis",path,"-expected-network-id",network,"-expected-validator-root",root,"-data-dir",dataDir}
+	ctx,cancel:=context.WithCancel(context.Background())
+	cancel()
+	missingHash:=append(append([]string{},base...),"-trusted-finalized-height","2")
+	if err:=run(ctx,missingHash,&bytes.Buffer{});err==nil{t.Fatal("height-only trust pin accepted")}
+	missingHeight:=append(append([]string{},base...),"-trusted-finalized-hash","1"+string(bytes.Repeat([]byte{'0'},63)))
+	if err:=run(ctx,missingHeight,&bytes.Buffer{});err==nil{t.Fatal("hash-only trust pin accepted")}
+	invalidHash:=append(append([]string{},base...),"-trusted-finalized-height","2","-trusted-finalized-hash","invalid")
+	if err:=run(ctx,invalidHash,&bytes.Buffer{});err==nil{t.Fatal("invalid external hash accepted")}
+	validPair:=append(append([]string{},base...),"-trusted-finalized-height","2","-trusted-finalized-hash","1"+string(bytes.Repeat([]byte{'0'},63)))
+	if err:=run(ctx,validPair,&bytes.Buffer{});err==nil{t.Fatal("fresh genesis accepted despite externally finalized checkpoint")}
+	// Optional trust pins are for a local experimental devnet only:
+	// the startup report must explicitly expose missing anti-rollback.
+	var out bytes.Buffer
+	if err:=run(ctx,base,&out);err!=nil{t.Fatal(err)}
+	var status startInfo
+	if err:=json.Unmarshal(out.Bytes(),&status);err!=nil{t.Fatal(err)}
+	if status.TrustedHeight!=0||!strings.Contains(status.RollbackGuard,"UNANCHORED"){
+		t.Fatalf("missing external trust warning: %+v",status)
 	}
 }
