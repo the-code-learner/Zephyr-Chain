@@ -1,7 +1,6 @@
 // Package bootstrap provides an explicitly bounded Protocol v2 observer
-// startup. It is not a production validator or a finalized-history recovery
-// implementation. Once a network session has been started, restart requires
-// an independently authenticated recovery procedure which is not yet present.
+// startup. It is not a production validator or a multi-height finalized-history
+// recovery implementation. It permits only the QC-verified genesis successor.
 package bootstrap
 
 import (
@@ -24,6 +23,7 @@ import (
 const (
 	MaxObserverShards = 16
 	sessionMarkerName = "observer-session-started"
+	sessionMarkerText = "v2 observer active: verified finalized recovery required for reuse\n"
 )
 
 var (
@@ -51,9 +51,9 @@ type Observer struct {
 
 // OpenObserver creates a QUIC/libp2p observer (NO consensus signer) from
 // independently pinned genesis and validator-root commitments. It can
-// participate in the existing certified-commit protocol during its first
-// session. It intentionally refuses a later session on the same data dir,
-// because a durable finalized header/checkpoint replay is not yet available.
+// participate in the existing certified-commit protocol. Restart is
+// permitted only for a QC-verified direct successor of genesis (height 1).
+// Multi-height history and validator-set transitions remain unsupported.
 func OpenObserver(cfg Config) (out *Observer, err error) {
 	if cfg.DataDir == "" || cfg.Workers < 0 ||
 		types.IsZero32([32]byte(cfg.ExpectedNetwork)) ||
@@ -81,10 +81,18 @@ func OpenObserver(cfg Config) (out *Observer, err error) {
 		return nil, ErrObserverConfig
 	}
 	markerPath := filepath.Join(cfg.DataDir, sessionMarkerName)
-	if _, err := os.Lstat(markerPath); err == nil {
-		return nil, ErrObserverRecovery
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return nil, err
+	existingSession := false
+	if markerInfo, statErr := os.Lstat(markerPath); statErr == nil {
+		if !markerInfo.Mode().IsRegular() || markerInfo.Mode().Perm() != 0600 {
+			return nil, ErrObserverRecovery
+		}
+		markerBytes, readErr := os.ReadFile(markerPath)
+		if readErr != nil || string(markerBytes) != sessionMarkerText {
+			return nil, ErrObserverRecovery
+		}
+		existingSession = true
+	} else if !errors.Is(statErr, os.ErrNotExist) {
+		return nil, statErr
 	}
 
 	// Derive independent expected genesis roots in memory. A persisted state
@@ -119,12 +127,14 @@ func OpenObserver(cfg Config) (out *Observer, err error) {
 		stores = append(stores, disk)
 		backends[shard] = disk
 	}
-	if err := genesis.SeedStates(cfg.Genesis, backends); err != nil {
-		return nil, err
-	}
-	for shard, disk := range stores {
-		if disk.Root() != expected[uint32(shard)] {
-			return nil, ErrObserverRecovery
+	if !existingSession {
+		if err := genesis.SeedStates(cfg.Genesis, backends); err != nil {
+			return nil, err
+		}
+		for shard, disk := range stores {
+			if disk.Root() != expected[uint32(shard)] {
+				return nil, ErrObserverRecovery
+			}
 		}
 	}
 	runtime, err := v2node.NewRuntime(cfg.ExpectedNetwork, native, cfg.ExpectedValidatorRoot, backends, cfg.Workers)
@@ -134,47 +144,52 @@ func OpenObserver(cfg Config) (out *Observer, err error) {
 	if err := runtime.EnableGlobalCommitJournal(filepath.Join(cfg.DataDir, "global-commit.journal")); err != nil {
 		return nil, err
 	}
-	if runtime.RecoveryRequired() {
-		return nil, ErrObserverRecovery
-	}
 	validators, err := cfg.Genesis.ValidatorSet()
 	if err != nil {
 		return nil, err
 	}
-
-	// A durable single-use marker is synced before the observer advertises
-	// a network listener. It stays in place even after clean shutdown:
-	// finalized empty blocks would not change state roots, yet would advance
-	// consensus height and cannot be replayed from state roots alone.
-	marker, err := os.OpenFile(markerPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
-	if err != nil {
-		if errors.Is(err, os.ErrExist) {
-			return nil, ErrObserverRecovery
+	if existingSession {
+		if err := runtime.RecoverCertifiedGenesisSuccessor(validators, expected); err != nil {
+			return nil, fmt.Errorf("%w: %v", ErrObserverRecovery, err)
 		}
-		return nil, err
+	} else if runtime.RecoveryRequired() {
+		return nil, ErrObserverRecovery
 	}
-	_, err = marker.Write([]byte("v2 observer active: verified finalized recovery required for reuse\n"))
-	if err == nil {
-		err = marker.Sync()
-	}
-	closeErr := marker.Close()
-	if err == nil {
-		err = closeErr
-	}
-	if err != nil {
-		return nil, err
-	}
-	dir, err := os.Open(cfg.DataDir)
-	if err != nil {
-		return nil, err
-	}
-	syncErr := dir.Sync()
-	closeErr = dir.Close()
-	if syncErr != nil {
-		return nil, syncErr
-	}
-	if closeErr != nil {
-		return nil, closeErr
+
+	// The first session is durably marked before any network listener starts.
+	// A subsequent session is allowed ONLY when its latest commit can be
+	// independently proven to be the direct height-1 successor of genesis.
+	if !existingSession {
+		marker, openErr := os.OpenFile(markerPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
+		if openErr != nil {
+			if errors.Is(openErr, os.ErrExist) {
+				return nil, ErrObserverRecovery
+			}
+			return nil, openErr
+		}
+		_, err = marker.Write([]byte(sessionMarkerText))
+		if err == nil {
+			err = marker.Sync()
+		}
+		closeErr := marker.Close()
+		if err == nil {
+			err = closeErr
+		}
+		if err != nil {
+			return nil, err
+		}
+		dir, openErr := os.Open(cfg.DataDir)
+		if openErr != nil {
+			return nil, openErr
+		}
+		syncErr := dir.Sync()
+		closeErr = dir.Close()
+		if syncErr != nil {
+			return nil, syncErr
+		}
+		if closeErr != nil {
+			return nil, closeErr
+		}
 	}
 
 	identity, err := p2p.LoadOrCreateIdentity(filepath.Join(cfg.DataDir, "transport"), cfg.ExpectedNetwork)
