@@ -53,7 +53,23 @@ go test -race \
   -count=1 -timeout=8m
 
 go test -race ./internal/v2/node \
-  -run '^(TestProtectedValidatorServicePersistsSigningIntent|TestCertifiedHistory.*)$' \
+  -run '^(TestProtectedValidatorServicePersistsSigningIntent|TestCertifiedHistory.*|TestPinnedFinalityCheckpoint.*)
+  -count=1 -timeout=3m
+
+printf '[5/6] Repeated v2 consensus partition and recovery tests\n'
+go test ./internal/v2/lab \
+  -run '^TestV2Lab(FourThreePartitionStallsThenHeals|FiveTwoPartitionFinalizesQuorumSideAndMinorityCatchesUp)$' \
+  -count=10 -timeout=120s
+
+printf '[6/6] Real QUIC/libp2p ephemeral devnet on one local host\n'
+ZEPHYR_DEVNET_VALIDATORS=7 go test ./internal/v2/node \
+  -run '^TestProtocolV2Devnet' -count=1 -timeout=300s
+
+ZEPHYR_DEVNET_VALIDATORS=20 go test ./internal/v2/node \
+  -run '^TestProtocolV2DevnetTransactionVotingAndFinality$' -count=1 -timeout=300s
+
+printf 'Full local correctness gate passed. No multi-host/production capacity guarantee.\n'
+ \
   -count=1 -timeout=3m
 
 printf '[5/6] Repeated v2 consensus partition and recovery tests\n'
