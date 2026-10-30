@@ -15,8 +15,9 @@ func (s *Server) recoverCertifiedBlockFromPeers(primaryPeerURL string, height ui
 		return fmt.Errorf("peer transport does not support certified block evidence")
 	}
 
-	peerURLs := make([]string, 0, len(s.config.PeerURLs)+1)
-	seenPeers := make(map[string]struct{}, len(s.config.PeerURLs)+1)
+	configuredPeers := s.peerURLsSnapshot()
+	peerURLs := make([]string, 0, len(configuredPeers)+1)
+	seenPeers := make(map[string]struct{}, len(configuredPeers)+1)
 	appendPeer := func(peerURL string) {
 		if peerURL == "" {
 			return
@@ -28,7 +29,7 @@ func (s *Server) recoverCertifiedBlockFromPeers(primaryPeerURL string, height ui
 		peerURLs = append(peerURLs, peerURL)
 	}
 	appendPeer(primaryPeerURL)
-	for _, peerURL := range s.config.PeerURLs {
+	for _, peerURL := range configuredPeers {
 		appendPeer(peerURL)
 	}
 

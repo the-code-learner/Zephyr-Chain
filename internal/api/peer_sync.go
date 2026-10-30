@@ -76,7 +76,7 @@ func (s *Server) startPeerSync() {
 }
 
 func (s *Server) syncPeers() {
-	for _, peerURL := range s.config.PeerURLs {
+	for _, peerURL := range s.peerURLsSnapshot() {
 		previous, _ := s.peerView(peerURL)
 		status, err := s.fetchPeerStatus(peerURL)
 		if err != nil {
@@ -242,7 +242,7 @@ func (s *Server) restoreSnapshotFromPeer(peerURL string, reason string) (peerSna
 	}
 
 	proofs := []ledger.SnapshotProof{snapshot.Proof}
-	for _, candidateURL := range s.config.PeerURLs {
+	for _, candidateURL := range s.peerURLsSnapshot() {
 		if candidateURL == peerURL {
 			continue
 		}
@@ -342,8 +342,8 @@ func (s *Server) peerSnapshot() []PeerView {
 	s.peerMu.RLock()
 	defer s.peerMu.RUnlock()
 
-	peers := make([]PeerView, 0, len(s.config.PeerURLs))
-	for _, peerURL := range s.config.PeerURLs {
+	peers := make([]PeerView, 0, len(s.peerURLsSnapshot()))
+	for _, peerURL := range s.peerURLsSnapshot() {
 		if view, ok := s.peerViews[peerURL]; ok {
 			peers = append(peers, s.enrichPeerView(view))
 			continue

@@ -144,8 +144,9 @@ func (s *Server) fetchPeerAdmissionView(peerURL string) (PeerView, bool) {
 }
 
 func (s *Server) admittedPeerURLs() []string {
-	peers := make([]string, 0, len(s.config.PeerURLs))
-	for _, peerURL := range s.config.PeerURLs {
+	configured := s.peerURLsSnapshot()
+	peers := make([]string, 0, len(configured))
+	for _, peerURL := range configured {
 		if !s.peerIdentityRequired() && s.expectedPeerValidator(peerURL) == "" {
 			peers = append(peers, peerURL)
 			continue
