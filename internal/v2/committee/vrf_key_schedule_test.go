@@ -73,6 +73,10 @@ func TestVRFKeyScheduleCommitmentAndRotation(t *testing.T) {
 	}
 
 	input := testScheduledVRFInput(t, first)
+	input.FinalizedHeight = 85
+	if _, err := CheckVRFKeyScheduleAtInput(input, first.Producer, schedule, 20); err == nil {
+		t.Fatal("post-anchor key registration was included in historical schedule")
+	}
 	input.FinalizedHeight = 119
 	got, err := CheckVRFKeyScheduleAtInput(input, first.Producer, schedule, 20)
 	if err != nil || got != first {
