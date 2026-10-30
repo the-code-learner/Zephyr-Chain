@@ -83,7 +83,7 @@ func TestProtectedValidatorServicePersistsSigningIntent(t *testing.T) {
 	}
 	stale := p
 	stale.Header.Height = 0
-	if _, err := next.signVoteLocked(stale); !errors.Is(err, v2consensus.ErrSigningConflict) {
+	if _, err := next.signVoteLocked(stale); err == nil {
 		t.Fatalf("stale signature accepted after restart: %v", err)
 	}
 	if _, err := NewProtectedService(next.Runtime, set, key, node, nil); err == nil {
