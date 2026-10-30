@@ -15,7 +15,9 @@ import (
 func privateAnchorTestPath(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
-	if err := os.Chmod(dir, 0700); err != nil { t.Fatal(err) }
+	if err := os.Chmod(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
 	return filepath.Join(dir, "high-water.anchor")
 }
 
@@ -83,7 +85,9 @@ func TestFinalityAnchorStoreRejectsForeignIdentityCorruptionAndSymlink(t *testin
 	network := types.NetworkID{1}
 	root := types.Hash{4}
 	dir := t.TempDir()
-	if err := os.Chmod(dir, 0700); err != nil { t.Fatal(err) }
+	if err := os.Chmod(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
 	path := filepath.Join(dir, "anchor")
 	anchor, err := OpenFinalityAnchorStore(path, network, root, true)
 	if err != nil {
