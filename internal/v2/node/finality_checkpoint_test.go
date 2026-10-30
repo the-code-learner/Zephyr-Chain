@@ -5,7 +5,6 @@ package node
 import (
  "errors"
  "os"
- "path/filepath"
  "testing"
 
  "github.com/zephyr-chain/zephyr-chain/internal/v2/types"
@@ -104,5 +103,4 @@ func TestPinnedFinalityCheckpointRejectsMissingOrInconsistentData(t *testing.T) 
  if err:=checkpoint.Validate(checkpoint.Network,checkpoint.ValidatorRoot);err!=nil{t.Fatal(err)}
  if err:=checkpoint.Validate(types.NetworkID{4},checkpoint.ValidatorRoot);!errors.Is(err,ErrFinalityCheckpoint){t.Fatal("wrong network permitted")}
  if err:=checkpoint.Validate(checkpoint.Network,types.Hash{4});!errors.Is(err,ErrFinalityCheckpoint){t.Fatal("wrong validators permitted")}
- _=filepath.Separator
 }
