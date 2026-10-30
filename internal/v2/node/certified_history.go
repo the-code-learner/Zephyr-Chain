@@ -410,7 +410,7 @@ func (r *Runtime) RecoverCertifiedHistoryWithCheckpoint(validators v2consensus.V
 		return ErrCertifiedHistory
 	}
 	if anchor != nil {
-		if err := anchor.Advance(FinalityCheckpoint{
+		if err := anchor.advance(FinalityCheckpoint{
 			Network: r.Network, ValidatorRoot: r.ValidatorRoot,
 			Height: r.Height, HeaderHash: r.ParentHash,
 		}); err != nil {
