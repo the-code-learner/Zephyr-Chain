@@ -229,6 +229,8 @@ type Server struct {
 	eventLogger    *structuredEventLogger
 	peerMu         sync.RWMutex
 	peerViews      map[string]PeerView
+	peerURLsMu     sync.RWMutex
+	peerURLs       []string
 	stopCh         chan struct{}
 	wg             sync.WaitGroup
 	closeOnce      sync.Once
@@ -269,6 +271,7 @@ func NewServerWithConfig(config Config) (*Server, error) {
 		identitySigner: identitySigner,
 		eventLogger:    newStructuredEventLogger(config),
 		peerViews:      make(map[string]PeerView),
+		peerURLs:       append([]string(nil), config.PeerURLs...),
 		stopCh:         make(chan struct{}),
 	}
 
@@ -279,6 +282,26 @@ func NewServerWithConfig(config Config) (*Server, error) {
 
 func (s *Server) Handler() http.Handler {
 	return s.mux
+}
+
+
+// peerURLsSnapshot returns an independent immutable view of the currently
+// configured peer set. The old direct config.PeerURLs reads raced with
+// consensus test partition-healing and could use a partially replaced slice.
+func (s *Server) peerURLsSnapshot() []string {
+	s.peerURLsMu.RLock()
+	defer s.peerURLsMu.RUnlock()
+	return append([]string(nil), s.peerURLs...)
+}
+
+// setPeerURLs changes the live peer set without racing background consensus
+// broadcasts or HTTP status reads. This is deliberately unexported: admission
+// and identity validation remain separately enforced by their call paths.
+func (s *Server) setPeerURLs(peers []string) {
+	next := normalizePeerURLs(peers)
+	s.peerURLsMu.Lock()
+	s.peerURLs = next
+	s.peerURLsMu.Unlock()
 }
 
 func (s *Server) Close() {
@@ -339,7 +362,7 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		ChainID:                       s.config.ChainID,
 		NodeID:                        s.nodeID,
 		ValidatorAddress:              s.config.ValidatorAddress,
-		PeerCount:                     len(s.config.PeerURLs),
+		PeerCount:                     len(s.peerURLsSnapshot()),
 		BlockProduction:               s.config.EnableBlockProduction,
 		ConsensusAutomationEnabled:    s.config.EnableConsensusAutomation,
 		PeerSyncEnabled:               s.config.EnablePeerSync,
@@ -389,7 +412,7 @@ func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
 		GeneratedAt:                   now,
 		NodeID:                        s.nodeID,
 		ValidatorAddress:              s.config.ValidatorAddress,
-		PeerCount:                     len(s.config.PeerURLs),
+		PeerCount:                     len(s.peerURLsSnapshot()),
 		BlockProduction:               s.config.EnableBlockProduction,
 		ConsensusAutomationEnabled:    s.config.EnableConsensusAutomation,
 		PeerSyncEnabled:               s.config.EnablePeerSync,
@@ -764,7 +787,7 @@ func (s *Server) startBackgroundLoops() {
 	if s.config.EnableBlockProduction && s.config.BlockInterval > 0 {
 		s.startBlockProducer()
 	}
-	if s.config.EnablePeerSync && len(s.config.PeerURLs) > 0 && s.config.SyncInterval > 0 {
+	if s.config.EnablePeerSync && len(s.peerURLsSnapshot()) > 0 && s.config.SyncInterval > 0 {
 		s.startPeerSync()
 	}
 }
