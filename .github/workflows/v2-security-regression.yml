@@ -64,5 +64,7 @@ jobs:
         run: go test -race ./internal/v2/node -run '^TestQuorumAuthenticatedWitnessFloor' -count=10 -timeout=3m
       - name: Bounded remote witness transport regression
         run: go test -race ./internal/v2/node -run '^TestHTTPWitnessFloor' -count=5 -timeout=3m
+      - name: End-to-end HTTPS quorum witness recovery regression
+        run: go test -race ./internal/v2/node -run '^TestWitnessHTTPSQuorumRecoveryEndToEnd$' -count=5 -timeout=3m
       - name: Protected validator signing restart regression under race detector
         run: go test -race ./internal/v2/node -run '^TestProtectedValidatorServicePersistsSigningIntent$' -count=1 -timeout=3m
