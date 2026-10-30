@@ -1,0 +1,38 @@
+name: V2 Security Regression
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: v2-security-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  race:
+    name: Security-sensitive Go race checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Race-check genesis, transport, provider, committee and state
+        run: |
+          go test -race \
+            ./internal/v2/genesis \
+            ./internal/v2/network/p2p \
+            ./internal/v2/provider \
+            ./internal/v2/committee \
+            ./internal/v2/worldstate \
+            ./internal/v2/consensus \
+            ./cmd/compute-provider \
+            ./cmd/zephyr-genesis-audit \
+            -count=1 -timeout=8m

@@ -14,12 +14,13 @@ import (
 const ProtocolVersion uint16 = 2
 
 var (
-	ErrProtocolVersion = errors.New("genesis protocol version must be 2")
-	ErrChainName       = errors.New("genesis chain name is required")
-	ErrShardConfig     = errors.New("invalid genesis shard configuration")
-	ErrValidator       = errors.New("invalid genesis validator")
-	ErrAllocation      = errors.New("invalid genesis allocation")
-	ErrVotingPower     = errors.New("genesis voting power overflow")
+	ErrProtocolVersion  = errors.New("genesis protocol version must be 2")
+	ErrChainName        = errors.New("genesis chain name is required")
+	ErrShardConfig      = errors.New("invalid genesis shard configuration")
+	ErrValidator        = errors.New("invalid genesis validator")
+	ErrAllocation       = errors.New("invalid genesis allocation")
+	ErrVotingPower      = errors.New("genesis voting power overflow")
+	ErrAllocationSupply = errors.New("genesis initial supply overflows uint64")
 )
 
 type Validator struct {
@@ -79,6 +80,7 @@ func (g Config) Validate() error {
 	}
 
 	seenAllocations := map[types.AccountID]struct{}{}
+	var initialSupply uint64
 	for _, a := range g.Allocations {
 		if types.IsZero32([32]byte(a.Owner)) || a.Amount == 0 {
 			return ErrAllocation
@@ -87,6 +89,10 @@ func (g Config) Validate() error {
 			return ErrAllocation
 		}
 		seenAllocations[a.Owner] = struct{}{}
+		if math.MaxUint64-initialSupply < a.Amount {
+			return ErrAllocationSupply
+		}
+		initialSupply += a.Amount
 	}
 	return nil
 }
