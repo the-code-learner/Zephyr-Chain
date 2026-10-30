@@ -16,11 +16,8 @@ import (
 	"github.com/zephyr-chain/zephyr-chain/internal/v2/worldstate"
 )
 
-func testCertifiedHistoryRuntime(t *testing.T) (*Runtime, map[uint32]types.Hash, string, string) {
+func testCertifiedHistoryRuntime(t *testing.T, network types.NetworkID, native types.TokenID, root types.Hash) (*Runtime, map[uint32]types.Hash, string, string) {
 	t.Helper()
-	network := types.NetworkID(types.HashBytes("network",[]byte("certified-history")))
-	native := types.TokenID(types.HashBytes("token",[]byte("ZPH")))
-	_, _, root := schedulerValidatorSet(t,network)
 	diskDir := t.TempDir()
 	state := worldstate.NewMemory()
 	roots := map[uint32]types.Hash{0:state.Root()}
@@ -35,8 +32,8 @@ func testCertifiedHistoryRuntime(t *testing.T) (*Runtime, map[uint32]types.Hash,
 
 func TestCertifiedHistoryReplayEveryBlockAndRefuseMissingTail(t *testing.T) {
 	network := types.NetworkID(types.HashBytes("network",[]byte("certified-history")))
-	key,validators,_ := schedulerValidatorSet(t,network)
-	r,roots,journal,history := testCertifiedHistoryRuntime(t)
+	key,validators,root := schedulerValidatorSet(t,network)
+	r,roots,journal,history := testCertifiedHistoryRuntime(t,network,types.TokenID(types.HashBytes("token",[]byte("ZPH"))),root)
 	for i:=0;i<3;i++ {
 		candidate,err := r.BuildCandidate(uint64(i+1),nil)
 		if err != nil { t.Fatal(err) }
@@ -63,8 +60,8 @@ func TestCertifiedHistoryReplayEveryBlockAndRefuseMissingTail(t *testing.T) {
 
 func TestCertifiedHistoryRejectsForgedIntermediateSignatureWithValidHashChain(t *testing.T) {
 	network := types.NetworkID(types.HashBytes("network",[]byte("certified-history")))
-	key,validators,_ := schedulerValidatorSet(t,network)
-	r,roots,journal,history := testCertifiedHistoryRuntime(t)
+	key,validators,root := schedulerValidatorSet(t,network)
+	r,roots,journal,history := testCertifiedHistoryRuntime(t,network,types.TokenID(types.HashBytes("token",[]byte("ZPH"))),root)
 	for i:=0;i<2;i++ {
 		candidate,err := r.BuildCandidate(uint64(i+1),nil)
 		if err != nil { t.Fatal(err) }
