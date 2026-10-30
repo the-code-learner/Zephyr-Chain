@@ -3,7 +3,6 @@
 package node
 
 import (
-	"crypto/tls"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -45,7 +44,6 @@ func TestWitnessHTTPSQuorumRecoveryEndToEnd(t *testing.T) {
 	if _, ok := testClient.Transport.(*http.Transport); !ok {
 		t.Fatal("TLS test transport unavailable")
 	}
-	_ = tls.VersionTLS12
 
 	remote, err := NewQuorumAuthenticatedWitnessFloor(source, keys, network, root)
 	if err != nil {
