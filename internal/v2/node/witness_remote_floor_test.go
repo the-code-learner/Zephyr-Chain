@@ -52,17 +52,10 @@ func TestWitnessRemoteFloorExactRecoveryGate(t *testing.T) {
 	future.Height++
 	foreign := cp
 	foreign.Network = types.NetworkID{1}
-	for name, floor := range map[string]FinalityCheckpoint{
-		"conflicting": conflict,
-		"stale": stale,
-		"future": future,
-		"foreign": foreign,
-	} {
-		t.Run(name, func(t *testing.T) {
-			if err := ReconcileWitnessIntentWithExternalFloor(j, witnessFloorFixture{checkpoint: floor}); !errors.Is(err, ErrWitnessSigningIntent) {
-				t.Fatalf("mismatched remote floor accepted: %v", err)
-			}
-		})
+	for _, floor := range []FinalityCheckpoint{conflict, stale, future, foreign} {
+		if err := ReconcileWitnessIntentWithExternalFloor(j, witnessFloorFixture{checkpoint: floor}); !errors.Is(err, ErrWitnessSigningIntent) {
+			t.Fatalf("mismatched remote floor accepted: %v", err)
+		}
 	}
 	if err := ReconcileWitnessIntentWithExternalFloor(j, witnessFloorFixture{err: errors.New("remote unreachable")}); !errors.Is(err, ErrWitnessSigningIntent) {
 		t.Fatalf("unreachable floor accepted: %v", err)
