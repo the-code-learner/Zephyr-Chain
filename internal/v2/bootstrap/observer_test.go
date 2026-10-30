@@ -11,8 +11,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	p2p "github.com/zephyr-chain/zephyr-chain/internal/v2/network/p2p"
 	"github.com/zephyr-chain/zephyr-chain/internal/v2/genesis"
+	p2p "github.com/zephyr-chain/zephyr-chain/internal/v2/network/p2p"
 	"github.com/zephyr-chain/zephyr-chain/internal/v2/object"
 	"github.com/zephyr-chain/zephyr-chain/internal/v2/types"
 	"github.com/zephyr-chain/zephyr-chain/internal/v2/worldstate"
@@ -24,7 +24,7 @@ func observerFixture(t *testing.T, dir string) Config {
 	g := genesis.Config{
 		Version: genesis.ProtocolVersion, ChainName: "verified-observer-test",
 		GenesisUnix: 1, InitialShardCount: 2, MaxShardCount: 2, NativeSymbol: "ZPH",
-		Validators: []genesis.Validator{{ID: types.ValidatorIDFromPublicKey(pub), ConsensusPublicKey: pub, VotingPower: 100}},
+		Validators:  []genesis.Validator{{ID: types.ValidatorIDFromPublicKey(pub), ConsensusPublicKey: pub, VotingPower: 100}},
 		Allocations: []genesis.Allocation{{Owner: types.AccountID{1}, Amount: 1_000}, {Owner: types.AccountID{2}, Amount: 500}},
 	}
 	anchor, err := g.TrustAnchor()

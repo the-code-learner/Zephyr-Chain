@@ -60,14 +60,14 @@ func parseGenesisFile(path string) (genesis.Config, error) {
 }
 
 type startInfo struct {
-	Mode string `json:"mode"`
-	NetworkID string `json:"networkId"`
-	ValidatorRoot string `json:"validatorRoot"`
-	PeerID string `json:"peerId"`
-	Addresses []string `json:"addresses"`
-	InitialShards uint32 `json:"initialShards"`
-	FinalizedHeight uint64 `json:"finalizedHeight"`
-	RecoveryMode string `json:"recoveryMode"`
+	Mode            string   `json:"mode"`
+	NetworkID       string   `json:"networkId"`
+	ValidatorRoot   string   `json:"validatorRoot"`
+	PeerID          string   `json:"peerId"`
+	Addresses       []string `json:"addresses"`
+	InitialShards   uint32   `json:"initialShards"`
+	FinalizedHeight uint64   `json:"finalizedHeight"`
+	RecoveryMode    string   `json:"recoveryMode"`
 }
 
 func run(ctx context.Context, args []string, output io.Writer) error {
