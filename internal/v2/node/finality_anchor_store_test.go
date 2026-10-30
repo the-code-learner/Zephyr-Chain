@@ -12,10 +12,17 @@ import (
 	"github.com/zephyr-chain/zephyr-chain/internal/v2/worldstate"
 )
 
+func privateAnchorTestPath(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	if err := os.Chmod(dir, 0700); err != nil { t.Fatal(err) }
+	return filepath.Join(dir, "high-water.anchor")
+}
+
 func TestFinalityAnchorStoreRejectsRollbackEquivocationAndTornRecord(t *testing.T) {
 	network := types.NetworkID(types.HashBytes("network", []byte("external-anchor-test")))
 	root := types.Hash{4}
-	path := filepath.Join(t.TempDir(), "trusted.anchor")
+	path := privateAnchorTestPath(t)
 	s, err := OpenFinalityAnchorStore(path, network, root, true)
 	if err != nil {
 		t.Fatal(err)
@@ -76,6 +83,7 @@ func TestFinalityAnchorStoreRejectsForeignIdentityCorruptionAndSymlink(t *testin
 	network := types.NetworkID{1}
 	root := types.Hash{4}
 	dir := t.TempDir()
+	if err := os.Chmod(dir, 0700); err != nil { t.Fatal(err) }
 	path := filepath.Join(dir, "anchor")
 	anchor, err := OpenFinalityAnchorStore(path, network, root, true)
 	if err != nil {
@@ -118,7 +126,7 @@ func TestExternalFinalityAnchorPreventsCoherentQCBackupRollback(t *testing.T) {
 	native := types.TokenID(types.HashBytes("token", []byte("ZPH")))
 	key, validators, root := schedulerValidatorSet(t, network)
 	r, roots, journal, history := testCertifiedHistoryRuntime(t, network, native, root)
-	anchorPath := filepath.Join(t.TempDir(), "high-water")
+	anchorPath := privateAnchorTestPath(t)
 	anchor, err := OpenFinalityAnchorStore(anchorPath, network, root, true)
 	if err != nil {
 		t.Fatal(err)
@@ -194,7 +202,7 @@ func TestExternalFinalityAnchorFailureStopsCommitAndRecovers(t *testing.T) {
 	native := types.TokenID(types.HashBytes("token", []byte("ZPH")))
 	key, validators, root := schedulerValidatorSet(t, network)
 	r, roots, journal, history := testCertifiedHistoryRuntime(t, network, native, root)
-	path := filepath.Join(t.TempDir(), "outside-anchor")
+	path := privateAnchorTestPath(t)
 	anchor, err := OpenFinalityAnchorStore(path, network, root, true)
 	if err != nil {
 		t.Fatal(err)
