@@ -41,6 +41,9 @@ type Config struct {
 	// TrustedCheckpoint is supplied independently of this node's local WAL,
 	// history and commit journal. A missing checkpoint is devnet-only.
 	TrustedCheckpoint *v2node.FinalityCheckpoint
+	// ExternalAnchorPath is a private, separately secured absolute file path
+	// outside the mutable observer data directory. Optional for devnet only.
+	ExternalAnchorPath string
 	DataDir           string
 	ListenAddrs       []string
 	Workers           int
