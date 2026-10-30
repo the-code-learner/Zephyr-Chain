@@ -1228,7 +1228,7 @@ func TestConsensusAutomationRebroadcastsProposalAfterPeerLinkRestored(t *testing
 		return proposerServer.ledger.HasVote(1, 0, proposer.address)
 	})
 
-	proposerServer.config.PeerURLs = []string{voterHTTP.URL}
+	proposerServer.setPeerURLs([]string{voterHTTP.URL})
 
 	waitFor(t, func() bool {
 		return proposerServer.ledger.Status().Height == 1 && voterServer.ledger.Status().Height == 1
@@ -1265,7 +1265,7 @@ func TestConsensusAutomationRebroadcastsVoteAfterPeerLinkRestored(t *testing.T) 
 	})
 	proposerHTTP := httptest.NewServer(proposerServer.Handler())
 	defer proposerHTTP.Close()
-	proposerServer.config.PeerURLs = []string{}
+	proposerServer.setPeerURLs(nil)
 
 	voterServer := newTestServer(t, Config{
 		DataDir:                      t.TempDir(),
@@ -1291,7 +1291,7 @@ func TestConsensusAutomationRebroadcastsVoteAfterPeerLinkRestored(t *testing.T) 
 		voterServer.Close()
 		proposerServer.Close()
 	})
-	proposerServer.config.PeerURLs = []string{voterHTTP.URL}
+	proposerServer.setPeerURLs([]string{voterHTTP.URL})
 
 	validators := []dpos.Validator{
 		{Rank: 1, Address: proposer.address, VotingPower: 60, SelfStake: 40, DelegatedStake: 20},
@@ -1330,7 +1330,7 @@ func TestConsensusAutomationRebroadcastsVoteAfterPeerLinkRestored(t *testing.T) 
 		t.Fatalf("expected proposer to be waiting on the remote vote before link recovery, got %+v", proposerArtifacts)
 	}
 
-	voterServer.config.PeerURLs = []string{proposerHTTP.URL}
+	voterServer.setPeerURLs([]string{proposerHTTP.URL})
 
 	waitFor(t, func() bool {
 		artifacts := proposerServer.ledger.ConsensusArtifacts()
@@ -1442,7 +1442,7 @@ func TestConsensusAutomationReplaysPendingActionsAfterRestart(t *testing.T) {
 	defer reopened.Close()
 	reopenedHTTP := httptest.NewServer(reopened.Handler())
 	defer reopenedHTTP.Close()
-	voterServer.config.PeerURLs = []string{reopenedHTTP.URL}
+	voterServer.setPeerURLs([]string{reopenedHTTP.URL})
 
 	waitFor(t, func() bool {
 		return reopened.ledger.Status().Height == 1 && voterServer.ledger.Status().Height == 1
@@ -1776,7 +1776,7 @@ func TestConsensusAutomationReplicatesProposalVotesAndCommitAcrossValidators(t *
 	voterHTTP := httptest.NewServer(voterServer.Handler())
 	defer voterHTTP.Close()
 
-	proposerServer.config.PeerURLs = []string{voterHTTP.URL}
+	proposerServer.setPeerURLs([]string{voterHTTP.URL})
 
 	validators := []dpos.Validator{
 		{Rank: 1, Address: proposer.address, VotingPower: 60, SelfStake: 40, DelegatedStake: 20},
@@ -1921,7 +1921,7 @@ func TestConsensusAutomationAdvancesRoundAndRotatesProposerAfterTimeout(t *testi
 	roundOneHTTP := httptest.NewServer(roundOneServer.Handler())
 	defer roundOneHTTP.Close()
 
-	roundZeroServer.config.PeerURLs = []string{roundOneHTTP.URL}
+	roundZeroServer.setPeerURLs([]string{roundOneHTTP.URL})
 
 	validators := []dpos.Validator{
 		{Rank: 1, Address: roundZeroProposer.address, VotingPower: 60, SelfStake: 40, DelegatedStake: 20},
