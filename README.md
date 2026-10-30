@@ -17,9 +17,9 @@ A non-voting v2 QUIC observer with independently pinned genesis and validator ro
 persistent network identity, exclusive shard WAL state and explicit recovery
 refusal is available as `go run ./cmd/v2-observer`. See
 [Observer bootstrap and safe restart limitations](./docs/v2-observer-bootstrap-m1.md).
-It permits restart only from a QC-verified height-1 direct successor
-of genesis; longer finalized histories remain fail-closed until independently
-authenticated checkpoint/replay recovery is implemented. It is **not a
+It now replays bounded, append-only QC-certified history from a pinned genesis
+before restart, but cannot detect rollback of an entire valid state/history backup,
+verify validator-set rotations or replace independent security audits. It is **not a
 mainnet validator**.
 
 ## Public-mainnet readiness: currently blocked

@@ -1,96 +1,108 @@
-# M1 / P0 — Pinned Protocol v2 observer process
+# M1 / P0 — QC-certified multi-height observer history and recovery
 
-**Status: bounded QC-certified height-1 recovery only, NOT production mainnet.**
+**Status: bounded devnet observer, NOT production mainnet.**
 
-This tranche introduces `cmd/v2-observer`, a deliberately restricted
-process that can initialize the actual Protocol v2 genesis, persist each
-shard's canonical state via its protected WAL, and join the network as
-a **non-voting** QUIC/libp2p observer. It does not import a validator
-consensus private key and cannot propose or sign votes.
+`cmd/v2-observer` provides a non-voting Protocol v2 process with
+independently pinned genesis NetworkID and validator root, durable
+shard WALs, persistent QUIC PeerID and a conservatively authenticated
+local finality history. The process does not possess or sign with a
+validator private key.
 
-## Operator startup
+## Starting a new observer
 
-First independently obtain and verify the genesis file, the canonical
-64-hex NetworkID and the 64-hex initial validator-root commitment.
-Use independent trustworthy channels to agree on both commitments,
-not simply the RPC endpoint or the file's author.
+Verify genesis through an independent trust channel, then supply both
+explicit 64-character hex commitments:
 
 ```sh
-go run ./cmd/zephyr-genesis-audit \
-  -genesis /private/genesis.json \
-  -expected-network-id '<independently-pinned-64-hex>' \
-  -expected-validator-root '<independently-pinned-64-hex>'
-
 go run ./cmd/v2-observer \
   -genesis /private/genesis.json \
-  -expected-network-id '<independently-pinned-64-hex>' \
-  -expected-validator-root '<independently-pinned-64-hex>' \
+  -expected-network-id '<independent-64-hex>' \
+  -expected-validator-root '<independent-64-hex>' \
   -data-dir /private/observer-data \
   -listen /ip4/127.0.0.1/udp/0/quic-v1
 ```
 
-For a restricted devnet operator may supply
-`-peers '/ip4/127.0.0.1/udp/9900/quic-v1/p2p/<pinned-peer-ID>,...'`.
-The default listener binds only loopback. Do not expose the reference
-observer to untrusted public Internet traffic: consensus handler
-admission quotas and rate limits are not yet production hardened.
+Use operator-pinned full `/p2p/<peer-ID>` transport addresses for
+experimental connectivity. Transport authentication does not replace
+cryptographic header+QC verification. The default listener is local.
 
-The startup JSON reports the observer peer identity, *pinned* trust
-anchors, and initial height 0; it does not imply independent network
-finality beyond what the local validator set and the certified-commit
-protocol actually verify.
+## New durable history safety boundary
 
-## QC-certified genesis-successor recovery boundary
+The observer creates a private, exclusive, **append-only, fsynced**
+`certified-history.log` bound to independently computed genesis
+roots, network, native token, and original validator root. For each
+certified commit:
 
-The current runtime does **not** reconstruct the full multi-height historical
-consensus height and parent hash from an authenticated durable
-checkpoint at process startup. A state root identical to genesis is
-insufficient: finalized empty blocks can advance height without
-changing any object. Resetting runtime height to 0 would be unsafe.
+1. The existing global commit journal records the quorum-certified
+   PREPARING transition durably.
+2. The new history appends and fsyncs that entire intent, with a
+   domain-separated hash chain, **before any shard state writes**.
+3. Shard WALs apply the finalized delta and the existing global
+   commit journal transitions to COMMITTED.
 
-Therefore `cmd/v2-observer` has an intentionally conservative
-**genesis + single-certified-successor** lifecycle:
-- it verifies independent genesis roots for every shard before binding
-  a network listener;
-- it synchronizes an irreversible `observer-session-started` marker
-  before creating the libp2p listener;
-- it **allows a restart only if** the latest durable global-commit journal
-  proves a single QC-certified height-1 successor directly from genesis;
-  it verifies all independent genesis predecessor roots, current shard
-  post-roots, and the original validator set before resuming;
-- it refuses preexisting shard roots different from canonical genesis
-  on first launch, or different from the certified height-1 journal on
-  a recoverable restart;
-- it uses owner-only private directories, separate exclusive state WAL
-  locks and a persistent network-bound transport identity;
-- it supports up to 16 genesis shards for bounded experimental startup;
-- it refuses all multi-height recoveries, unknown validator rotations,
-  missing/corrupt journals and unverified state. The global commit
-  journal currently retains only the most recent certified commit.
+A crash during history append, a torn record or journal/history
+disagreement **fails closed**. No partial history is truncated.
 
-Never delete the marker, restore an older copy of the marker/state,
-manually rewrite height or reset a signer journal to bypass the guard.
-The safe next milestone is a **QC-authenticated append-only multi-height
-finality history and checkpoint replay** with negative partition/crash
-and rollback tests. Certified height-1 recovery does not suffice for
-production mainnet, backup restore or validator restart. Existing v2 test-only in-memory services remain
-separate and are not an alternative production startup procedure.
+At observer restart, before opening the P2P listener, the process:
+- checks the original fsynced single-session marker and owner-only
+  file modes;
+- re-derives exact canonical genesis roots independently in memory;
+- verifies each strictly consecutive height, parent block hash, all
+  predecessor/postdecessor shard roots, validator-set root and
+  cryptographic QC signatures from the genesis to the final record;
+- independently reapplies the historical shard object deltas to
+  genesis in-memory state, rejecting inconsistent object transitions;
+- requires the final history event to exactly match the latest global
+  commit journal, whether PREPARING or COMMITTED;
+- reconciles the last journal with current WAL shard state using the
+  existing idempotent certified recovery, and restores the verified
+  runtime Height/ParentHash.
 
-## Validation
+**This is local authenticated history replay, not independent proof
+that a remote peer or backup gave us the latest chain.** It does not
+independently re-execute original transaction scripts for each past
+commit: the historical state roots are QC-authorized, and recorded
+state deltas are reapplied and verified. It does not implement
+production snapshot compaction or archive sync.
+
+### Deliberate fail-closed limits
+
+- Maximum **4096 records** and **512 MiB** per history file in this
+  experimental implementation. Exceeding the limit stops new
+  finalized commits rather than silently discarding proofs.
+- **Validator-set transitions remain unsupported** in this recovery
+  path. A future implementation must prove the QC-backed next-root
+  chain and preserve each activated validator set.
+- Deleting, replacing or restoring an **older valid copy of all
+  history, shard state and global journal files together** cannot be
+  detected by this local log. Mainnet requires a separately secured
+  monotonic finalized checkpoint/anti-rollback anchor or independently
+  verified newer peer proof before resuming a consensus signer.
+- This startup is strictly **non-voting** and does not allow recovery
+  to unlock a consensus validator private key.
+- Lock semantics are supported only on Linux/macOS local filesystems;
+  unsupported systems fail closed.
+- A prior PR44/45 data directory that lacks this history log cannot
+  be silently upgraded from a single latest commit: operators must
+  treat it as needing explicit verified state migration, not
+  erase the session marker or trust a single RPC snapshot.
+
+## Verification
 
 ```sh
-go test ./internal/v2/bootstrap ./cmd/v2-observer -count=1
-go test -race ./internal/v2/bootstrap ./cmd/v2-observer -count=1
+go test ./internal/v2/node ./internal/v2/bootstrap ./cmd/v2-observer
+go test -race ./internal/v2/node -run '^TestCertifiedHistory' -count=1
 bash scripts/verify-v2.sh full
 ```
 
-The tests prove that pinned genesis, initialized multi-shard roots,
-non-voting behavior, invalid peer bindings, post-genesis state changes,
-duplicate startup and an untrusted trust anchor are rejected as
-expected. They do not establish independent multi-host mainnet
-operations, secure protocol upgrades, production throughput, mobile
-verification, VRF/beacon authorization, WASM contract safety or
-economic policy activation.
+Regression tests include multiple consecutive certified empty
+blocks, state object changes, forged intermediate QC with a
+recomputed valid file checksum, truncated/deleted history, mismatched
+final journal and incorrect state roots. Correctly replayed historical
+events are **not** validation of independent multi-host consensus,
+long-running production liveness or safe backup restore.
 
-**Mainnet launch remains NO-GO** pending independent audit and every
-outstanding gate in `docs/mainnet-security-release-gates.md`.
+**Public mainnet remains NO-GO.** Independent security audit,
+monotonic cross-host anti-rollback, distributed signer key custody,
+Byzantine multi-operator validation, deterministic production WASM,
+mobile DA, governance and economics remain gated.

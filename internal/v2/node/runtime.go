@@ -72,6 +72,7 @@ type Runtime struct {
 	economicBalances        economics.MonetaryBalanceSnapshot
 	pendingEconomic         *economics.ShadowEpochPreview
 	globalCommitJournalPath string
+	history                 *CertifiedHistory
 	recoveryRequired        bool
 }
 
@@ -365,6 +366,19 @@ func (r *Runtime) Commit(candidate Candidate, certificate v2consensus.Certificat
 			return sharding.GlobalHeader{}, errors.Join(ErrRuntimeRecoveryRequired, err)
 		}
 		journalIntent = &intent
+	}
+
+	// Preserve the entire certified ancestry before mutating any shard.
+	// An interrupted/partial history append is a hard recovery boundary.
+	if r.history != nil {
+		if journalIntent == nil {
+			r.recoveryRequired = true
+			return sharding.GlobalHeader{}, ErrRuntimeRecoveryRequired
+		}
+		if err := r.history.Append(*journalIntent, validators); err != nil {
+			r.recoveryRequired = true
+			return sharding.GlobalHeader{}, errors.Join(ErrRuntimeRecoveryRequired, err)
+		}
 	}
 
 	for _, shardValue := range shards {

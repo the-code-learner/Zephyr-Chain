@@ -1,6 +1,6 @@
 // Package bootstrap provides an explicitly bounded Protocol v2 observer
-// startup. It is not a production validator or a multi-height finalized-history
-// recovery implementation. It permits only the QC-verified genesis successor.
+// startup. It is not a production validator and does not provide
+// independent anti-rollback protection for restored backups.
 package bootstrap
 
 import (
@@ -52,8 +52,8 @@ type Observer struct {
 // OpenObserver creates a QUIC/libp2p observer (NO consensus signer) from
 // independently pinned genesis and validator-root commitments. It can
 // participate in the existing certified-commit protocol. Restart is
-// permitted only for a QC-verified direct successor of genesis (height 1).
-// Multi-height history and validator-set transitions remain unsupported.
+// permitted only after bounded, complete genesis-to-tip QC and delta
+// replay with verified terminal journal. Validator transitions are unsupported.
 func OpenObserver(cfg Config) (out *Observer, err error) {
 	if cfg.DataDir == "" || cfg.Workers < 0 ||
 		types.IsZero32([32]byte(cfg.ExpectedNetwork)) ||
@@ -151,17 +151,26 @@ func OpenObserver(cfg Config) (out *Observer, err error) {
 	if err != nil {
 		return nil, err
 	}
+	if !existingSession && runtime.RecoveryRequired() {
+		return nil, ErrObserverRecovery
+	}
+	if err := runtime.EnableCertifiedHistory(filepath.Join(cfg.DataDir, "certified-history.log"), expected, !existingSession); err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrObserverRecovery, err)
+	}
+	defer func() {
+		if err != nil {
+			_ = runtime.CloseCertifiedHistory()
+		}
+	}()
 	if existingSession {
-		if err := runtime.RecoverCertifiedGenesisSuccessor(validators, expected); err != nil {
+		if err := runtime.RecoverCertifiedHistory(validators, memory); err != nil {
 			return nil, fmt.Errorf("%w: %v", ErrObserverRecovery, err)
 		}
-	} else if runtime.RecoveryRequired() {
-		return nil, ErrObserverRecovery
 	}
 
 	// The first session is durably marked before any network listener starts.
-	// A subsequent session is allowed ONLY when its latest commit can be
-	// independently proven to be the direct height-1 successor of genesis.
+	// A subsequent session is allowed ONLY after all locally stored QC
+	// transitions replay from the pinned genesis and match the last journal.
 	if !existingSession {
 		marker, openErr := os.OpenFile(markerPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
 		if openErr != nil {
@@ -232,6 +241,9 @@ func (o *Observer) Close() error {
 	var err error
 	if o.Transport != nil {
 		err = errors.Join(err, o.Transport.Close())
+	}
+	if o.Runtime != nil {
+		err = errors.Join(err, o.Runtime.CloseCertifiedHistory())
 	}
 	for _, store := range o.stores {
 		err = errors.Join(err, store.Close())

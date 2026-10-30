@@ -129,7 +129,7 @@ func run(ctx context.Context, args []string, output io.Writer) error {
 	info := startInfo{Mode: "observer-only", NetworkID: obs.Network.String(),
 		ValidatorRoot: rootHash.String(), PeerID: obs.Transport.ID().String(),
 		Addresses: addresses, InitialShards: g.InitialShardCount,
-		FinalizedHeight: obs.Runtime.Height, RecoveryMode: "genesis or QC-certified height-one successor only; multiheight recovery forbidden"}
+		FinalizedHeight: obs.Runtime.Height, RecoveryMode: "bounded genesis-to-tip QC history replay; no independent anti-rollback anchor"}
 	if err := json.NewEncoder(output).Encode(info); err != nil {
 		return err
 	}
