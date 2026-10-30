@@ -149,3 +149,22 @@ func (s *FinalityAnchorStore) Close() error {
 	s.closed=true
 	return s.file.Close()
 }
+
+// EnableFinalityAnchorStore attaches an externally placed, exclusive high-water
+// mark to a runtime BEFORE replay or networking. It never reopens a closed
+// store, and requires the journal and certified history to be configured.
+func (r *Runtime) EnableFinalityAnchorStore(store *FinalityAnchorStore) error {
+	if r==nil || store==nil {return ErrFinalityAnchor}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.anchorStore!=nil || r.history==nil || r.globalCommitJournalPath=="" ||
+		r.Height!=0 || r.ParentHash!=(types.Hash{}) {
+		return ErrFinalityAnchor
+	}
+	cp,err:=store.Current()
+	if err!=nil || cp.Network!=r.Network || cp.ValidatorRoot!=r.ValidatorRoot {
+		return ErrFinalityAnchor
+	}
+	r.anchorStore=store
+	return nil
+}
