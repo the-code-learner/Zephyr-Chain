@@ -30,7 +30,7 @@ decentralized production network.
 | --- | --- | --- |
 | Genesis and native supply | Canonical NetworkID, validator-root derivation, supply-overflow guard, offline pinned-anchor audit | Public independently reviewed genesis, reproducible allocation audit, owner/validator key ceremony, signed distributed fingerprints |
 | Consensus and BFT finality | P-256 low-S signatures, proposal/vote/QC, validator-root transition, journaled protected signing-service constructor, 7/20 validator same-host gate | Independent adversarial consensus audit, >=3 independent hosts/providers, message partitions, equivocation, crash/restart, key rotation and long-duration liveness |
-| State, WAL and recovery | Canonical Sparse Merkle proofs, WAL/checkpoint and replay, Linux/macOS exclusive same-directory writer lock | Production snapshot bootstrap, migration, power-loss recovery, cross-directory validator-key double-sign protection, compaction, corruption/rollback tests, archival recovery drills |
+| State, WAL and recovery | Canonical Sparse Merkle proofs, WAL/checkpoint and replay, Linux/macOS exclusive same-directory writer lock | Independent monotonic finalized checkpoint/anti-rollback anchor, multi-height validator-root transitions, production state migration, power-loss recovery, cross-directory validator-key double-sign protection, compaction and archival recovery drills |
 | Peer networking | QUIC/libp2p network-scoped protocols; durable provider PeerID | Secure validator transport identity persistence, authenticated peer admission quotas, replay-aware gossip, abuse limits, timeouts, independent-host recovery |
 | Execution and transfers | Deterministic state execution, native ZPH, custom tokens and proof-carrying transactions | Full adversarial transaction fuzzing, bounded mempool, replay semantics, resource budgeting, gas accounting and cross-version compatibility tests |
 | Sharding | Finalized asynchronous receipt/proof import and replay protection | Shard-aware multi-host sync, controlled 4/16 shard fault tests, validator-set transitions across shards and long-range proof pruning |
@@ -42,7 +42,7 @@ decentralized production network.
 | Governance | Proposal/timelock hash foundations | Canonical validator-authorized voting, conflict resolution, quorum proof, security timelock, rollback/upgrade rules without overriding existing QC root |
 | ZPH economics | ZECI/ZCSI/ZPPI simulations and shadow economic state | Canonical verifiable production parameters, replay-safe epoch activation, invariant-preserving simulation and audited accounting, explicit community/governance approval |
 | Mobile and accessibility | Reference wallet, Citizen light proofs | Independent low-end mobile hardware validation, offline/verifier-first UX, light proof transport coverage and signed builds |
-| Deployment and operations | CI, v2 lab, one-host devnet, pinned non-voting observer bootstrap with height-1 QC-verified recovery and operator health/alert foundations | Production runbooks, off-host encrypted recovery/backup, telemetry/privacy review, fire drills, security contact, incident response and SLOs |
+| Deployment and operations | CI, v2 lab, one-host devnet, pinned non-voting observer bootstrap with bounded QC-certified multiheight history replay and operator health/alert foundations | Production runbooks, off-host encrypted recovery/backup, telemetry/privacy review, fire drills, security contact, incident response and SLOs |
 
 ## Required external evidence
 
