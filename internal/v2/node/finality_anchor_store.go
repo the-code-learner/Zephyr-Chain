@@ -3,6 +3,7 @@ package node
 import (
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"sync"
@@ -61,11 +62,14 @@ func OpenFinalityAnchorStore(path string, network types.NetworkID, validatorRoot
 	copy(header[36:], validatorRoot[:])
 	if create {
 		n, writeErr := file.Write(header)
-		if writeErr != nil || n != len(header) || file.Sync() != nil {
-			return nil, ErrFinalityAnchor
+		if writeErr != nil || n != len(header) {
+			return nil, fmt.Errorf("%w: write header: %v (wrote %d bytes)", ErrFinalityAnchor, writeErr, n)
+		}
+		if err := file.Sync(); err != nil {
+			return nil, fmt.Errorf("%w: sync header: %v", ErrFinalityAnchor, err)
 		}
 		if err := syncHistoryDirectory(path); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("%w: sync parent directory: %v", ErrFinalityAnchor, err)
 		}
 	} else {
 		read := make([]byte, len(header))
