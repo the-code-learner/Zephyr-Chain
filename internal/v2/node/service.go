@@ -42,7 +42,7 @@ type Service struct {
 	Runtime    *Runtime
 	Validators v2consensus.ValidatorSet
 	Key        *ecdsa.PrivateKey
-	SigningGuard *v2consensus.DurableSigningGuard
+	signingGuard *v2consensus.DurableSigningGuard
 	P2P        *p2p.Node
 	Peers      []peer.ID
 
@@ -93,7 +93,7 @@ func NewProtectedService(runtime *Runtime, validators v2consensus.ValidatorSet, 
 	if err != nil {
 		return nil, err
 	}
-	service.SigningGuard = guard
+	service.signingGuard = guard
 	return service, nil
 }
 
@@ -212,8 +212,8 @@ func (s *Service) Propose(ctx context.Context) (lightapi.Snapshot, error) {
 		s.mu.Unlock()
 		return lightapi.Snapshot{}, err
 	}
-	if s.SigningGuard != nil {
-		if err := s.SigningGuard.Authorize(s.Runtime.Network, localID, height, round, v2consensus.HeaderConsensusHash(candidate.Header)); err != nil {
+	if s.signingGuard != nil {
+		if err := s.signingGuard.Authorize(s.Runtime.Network, localID, height, round, v2consensus.HeaderConsensusHash(candidate.Header)); err != nil {
 			s.mu.Unlock()
 			return lightapi.Snapshot{}, err
 		}
@@ -341,12 +341,12 @@ func (s *Service) signVoteLocked(proposal v2consensus.Proposal) (v2consensus.Vot
 		}
 		return prior, nil
 	}
-	if s.SigningGuard != nil {
+	if s.signingGuard != nil {
 		id, err := validatorID(s.Key)
 		if err != nil {
 			return v2consensus.Vote{}, err
 		}
-		if err := s.SigningGuard.Authorize(s.Runtime.Network, id, proposal.Header.Height, proposal.Round, target); err != nil {
+		if err := s.signingGuard.Authorize(s.Runtime.Network, id, proposal.Header.Height, proposal.Round, target); err != nil {
 			return v2consensus.Vote{}, err
 		}
 	}
