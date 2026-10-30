@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/zephyr-chain/zephyr-chain/internal/v2/genesis"
+ v2node "github.com/zephyr-chain/zephyr-chain/internal/v2/node"
 	p2p "github.com/zephyr-chain/zephyr-chain/internal/v2/network/p2p"
 	"github.com/zephyr-chain/zephyr-chain/internal/v2/object"
 	"github.com/zephyr-chain/zephyr-chain/internal/v2/types"
@@ -61,7 +62,7 @@ func TestPinnedObserverRequiresIndependentTrustAndIsNeverValidator(t *testing.T)
 	if obs.Runtime.Height != 0 || obs.Runtime.ShardCount != cfg.Genesis.InitialShardCount {
 		t.Fatal("unexpected observer genesis runtime")
 	}
-	if _, err := obs.Service.Propose(context.Background()); !errors.Is(err, ErrNotValidator) {
+	if _, err := obs.Service.Propose(context.Background()); !errors.Is(err, v2node.ErrNotValidator) {
 		t.Fatalf("observer unexpectedly allowed to propose: %v", err)
 	}
 	for shard := uint32(0); shard < cfg.Genesis.InitialShardCount; shard++ {
