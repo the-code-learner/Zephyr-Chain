@@ -1,6 +1,7 @@
 // Package bootstrap provides an explicitly bounded Protocol v2 observer
-// startup. It is not a production validator and does not provide
-// independent anti-rollback protection for restored backups.
+// startup. It is not a production validator. It can reject rollbacks to
+// an operator-pinned external finalized checkpoint, but cannot establish
+// whether that checkpoint is the newest independently finalized height.
 package bootstrap
 
 import (
@@ -36,6 +37,9 @@ type Config struct {
 	Genesis               genesis.Config
 	ExpectedNetwork       types.NetworkID
 	ExpectedValidatorRoot types.Hash
+	// TrustedCheckpoint is supplied independently of this node's local WAL,
+	// history and commit journal. A missing checkpoint is devnet-only.
+	TrustedCheckpoint    *v2node.FinalityCheckpoint
 	DataDir               string
 	ListenAddrs           []string
 	Workers               int
@@ -68,6 +72,9 @@ func OpenObserver(cfg Config) (out *Observer, err error) {
 	if cfg.Genesis.InitialShardCount > MaxObserverShards {
 		return nil, ErrObserverConfig
 	}
+	if cfg.TrustedCheckpoint != nil && cfg.TrustedCheckpoint.Validate(cfg.ExpectedNetwork, cfg.ExpectedValidatorRoot) != nil {
+		return nil, ErrObserverConfig
+	}
 	native, err := cfg.Genesis.NativeTokenID()
 	if err != nil {
 		return nil, err
@@ -93,6 +100,12 @@ func OpenObserver(cfg Config) (out *Observer, err error) {
 		existingSession = true
 	} else if !errors.Is(statErr, os.ErrNotExist) {
 		return nil, statErr
+	}
+	if cfg.TrustedCheckpoint != nil && !existingSession {
+		// A previously finalized external checkpoint cannot be proven by
+		// a new empty local history. State sync/verified snapshot bootstrap
+		// must be implemented separately; never silently start at genesis.
+		return nil, ErrObserverRecovery
 	}
 
 	// Derive independent expected genesis roots in memory. A persisted state
@@ -163,7 +176,7 @@ func OpenObserver(cfg Config) (out *Observer, err error) {
 		}
 	}()
 	if existingSession {
-		if err := runtime.RecoverCertifiedHistory(validators, memory); err != nil {
+		if err := runtime.RecoverCertifiedHistoryWithCheckpoint(validators, memory, cfg.TrustedCheckpoint); err != nil {
 			return nil, fmt.Errorf("%w: %v", ErrObserverRecovery, err)
 		}
 	}
