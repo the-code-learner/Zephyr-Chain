@@ -146,11 +146,14 @@ func CheckVRFKeyScheduleAtInput(input Input, producer types.AccountID, epochs []
 	if err != nil || ordered[0].Network != input.Network || ordered[0].Producer != producer {
 		return VRFKeyEpoch{}, ErrCommittee
 	}
+	// Validate every recorded epoch before returning a matching active key:
+	// otherwise a later unfinalized key could be hidden after the first match.
 	for _, epoch := range ordered {
-		// An anchor cannot authenticate a registration purportedly finalized later.
 		if epoch.RegistrationHeight > input.FinalizedHeight {
 			return VRFKeyEpoch{}, ErrCommittee
 		}
+	}
+	for _, epoch := range ordered {
 		if epoch.ActiveFromHeight > input.FinalizedHeight ||
 			(epoch.InactiveFromHeight != 0 && input.FinalizedHeight >= epoch.InactiveFromHeight) {
 			continue
