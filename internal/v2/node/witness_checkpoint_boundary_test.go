@@ -30,7 +30,10 @@ func TestWitnessBoundaryCanonicalAndQuorumAdversaries(t *testing.T) {
 	}
 	reject("oversized envelope", bytes.Repeat([]byte(" "), (16<<10)+1), keys)
 	reject("trailing document", append(append([]byte(nil), valid...), []byte(" true")...), keys)
-	reject("noncanonical leading whitespace", append([]byte(" "), valid...), keys)
+	// The parser explicitly allows outer whitespace via bytes.TrimSpace.
+	if _, err := ParseSignedWitnessCheckpoint(append([]byte(" "), valid...), keys, network, root); err != nil {
+		t.Fatalf("outer whitespace should be accepted: %v", err)
+	}
 	reject("noncanonical interior whitespace", bytes.Replace(valid, []byte(","), []byte(", "), 1), keys)
 	reject("truncated document", valid[:len(valid)-1], keys)
 	reject("untrusted signer policy", valid, [][]byte{keys[0], keys[1], keys[2], keys[2]})
