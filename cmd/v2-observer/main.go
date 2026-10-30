@@ -68,6 +68,7 @@ type startInfo struct {
 	Addresses       []string `json:"addresses"`
 	InitialShards   uint32   `json:"initialShards"`
 	FinalizedHeight uint64   `json:"finalizedHeight"`
+	FinalizedHeaderHash string `json:"finalizedHeaderHash"`
 	RecoveryMode    string   `json:"recoveryMode"`
 	RollbackGuard    string   `json:"rollbackGuard"`
 	TrustedHeight    uint64   `json:"trustedFinalizedHeight,omitempty"`
@@ -158,7 +159,7 @@ func run(ctx context.Context, args []string, output io.Writer) error {
 	info := startInfo{Mode: "observer-only", NetworkID: obs.Network.String(),
 		ValidatorRoot: rootHash.String(), PeerID: obs.Transport.ID().String(),
 		Addresses: addresses, InitialShards: g.InitialShardCount,
-		FinalizedHeight: obs.Runtime.Height,
+		FinalizedHeight: obs.Runtime.Height, FinalizedHeaderHash: obs.Runtime.ParentHash.String(),
 		RecoveryMode: "bounded QC-certified genesis-to-tip history replay",
 		RollbackGuard: rollbackGuard, TrustedHeight: anchorHeight}
 	if err := json.NewEncoder(output).Encode(info); err != nil {
