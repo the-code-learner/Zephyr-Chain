@@ -1,6 +1,6 @@
 # M1 / P0 — Pinned Protocol v2 observer process
 
-**Status: first-session development observer, NOT production mainnet.**
+**Status: bounded QC-certified height-1 recovery only, NOT production mainnet.**
 
 This tranche introduces `cmd/v2-observer`, a deliberately restricted
 process that can initialize the actual Protocol v2 genesis, persist each
@@ -40,9 +40,9 @@ anchors, and initial height 0; it does not imply independent network
 finality beyond what the local validator set and the certified-commit
 protocol actually verify.
 
-## Hard stop before unsafe recovery
+## QC-certified genesis-successor recovery boundary
 
-The current runtime does **not** reconstruct the full historical
+The current runtime does **not** reconstruct the full multi-height historical
 consensus height and parent hash from an authenticated durable
 checkpoint at process startup. A state root identical to genesis is
 insufficient: finalized empty blocks can advance height without
