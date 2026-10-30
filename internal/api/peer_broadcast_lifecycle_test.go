@@ -1,8 +1,8 @@
 package api
 
 import (
-	"sync"
 	"net/http"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
