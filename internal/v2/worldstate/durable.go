@@ -31,6 +31,8 @@ var (
 	ErrPersistenceNetwork = errors.New("v2 persisted state belongs to another network")
 	ErrPersistenceCorrupt = errors.New("v2 persisted state is corrupt")
 	ErrPersistenceClosed  = errors.New("v2 persisted state is closed")
+	ErrPersistenceBusy    = errors.New("v2 persisted state directory already has an active writer")
+	ErrPersistenceUnsupported = errors.New("v2 durable writer locking unavailable on this operating system")
 )
 
 type Disk struct {
@@ -41,19 +43,32 @@ type Disk struct {
 	objects map[types.ObjectID]object.Object
 	seq     uint64
 	wal     *os.File
+	writerLock *os.File
 	closed  bool
 }
 
-func OpenDisk(dir string, network types.NetworkID) (*Disk, error) {
+func OpenDisk(dir string, network types.NetworkID) (result *Disk, err error) {
 	if types.IsZero32([32]byte(network)) {
 		return nil, ErrPersistenceNetwork
 	}
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, err
 	}
+	lock, err := acquireWriterLock(dir)
+	if err != nil {
+		return nil, err
+	}
+	// Every unsuccessful open must release the OS lock, including corrupt
+	// checkpoint/WAL and foreign-network replay rejection.
+	defer func() {
+		if err != nil {
+			_ = releaseWriterLock(lock)
+		}
+	}()
 	d := &Disk{
 		dir: dir, network: network, mem: NewMemory(),
 		objects: make(map[types.ObjectID]object.Object),
+		writerLock: lock,
 	}
 	if err := d.loadCheckpoint(); err != nil {
 		return nil, err
@@ -186,11 +201,16 @@ func (d *Disk) Close() error {
 		return nil
 	}
 	d.closed = true
-	if err := d.wal.Sync(); err != nil {
-		_ = d.wal.Close()
-		return err
+	syncErr := d.wal.Sync()
+	closeErr := d.wal.Close()
+	lockErr := releaseWriterLock(d.writerLock)
+	if syncErr != nil {
+		return syncErr
 	}
-	return d.wal.Close()
+	if closeErr != nil {
+		return closeErr
+	}
+	return lockErr
 }
 
 func (d *Disk) prevalidate(consumed []types.ObjectID, created []object.Object) error {
