@@ -3,7 +3,7 @@ module github.com/zephyr-chain/zephyr-chain
 go 1.26.0
 
 require (
-	github.com/klauspost/reedsolomon v1.14.1
+	github.com/klauspost/reedsolomon v1.14.2
 	github.com/libp2p/go-libp2p v0.49.0
 	github.com/libp2p/go-libp2p-pubsub v0.17.0
 	github.com/multiformats/go-multiaddr v0.16.1
