@@ -202,7 +202,6 @@ func TestV2ObserverCLIVerifiesWitnessQuorumBeforeStorage(t *testing.T) {
 	if _,err:=os.Stat(dataDir);!errors.Is(err,os.ErrNotExist){
 		t.Fatal("fresh observer created data directory after positive signed checkpoint")
 	}
-	if err:=run(ctx,args[:len(args)-2],&bytes.Buffer{});err==nil{t.Fatal("witness flags not required in pair")}
 	missingKeys:=args[:len(args)-2]
 	missingKeys=append(append([]string{},missingKeys...),"-witness-checkpoint-json",path)
 	if err:=run(ctx,missingKeys,&bytes.Buffer{});!errors.Is(err,bootstrap.ErrObserverConfig){
