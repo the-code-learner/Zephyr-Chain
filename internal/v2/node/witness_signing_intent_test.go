@@ -97,19 +97,33 @@ func TestWitnessIntentTamperingAndForeignChain(t *testing.T) {
 	cp := FinalityCheckpoint{Network: network, ValidatorRoot: root, Height: 1, HeaderHash: types.Hash{8}}
 	verifier := witnessIntentTestVerifier{allowed: map[uint64]types.Hash{1: cp.HeaderHash}}
 	dir := t.TempDir()
-	if err := os.Chmod(dir, 0700); err != nil { t.Fatal(err) }
+	if err := os.Chmod(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
 	path := filepath.Join(dir, "intent")
 	j, err := OpenWitnessSigningIntentJournal(path, network, root, true, verifier)
-	if err != nil { t.Fatal(err) }
-	if err := j.ReserveFinalizedIntent(cp); err != nil { t.Fatal(err) }
-	if err := j.Close(); err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := j.ReserveFinalizedIntent(cp); err != nil {
+		t.Fatal(err)
+	}
+	if err := j.Close(); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := OpenWitnessSigningIntentJournal(path, types.NetworkID{2}, root, false, verifier); err == nil {
 		t.Fatal("foreign network journal accepted")
 	}
 	f, err := os.OpenFile(path, os.O_WRONLY|os.O_APPEND, 0600)
-	if err != nil { t.Fatal(err) }
-	if _, err := f.Write([]byte{0x7f}); err != nil { t.Fatal(err) }
-	if err := f.Close(); err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.Write([]byte{0x7f}); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := OpenWitnessSigningIntentJournal(path, network, root, false, verifier); err == nil {
 		t.Fatal("torn journal accepted")
 	}
