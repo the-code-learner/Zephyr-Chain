@@ -19,7 +19,14 @@ const (
 	KindComputeJob
 	KindComputeAssignment
 	KindComputeResult
+	KindLoanOffer
+	KindLoan
 	KindSystem
+	KindDeviceCredential
+	KindCrossLoanOffer
+	KindCrossLoanAcceptance
+	KindCrossLoanActivation
+	KindCrossLoanRepayment
 )
 
 const MaxObjectDataBytes = 1 << 20

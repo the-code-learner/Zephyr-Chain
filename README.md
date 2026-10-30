@@ -11,6 +11,23 @@ The long-term mission is described in [Zaphyr-chain_manifesto.md](./Zaphyr-chain
 
 > Zephyr's aspirational performance target is **1,000,000 transactions per second finalized through consensus**. It is a benchmark target, not a claim about current capacity.
 
+## Integrated v2 development baseline
+
+The P2/P3 lending, credential, Citizen challenge, contribution evidence,
+VRF verification/key-timing and governance commitment foundations are
+documented in [the integrated v2 readiness guide](./docs/integrated-v2-readiness.md).
+Run the reproducible local correctness checks from a clean checkout:
+
+```sh
+bash scripts/verify-v2.sh quick
+bash scripts/verify-v2.sh full
+```
+
+The full gate includes real QUIC/libp2p 7- and 20-validator tests on
+**one host**; it is not a public testnet, external multi-host deployment
+or evidence of the aspirational TPS goal. Economic and committee-selection
+features remain non-activating unless separately specified and approved.
+
 ## Protocol v2 direction
 
 Zephyr v2 is being built as a clean break rather than preserving experimental wire/state compatibility.

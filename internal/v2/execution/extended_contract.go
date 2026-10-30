@@ -30,6 +30,12 @@ func (e Engine) executeExtended(t tx.Transaction, op tx.Operation) (Result, erro
 		return e.executeBurnToken(t, op.Payload)
 	case tx.OpComputeOffer, tx.OpComputeJob, tx.OpComputeResult, tx.OpComputeAccept, tx.OpComputeIngestAssignment, tx.OpComputeIngestResult, tx.OpComputeFinalize, tx.OpComputeResolveReplicated, tx.OpComputeExpire:
 		return e.executeCompute(t, op)
+	case tx.OpLoanOffer, tx.OpLoanCancel, tx.OpLoanAccept, tx.OpLoanRepay, tx.OpLoanDefault:
+		return e.executeLending(t, op)
+	case tx.OpDeviceCredentialRegister, tx.OpDeviceCredentialUpdate, tx.OpDeviceCredentialRevoke:
+		return e.executeDeviceCredential(t, op)
+	case tx.OpCrossLoanOffer, tx.OpCrossLoanAccept, tx.OpCrossLoanRepay, tx.OpCrossLoanSettle, tx.OpCrossLoanDefault, tx.OpCrossLoanExpire:
+		return e.executeCrossShardLending(t, op)
 	default:
 		return Result{}, ErrUnsupportedOperation
 	}

@@ -15,6 +15,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 
 	v2consensus "github.com/zephyr-chain/zephyr-chain/internal/v2/consensus"
+	"github.com/zephyr-chain/zephyr-chain/internal/v2/lending"
 	p2p "github.com/zephyr-chain/zephyr-chain/internal/v2/network/p2p"
 	"github.com/zephyr-chain/zephyr-chain/internal/v2/object"
 	"github.com/zephyr-chain/zephyr-chain/internal/v2/tx"
@@ -28,21 +29,23 @@ const (
 )
 
 type protocolV2Devnet struct {
-	network       types.NetworkID
-	native        types.TokenID
-	validators    v2consensus.ValidatorSet
-	keys          []*ecdsa.PrivateKey
-	nodes         []*p2p.Node
-	services      []*Service
-	stores        []*worldstate.Memory
-	observerNode  *p2p.Node
-	observer      *Service
-	observerStore *worldstate.Memory
-	clientNode    *p2p.Node
-	initialObject object.Object
-	senderKey     *ecdsa.PrivateKey
-	sender        types.AccountID
-	recipient     types.AccountID
+	network                types.NetworkID
+	native                 types.TokenID
+	validators             v2consensus.ValidatorSet
+	keys                   []*ecdsa.PrivateKey
+	nodes                  []*p2p.Node
+	services               []*Service
+	stores                 []*worldstate.Memory
+	observerNode           *p2p.Node
+	observer               *Service
+	observerStore          *worldstate.Memory
+	clientNode             *p2p.Node
+	initialObject          object.Object
+	recipientInitialObject object.Object
+	senderKey              *ecdsa.PrivateKey
+	recipientKey           *ecdsa.PrivateKey
+	sender                 types.AccountID
+	recipient              types.AccountID
 }
 
 func TestProtocolV2DevnetTransactionVotingAndFinality(t *testing.T) {
@@ -105,6 +108,112 @@ func TestProtocolV2DevnetTransactionVotingAndFinality(t *testing.T) {
 	}
 	if _, err := devnet.observer.Propose(ctx); !errors.Is(err, ErrNotValidator) {
 		t.Fatalf("observer proposal error = %v, want ErrNotValidator", err)
+	}
+}
+
+func TestProtocolV2DevnetLendingNegativeRateFinality(t *testing.T) {
+	devnet := newProtocolV2Devnet(t, 7)
+	defer devnet.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	terms := lending.Terms{
+		Lender:         devnet.sender,
+		Borrower:       devnet.recipient,
+		Principal:      30,
+		Collateral:     20,
+		TermRateBps:    -1_000,
+		MaturityHeight: 20,
+	}
+	termsRaw, err := terms.MarshalBinary()
+	if err != nil {
+		t.Fatal(err)
+	}
+	offerChange, err := object.NewCoinOutput(devnet.sender, devnet.native, 69)
+	if err != nil {
+		t.Fatal(err)
+	}
+	offerTx := devnet.signedTransaction(t, devnet.senderKey, []types.ObjectID{devnet.initialObject.ID}, []object.OutputSpec{offerChange}, tx.OpLoanOffer, termsRaw, 101)
+	devnet.finalizeDevnetTransaction(t, ctx, 1, offerTx)
+
+	offerID := types.ObjectIDForShard(offerTx.ID(), lending.OfferObjectIndex, 0)
+	for i, store := range devnet.stores {
+		item, ok := store.GetObject(offerID)
+		if !ok || item.Kind != object.KindLoanOffer {
+			t.Fatalf("validator %d missing finalized loan offer", i)
+		}
+	}
+
+	offerRef, err := (lending.Ref{ObjectID: offerID}).MarshalBinary()
+	if err != nil {
+		t.Fatal(err)
+	}
+	acceptChange, err := object.NewCoinOutput(devnet.recipient, devnet.native, 79)
+	if err != nil {
+		t.Fatal(err)
+	}
+	acceptTx := devnet.signedTransaction(t, devnet.recipientKey, []types.ObjectID{offerID, devnet.recipientInitialObject.ID}, []object.OutputSpec{acceptChange}, tx.OpLoanAccept, offerRef, 102)
+	devnet.finalizeDevnetTransaction(t, ctx, 2, acceptTx)
+
+	loanID := types.ObjectIDForShard(acceptTx.ID(), lending.LoanObjectIndex, 0)
+	principalID := types.ObjectIDForShard(acceptTx.ID(), lending.PayoutObjectIndex, 0)
+	for i, store := range devnet.stores {
+		loanObject, ok := store.GetObject(loanID)
+		if !ok || loanObject.Kind != object.KindLoan {
+			t.Fatalf("validator %d missing finalized loan", i)
+		}
+		loan, err := lending.ParseLoan(loanObject.Data)
+		if err != nil {
+			t.Fatal(err)
+		}
+		due, err := loan.Terms.RepaymentDue()
+		if err != nil || due != 27 {
+			t.Fatalf("validator %d repayment due = %d, err=%v; want 27", i, due, err)
+		}
+		principalObject, ok := store.GetObject(principalID)
+		if !ok {
+			t.Fatalf("validator %d missing finalized principal payout", i)
+		}
+		principal, err := object.ParseCoin(principalObject.Data)
+		if err != nil || principal.Amount != 30 || principalObject.Owner != devnet.recipient {
+			t.Fatalf("validator %d invalid principal payout: %+v %v", i, principalObject, err)
+		}
+	}
+
+	loanRef, err := (lending.Ref{ObjectID: loanID}).MarshalBinary()
+	if err != nil {
+		t.Fatal(err)
+	}
+	repayChange, err := object.NewCoinOutput(devnet.recipient, devnet.native, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	repayTx := devnet.signedTransaction(t, devnet.recipientKey, []types.ObjectID{loanID, principalID}, []object.OutputSpec{repayChange}, tx.OpLoanRepay, loanRef, 103)
+	devnet.finalizeDevnetTransaction(t, ctx, 3, repayTx)
+
+	lenderPayoutID := types.ObjectIDForShard(repayTx.ID(), lending.PayoutObjectIndex, 0)
+	collateralReturnID := types.ObjectIDForShard(repayTx.ID(), lending.PayoutObjectIndex+1, 0)
+	for i, store := range append(append([]*worldstate.Memory{}, devnet.stores...), devnet.observerStore) {
+		if _, ok := store.GetObject(loanID); ok {
+			t.Fatalf("state %d retained consumed loan after finalized repayment", i)
+		}
+		lenderPayout, ok := store.GetObject(lenderPayoutID)
+		if !ok {
+			t.Fatalf("state %d missing lender repayment", i)
+		}
+		lenderCoin, err := object.ParseCoin(lenderPayout.Data)
+		if err != nil || lenderPayout.Owner != devnet.sender || lenderCoin.Amount != 27 {
+			t.Fatalf("state %d invalid lender repayment: %+v %v", i, lenderPayout, err)
+		}
+		collateralReturn, ok := store.GetObject(collateralReturnID)
+		if !ok {
+			t.Fatalf("state %d missing collateral return", i)
+		}
+		collateralCoin, err := object.ParseCoin(collateralReturn.Data)
+		if err != nil || collateralReturn.Owner != devnet.recipient || collateralCoin.Amount != 20 {
+			t.Fatalf("state %d invalid collateral return: %+v %v", i, collateralReturn, err)
+		}
 	}
 }
 
@@ -218,19 +327,32 @@ func newProtocolV2Devnet(t *testing.T, validatorCount int) *protocolV2Devnet {
 		Kind:    initialSpec.Kind,
 		Data:    initialSpec.Data,
 	}
+	recipientSpec, err := object.NewCoinOutput(recipient, native, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	recipientInitial := object.Object{
+		ID:      types.ObjectIDForShard(types.HashBytes("devnet-input", []byte("1")), 0, 0),
+		Version: 1,
+		Owner:   recipient,
+		Kind:    recipientSpec.Kind,
+		Data:    recipientSpec.Data,
+	}
 
 	devnet := &protocolV2Devnet{
-		network:       network,
-		native:        native,
-		validators:    validators,
-		keys:          keys,
-		nodes:         make([]*p2p.Node, validatorCount),
-		services:      make([]*Service, validatorCount),
-		stores:        make([]*worldstate.Memory, validatorCount),
-		initialObject: initial,
-		senderKey:     senderKey,
-		sender:        sender,
-		recipient:     recipient,
+		network:                network,
+		native:                 native,
+		validators:             validators,
+		keys:                   keys,
+		nodes:                  make([]*p2p.Node, validatorCount),
+		services:               make([]*Service, validatorCount),
+		stores:                 make([]*worldstate.Memory, validatorCount),
+		initialObject:          initial,
+		recipientInitialObject: recipientInitial,
+		senderKey:              senderKey,
+		recipientKey:           recipientKey,
+		sender:                 sender,
+		recipient:              recipient,
 	}
 
 	for i := 0; i < validatorCount; i++ {
@@ -244,7 +366,7 @@ func newProtocolV2Devnet(t *testing.T, validatorCount int) *protocolV2Devnet {
 		}
 		devnet.nodes[i] = transport
 		store := worldstate.NewMemory()
-		if _, err := store.Apply(nil, []object.Object{initial}); err != nil {
+		if _, err := store.Apply(nil, []object.Object{initial, recipientInitial}); err != nil {
 			t.Fatal(err)
 		}
 		devnet.stores[i] = store
@@ -269,7 +391,7 @@ func newProtocolV2Devnet(t *testing.T, validatorCount int) *protocolV2Devnet {
 	}
 	devnet.observerNode = observerTransport
 	observerStore := worldstate.NewMemory()
-	if _, err := observerStore.Apply(nil, []object.Object{initial}); err != nil {
+	if _, err := observerStore.Apply(nil, []object.Object{initial, recipientInitial}); err != nil {
 		t.Fatal(err)
 	}
 	devnet.observerStore = observerStore
@@ -401,6 +523,77 @@ func (d *protocolV2Devnet) transferTransaction(t *testing.T) tx.Transaction {
 		t.Fatal(err)
 	}
 	return transaction
+}
+
+func (d *protocolV2Devnet) signedTransaction(t *testing.T, key *ecdsa.PrivateKey, inputIDs []types.ObjectID, outputs []object.OutputSpec, op uint16, payload []byte, salt uint64) tx.Transaction {
+	t.Helper()
+	inputs := make([]tx.InputRef, 0, len(inputIDs))
+	witnesses := make([]tx.Witness, 0, len(inputIDs))
+	for _, id := range inputIDs {
+		item, proof, ok := d.stores[0].Proof(id)
+		if !ok {
+			t.Fatalf("missing devnet input %s", id)
+		}
+		inputs = append(inputs, tx.InputRef{ObjectID: id, Version: item.Version, ObjectHash: item.Hash()})
+		witnesses = append(witnesses, tx.Witness{Object: item, Proof: proof})
+	}
+	transaction := tx.Transaction{
+		Version:          tx.Version,
+		Network:          d.network,
+		ShardID:          0,
+		StateRoot:        d.stores[0].Root(),
+		Inputs:           inputs,
+		Outputs:          outputs,
+		Operations:       []tx.Operation{{Kind: op, Payload: payload}},
+		Fee:              1,
+		ValidUntilHeight: 100,
+		Witnesses:        witnesses,
+	}
+	binary.BigEndian.PutUint64(transaction.Salt[:8], salt)
+	binary.BigEndian.PutUint64(transaction.Salt[8:], salt^0x5A5A5A5A5A5A5A5A)
+	if err := transaction.Sign(key); err != nil {
+		t.Fatal(err)
+	}
+	return transaction
+}
+
+func (d *protocolV2Devnet) finalizeDevnetTransaction(t *testing.T, ctx context.Context, height uint64, transaction tx.Transaction) {
+	t.Helper()
+	proposer := d.proposerIndex(t, height)
+	if err := d.clientNode.Connect(ctx, d.nodes[proposer].AddrInfo()); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := transaction.MarshalBinary()
+	if err != nil {
+		t.Fatal(err)
+	}
+	response, err := d.clientNode.SendTransaction(ctx, d.nodes[proposer].ID(), raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	transactionID := transaction.ID()
+	if len(response) != len(transactionID) || string(response) != string(transactionID[:]) {
+		t.Fatalf("transaction acknowledgement mismatch: got %x want %x", response, transactionID)
+	}
+	snapshot, err := d.services[proposer].Propose(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snapshot.Header.Height != height {
+		t.Fatalf("finalized height = %d, want %d", snapshot.Header.Height, height)
+	}
+	quorum := (2*len(d.validators.Validators))/3 + 1
+	if len(snapshot.Certificate.Votes) < quorum {
+		t.Fatalf("certificate votes = %d, want quorum %d", len(snapshot.Certificate.Votes), quorum)
+	}
+	for i, service := range d.services {
+		if service.Runtime.Height != height {
+			t.Fatalf("validator %d height = %d, want %d", i, service.Runtime.Height, height)
+		}
+	}
+	if d.observer.Runtime.Height != height {
+		t.Fatalf("observer height = %d, want %d", d.observer.Runtime.Height, height)
+	}
 }
 
 func devnetValidatorCount(t *testing.T) int {
