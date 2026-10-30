@@ -492,6 +492,7 @@ func TestPinnedObserverRefusesExternalCheckpointWithoutExistingVerifiedHistory(t
 func TestObserverWithSeparateFinalityAnchorPreservesHighWaterOnRestart(t *testing.T) {
 	cfg := observerFixture(t, filepath.Join(t.TempDir(), "state"))
 	external := t.TempDir()
+	if err := os.Chmod(external, 0700); err != nil { t.Fatal(err) }
 	cfg.ExternalAnchorPath = filepath.Join(external, "finality.anchor")
 	obs, err := OpenObserver(cfg)
 	if err != nil {
