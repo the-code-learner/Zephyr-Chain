@@ -9,6 +9,7 @@ import (
 	"math"
 	"math/big"
 	"runtime"
+	"sync"
 	"time"
 
 	v2consensus "github.com/zephyr-chain/zephyr-chain/internal/v2/consensus"
@@ -373,14 +374,25 @@ func (c *finalityHarnessCluster) finalizeHeight(
 	if c == nil || len(c.runtimes) == 0 {
 		return nil, sharding.GlobalHeader{}, v2consensus.Certificate{}, ErrInvalidFinalityBenchmark
 	}
+	// Independent validator replicas run concurrently on real networks.
+	// A sequential loop made this single-process lab benchmark measure N
+	// serial executions rather than the consensus critical path.
 	candidates := make([]node.Candidate, len(c.runtimes))
+	candidateErrors := make([]error, len(c.runtimes))
+	var builds sync.WaitGroup
 	for i, runtimeNode := range c.runtimes {
-		candidate, err := runtimeNode.BuildCandidate(height, batches)
+		builds.Add(1)
+		go func(i int, runtimeNode *node.Runtime) {
+			defer builds.Done()
+			candidates[i], candidateErrors[i] = runtimeNode.BuildCandidate(height, batches)
+		}(i, runtimeNode)
+	}
+	builds.Wait()
+	for i, err := range candidateErrors {
 		if err != nil {
 			return nil, sharding.GlobalHeader{}, v2consensus.Certificate{}, err
 		}
-		candidates[i] = candidate
-		if i > 0 && v2consensus.HeaderConsensusHash(candidate.Header) != v2consensus.HeaderConsensusHash(candidates[0].Header) {
+		if i > 0 && v2consensus.HeaderConsensusHash(candidates[i].Header) != v2consensus.HeaderConsensusHash(candidates[0].Header) {
 			return nil, sharding.GlobalHeader{}, v2consensus.Certificate{}, ErrInvalidFinalityBenchmark
 		}
 	}
@@ -413,17 +425,25 @@ func (c *finalityHarnessCluster) finalizeHeight(
 	if err != nil {
 		return nil, sharding.GlobalHeader{}, v2consensus.Certificate{}, err
 	}
-	var finalized sharding.GlobalHeader
+	// Each replica verifies the same QC and commits its own independent
+	// state; join before observing any committed header or issuing imports.
+	headers := make([]sharding.GlobalHeader, len(c.runtimes))
+	commitErrors := make([]error, len(c.runtimes))
+	var commits sync.WaitGroup
 	for i, runtimeNode := range c.runtimes {
-		header, err := runtimeNode.Commit(candidates[i], certificate, c.validators)
+		commits.Add(1)
+		go func(i int, runtimeNode *node.Runtime) {
+			defer commits.Done()
+			headers[i], commitErrors[i] = runtimeNode.Commit(candidates[i], certificate, c.validators)
+		}(i, runtimeNode)
+	}
+	commits.Wait()
+	finalized := headers[0]
+	for i, err := range commitErrors {
 		if err != nil {
 			return nil, sharding.GlobalHeader{}, v2consensus.Certificate{}, err
 		}
-		if i == 0 {
-			finalized = header
-			continue
-		}
-		if header.Hash() != finalized.Hash() {
+		if i > 0 && headers[i].Hash() != finalized.Hash() {
 			return nil, sharding.GlobalHeader{}, v2consensus.Certificate{}, ErrInvalidFinalityBenchmark
 		}
 	}
