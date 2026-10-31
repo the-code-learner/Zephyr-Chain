@@ -1,0 +1,33 @@
+name: V2 Validator Shard Scaling
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  matrix:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        validators: [4, 7, 16, 20, 32]
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Measure consensus finalized TPS versus validators and shards
+        shell: bash
+        run: |
+          go run ./cmd/v2-finality-matrix -validators ${{ matrix.validators }} -shards 1,2,4,8 -cross-shard-bps 0,5000 -transactions-per-block 40 -warmup-blocks 2 -measured-blocks 5 -block-cadence 1ms -commit "$GITHUB_SHA" -topology single-process-in-memory -workload native-transfer-validator-shard-scaling > scaling.json
+          cat scaling.json >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v6
+        with:
+          name: v2-scaling-${{ matrix.validators }}
+          path: scaling.json
+          if-no-files-found: error
+          retention-days: 30
