@@ -51,6 +51,19 @@ func (b BatchExecutor) ExecuteBatch(transactions []tx.Transaction) ([]Result, er
 	}
 
 	results := make([]Result, len(transactions))
+	// A one-worker batch has no parallelism to exploit. Avoid creating a
+	// goroutine, jobs channel, error slice and synchronization for this
+	// common path while preserving canonical transaction order and errors.
+	if workers == 1 {
+		for i := range transactions {
+			result, err := b.Engine.Execute(transactions[i])
+			if err != nil {
+				return nil, err
+			}
+			results[i] = result
+		}
+		return results, nil
+	}
 	errs := make([]error, len(transactions))
 	jobs := make(chan int)
 	var wg sync.WaitGroup
