@@ -110,7 +110,9 @@ func (r *Runtime) BuildCandidate(height uint64, batches map[uint32]ShardBatch) (
 	// shard before constructing canonical, ordered commitments and roots.
 	outputs := make([]shardBuildOutput, r.ShardCount)
 	buildShard := func(shard uint32) {
-		outputs[shard], outputs[shard].err = r.buildShardCandidate(height, shard, batches[shard])
+		out, err := r.buildShardCandidate(height, shard, batches[shard])
+		out.err = err
+		outputs[shard] = out
 	}
 	workers := r.Workers
 	if workers <= 0 {
@@ -191,106 +193,105 @@ type shardBuildOutput struct {
 
 func (r *Runtime) buildShardCandidate(height uint64, shard uint32, batch ShardBatch) (shardBuildOutput, error) {
 	out := shardBuildOutput{}
-		store := r.States[shard]
-		batch := batches[shard]
-		currentRoot := store.Root()
-		delta := shardDelta{}
-		results := make([]execution.Result, 0, len(batch.Transactions))
-		if len(batch.Transactions) > 0 {
-			for _, transaction := range batch.Transactions {
-				if transaction.ShardID != shard || transaction.StateRoot != currentRoot {
-					return shardBuildOutput{}, ErrCandidateState
-				}
-			}
-			executor := execution.BatchExecutor{Engine: execution.Engine{Network: r.Network, NativeToken: r.NativeToken, ShardCount: r.ShardCount, Height: height}, Workers: r.Workers}
-			var err error
-			results, err = executor.ExecuteBatch(batch.Transactions)
-			if err != nil {
-				return shardBuildOutput{}, err
-			}
-			for _, result := range results {
-				delta.Consumed = append(delta.Consumed, result.Consumed...)
-				delta.Created = append(delta.Created, result.Created...)
-			}
-			out.hasTransactions = true
-			out.results = results
-		}
-		for _, receiptImport := range batch.Imports {
-			if err := r.validateReceiptImport(shard, receiptImport); err != nil {
-				return shardBuildOutput{}, err
-			}
-			destinationObject, err := receiptImport.Receipt.DestinationObject()
-			if err != nil {
-				return shardBuildOutput{}, ErrReceiptImport
-			}
-			marker, err := sharding.ReceiptMarker(receiptImport.Receipt)
-			if err != nil {
-				return shardBuildOutput{}, ErrReceiptImport
-			}
-			if _, exists := store.GetObject(destinationObject.ID); exists {
-				return shardBuildOutput{}, sharding.ErrReceiptReplay
-			}
-			if _, exists := store.GetObject(marker.ID); exists {
-				return shardBuildOutput{}, sharding.ErrReceiptReplay
-			}
-			delta.Created = append(delta.Created, destinationObject, marker)
-		}
-
-		if shard == 0 && r.pendingEconomic != nil {
-			stateHash, err := r.pendingEconomic.State.Hash()
-			if err != nil {
-				return shardBuildOutput{}, err
-			}
-			if err := appendEconomicStateDelta(&delta, *r.pendingEconomic); err != nil {
-				return shardBuildOutput{}, err
-			}
-			out.economicPendingStateHash = stateHash
-		}
-
-		newRoot := currentRoot
-		if len(delta.Consumed) > 0 || len(delta.Created) > 0 {
-			simulator, ok := store.(worldstate.Simulator)
-			if !ok {
-				return shardBuildOutput{}, ErrStateSimulation
-			}
-			var err error
-			newRoot, err = simulator.Simulate(delta.Consumed, delta.Created)
-			if err != nil {
-				return shardBuildOutput{}, err
-			}
-			out.hasDelta = true
-			out.delta = delta
-		}
-		receipts := make([]sharding.CrossShardReceipt, 0)
-		for _, result := range results {
-			for _, outbound := range result.Outbound {
-				receipts = append(receipts, sharding.CrossShardReceipt{SourceShard: shard, DestinationShard: outbound.DestinationShard, SourceHeight: height, TransactionID: result.TxID, OutputIndex: outbound.OutputIndex, Output: outbound.Output, SourceStateRoot: newRoot})
+	store := r.States[shard]
+	currentRoot := store.Root()
+	delta := shardDelta{}
+	results := make([]execution.Result, 0, len(batch.Transactions))
+	if len(batch.Transactions) > 0 {
+		for _, transaction := range batch.Transactions {
+			if transaction.ShardID != shard || transaction.StateRoot != currentRoot {
+				return shardBuildOutput{}, ErrCandidateState
 			}
 		}
-		receiptRoot, err := (sharding.ReceiptBatch{Receipts: receipts}).Root()
+		executor := execution.BatchExecutor{Engine: execution.Engine{Network: r.Network, NativeToken: r.NativeToken, ShardCount: r.ShardCount, Height: height}, Workers: r.Workers}
+		var err error
+		results, err = executor.ExecuteBatch(batch.Transactions)
 		if err != nil {
 			return shardBuildOutput{}, err
 		}
-		out.receipts = receipts
-		dataRoot := batch.DataRoot
-		if types.IsZero32([32]byte(dataRoot)) {
-			dataRoot = merkle.Root(nil)
+		for _, result := range results {
+			delta.Consumed = append(delta.Consumed, result.Consumed...)
+			delta.Created = append(delta.Created, result.Created...)
 		}
-		out.commitment = sharding.Commitment{ShardID: shard, StateRoot: newRoot, ReceiptRoot: receiptRoot, DataRoot: dataRoot}
-		out.dataLeaf = merkle.Leaf("shard-data-root", dataRoot[:])
+		out.hasTransactions = true
+		out.results = results
+	}
+	for _, receiptImport := range batch.Imports {
+		if err := r.validateReceiptImport(shard, receiptImport); err != nil {
+			return shardBuildOutput{}, err
+		}
+		destinationObject, err := receiptImport.Receipt.DestinationObject()
+		if err != nil {
+			return shardBuildOutput{}, ErrReceiptImport
+		}
+		marker, err := sharding.ReceiptMarker(receiptImport.Receipt)
+		if err != nil {
+			return shardBuildOutput{}, ErrReceiptImport
+		}
+		if _, exists := store.GetObject(destinationObject.ID); exists {
+			return shardBuildOutput{}, sharding.ErrReceiptReplay
+		}
+		if _, exists := store.GetObject(marker.ID); exists {
+			return shardBuildOutput{}, sharding.ErrReceiptReplay
+		}
+		delta.Created = append(delta.Created, destinationObject, marker)
+	}
 
-		if r.economicCollector != nil {
-			imports := make([]sharding.CrossShardReceipt, 0, len(batch.Imports))
-			for _, receiptImport := range batch.Imports {
-				imports = append(imports, receiptImport.Receipt)
-			}
-			out.observation = economics.FinalizedShardObservation{
-				Transactions: append([]tx.Transaction(nil), batch.Transactions...),
-				Results:      append([]execution.Result(nil), results...),
-				Imports:      imports,
-				Exports:      append([]sharding.CrossShardReceipt(nil), receipts...),
-			}
+	if shard == 0 && r.pendingEconomic != nil {
+		stateHash, err := r.pendingEconomic.State.Hash()
+		if err != nil {
+			return shardBuildOutput{}, err
 		}
+		if err := appendEconomicStateDelta(&delta, *r.pendingEconomic); err != nil {
+			return shardBuildOutput{}, err
+		}
+		out.economicPendingStateHash = stateHash
+	}
+
+	newRoot := currentRoot
+	if len(delta.Consumed) > 0 || len(delta.Created) > 0 {
+		simulator, ok := store.(worldstate.Simulator)
+		if !ok {
+			return shardBuildOutput{}, ErrStateSimulation
+		}
+		var err error
+		newRoot, err = simulator.Simulate(delta.Consumed, delta.Created)
+		if err != nil {
+			return shardBuildOutput{}, err
+		}
+		out.hasDelta = true
+		out.delta = delta
+	}
+	receipts := make([]sharding.CrossShardReceipt, 0)
+	for _, result := range results {
+		for _, outbound := range result.Outbound {
+			receipts = append(receipts, sharding.CrossShardReceipt{SourceShard: shard, DestinationShard: outbound.DestinationShard, SourceHeight: height, TransactionID: result.TxID, OutputIndex: outbound.OutputIndex, Output: outbound.Output, SourceStateRoot: newRoot})
+		}
+	}
+	receiptRoot, err := (sharding.ReceiptBatch{Receipts: receipts}).Root()
+	if err != nil {
+		return shardBuildOutput{}, err
+	}
+	out.receipts = receipts
+	dataRoot := batch.DataRoot
+	if types.IsZero32([32]byte(dataRoot)) {
+		dataRoot = merkle.Root(nil)
+	}
+	out.commitment = sharding.Commitment{ShardID: shard, StateRoot: newRoot, ReceiptRoot: receiptRoot, DataRoot: dataRoot}
+	out.dataLeaf = merkle.Leaf("shard-data-root", dataRoot[:])
+
+	if r.economicCollector != nil {
+		imports := make([]sharding.CrossShardReceipt, 0, len(batch.Imports))
+		for _, receiptImport := range batch.Imports {
+			imports = append(imports, receiptImport.Receipt)
+		}
+		out.observation = economics.FinalizedShardObservation{
+			Transactions: append([]tx.Transaction(nil), batch.Transactions...),
+			Results:      append([]execution.Result(nil), results...),
+			Imports:      imports,
+			Exports:      append([]sharding.CrossShardReceipt(nil), receipts...),
+		}
+	}
 	return out, nil
 }
 
