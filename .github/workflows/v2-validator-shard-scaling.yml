@@ -1,6 +1,7 @@
 name: V2 Validator Shard Scaling
 
 on:
+  pull_request:
   workflow_dispatch:
 
 permissions:
