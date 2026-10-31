@@ -211,7 +211,15 @@ func (s ValidatorSet) VerifyCertificate(certificate Certificate) error {
 	if err := s.Validate(); err != nil || certificate.Network != s.Network || certificate.Height == 0 || types.IsZero32([32]byte(certificate.HeaderHash)) {
 		return ErrCertificate
 	}
-	total, _ := s.TotalPower()
+	// Validate the set once and index its members once. The prior path
+	// revalidated every key, then searched the validator slice twice per vote.
+	// Keep every signature verification and duplicate-voter rejection intact.
+	members := make(map[types.ValidatorID]Validator, len(s.Validators))
+	var total uint64
+	for _, validator := range s.Validators {
+		members[validator.ID] = validator
+		total += validator.Power // Validate above has already checked overflow.
+	}
 	quorum := QuorumPower(total)
 	seen := make(map[types.ValidatorID]struct{}, len(certificate.Votes))
 	var power uint64
@@ -223,10 +231,12 @@ func (s ValidatorSet) VerifyCertificate(certificate Certificate) error {
 			return ErrCertificate
 		}
 		seen[vote.Voter] = struct{}{}
-		if err := s.VerifyVote(vote); err != nil {
+		validator, ok := members[vote.Voter]
+		if !ok || types.ValidatorIDFromPublicKey(vote.PublicKey) != vote.Voter ||
+			!bytes.Equal(validator.PublicKey, vote.PublicKey) ||
+			verifyDigest(vote.PublicKey, vote.SigningDigest(), vote.Signature) != nil {
 			return ErrCertificate
 		}
-		validator, _ := s.validator(vote.Voter)
 		power += validator.Power
 	}
 	if power < quorum {
