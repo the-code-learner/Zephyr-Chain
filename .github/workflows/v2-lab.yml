@@ -33,6 +33,9 @@ jobs:
       - name: V2 finalized-through-consensus report sample
         run: go test ./internal/v2/lab -run '^TestV2LabFinalityReport(FromConsensusCommit|CrossShardReceiptImport)$' -count=1 -v -timeout=120s
 
+      - name: Concurrent validator finality regression under race detector
+        run: go test -race ./internal/v2/lab -run '^TestV2ConcurrentValidatorFinalityMatrix$' -count=1 -timeout=3m
+
       - name: V2 partition stress
         run: go test ./internal/v2/lab -run '^TestV2Lab(FourThreePartitionStallsThenHeals|FiveTwoPartitionFinalizesQuorumSideAndMinorityCatchesUp)$' -count=10 -timeout=120s
 
