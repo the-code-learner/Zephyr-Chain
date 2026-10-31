@@ -70,5 +70,7 @@ jobs:
         run: go test -race ./internal/v2/node -run '^TestMultiSourceWitnessFloor' -count=10 -timeout=3m
       - name: Stale quorum external floor regression
         run: go test -race ./internal/v2/node -run '^TestCertifiedWitnessFloorMinimum' -count=10 -timeout=3m
+      - name: Witness operator separation policy regression
+        run: go test -race ./internal/v2/node -run '^TestOperatorSeparatedWitnessFloor' -count=10 -timeout=3m
       - name: Protected validator signing restart regression under race detector
         run: go test -race ./internal/v2/node -run '^TestProtectedValidatorServicePersistsSigningIntent$' -count=1 -timeout=3m
