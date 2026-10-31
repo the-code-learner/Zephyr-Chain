@@ -2,6 +2,8 @@ package node
 
 import (
 	"sort"
+	"runtime"
+	"sync"
 
 	"github.com/zephyr-chain/zephyr-chain/internal/v2/merkle"
 	"github.com/zephyr-chain/zephyr-chain/internal/v2/sharding"
@@ -36,32 +38,76 @@ func (r *Runtime) preflightCandidateState(candidate Candidate) (map[uint32]shard
 		commitments[commitment.ShardID] = commitment
 	}
 
+	// Shard backends are independent. Simulate and verify each shard
+	// concurrently, but join every worker before deciding whether any state
+	// may be mutated. Error selection stays deterministic by shard index.
 	dataLeaves := make([]types.Hash, r.ShardCount)
-	for shard := uint32(0); shard < r.ShardCount; shard++ {
+	shardErrors := make([]error, r.ShardCount)
+	workers := r.Workers
+	if workers <= 0 {
+		workers = runtime.GOMAXPROCS(0)
+	}
+	if workers > int(r.ShardCount) {
+		workers = int(r.ShardCount)
+	}
+	if workers < 1 {
+		workers = 1
+	}
+	verifyShard := func(shard uint32) error {
 		commitment, ok := commitments[shard]
 		if !ok {
-			return nil, nil, ErrCandidateState
+			return ErrCandidateState
 		}
 		stateRoot := r.States[shard].Root()
 		if delta, changed := candidate.deltas[shard]; changed {
 			simulator, ok := r.States[shard].(worldstate.Simulator)
 			if !ok {
-				return nil, nil, ErrStateSimulation
+				return ErrStateSimulation
 			}
+			var err error
 			stateRoot, err = simulator.Simulate(delta.Consumed, delta.Created)
+			if err != nil {
+				return err
+			}
+		}
+		if stateRoot != commitment.StateRoot {
+			return ErrCandidateState
+		}
+		receiptRoot, err := (sharding.ReceiptBatch{Receipts: candidate.Receipts[shard]}).Root()
+		if err != nil || receiptRoot != commitment.ReceiptRoot {
+			return ErrCandidateState
+		}
+		dataLeaves[shard] = merkle.Leaf("shard-data-root", commitment.DataRoot[:])
+		return nil
+	}
+	if workers == 1 {
+		for shard := uint32(0); shard < r.ShardCount; shard++ {
+			if err := verifyShard(shard); err != nil {
+				return nil, nil, err
+			}
+		}
+	} else {
+		jobs := make(chan uint32)
+		var wg sync.WaitGroup
+		wg.Add(workers)
+		for i := 0; i < workers; i++ {
+			go func() {
+				defer wg.Done()
+				for shard := range jobs {
+					shardErrors[shard] = verifyShard(shard)
+				}
+			}()
+		}
+		for shard := uint32(0); shard < r.ShardCount; shard++ {
+			jobs <- shard
+		}
+		close(jobs)
+		wg.Wait()
+		for _, err := range shardErrors {
 			if err != nil {
 				return nil, nil, err
 			}
 		}
-		if stateRoot != commitment.StateRoot {
-			return nil, nil, ErrCandidateState
-		}
-
-		receiptRoot, err := (sharding.ReceiptBatch{Receipts: candidate.Receipts[shard]}).Root()
-		if err != nil || receiptRoot != commitment.ReceiptRoot {
-			return nil, nil, ErrCandidateState
-		}
-		dataLeaves[shard] = merkle.Leaf("shard-data-root", commitment.DataRoot[:])
 	}
 	if merkle.Root(dataLeaves) != candidate.Header.DataRoot {
 		return nil, nil, ErrCandidateState
