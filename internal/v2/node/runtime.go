@@ -2,6 +2,7 @@ package node
 
 import (
 	"errors"
+	"runtime"
 	"sync"
 
 	v2consensus "github.com/zephyr-chain/zephyr-chain/internal/v2/consensus"
@@ -105,9 +106,91 @@ func (r *Runtime) BuildCandidate(height uint64, batches map[uint32]ShardBatch) (
 		deltas:               make(map[uint32]shardDelta),
 		economicObservations: make(map[uint32]economics.FinalizedShardObservation),
 	}
+	// Each shard has independent state. Bound concurrency and join every
+	// shard before constructing canonical, ordered commitments and roots.
+	outputs := make([]shardBuildOutput, r.ShardCount)
+	buildShard := func(shard uint32) {
+		outputs[shard], outputs[shard].err = r.buildShardCandidate(height, shard, batches[shard])
+	}
+	workers := r.Workers
+	if workers <= 0 {
+		workers = runtime.GOMAXPROCS(0)
+	}
+	if workers > int(r.ShardCount) {
+		workers = int(r.ShardCount)
+	}
+	if workers <= 1 {
+		for shard := uint32(0); shard < r.ShardCount; shard++ {
+			buildShard(shard)
+			if outputs[shard].err != nil {
+				return Candidate{}, outputs[shard].err
+			}
+		}
+	} else {
+		jobs := make(chan uint32)
+		var wg sync.WaitGroup
+		wg.Add(workers)
+		for i := 0; i < workers; i++ {
+			go func() {
+				defer wg.Done()
+				for shard := range jobs {
+					buildShard(shard)
+				}
+			}()
+		}
+		for shard := uint32(0); shard < r.ShardCount; shard++ {
+			jobs <- shard
+		}
+		close(jobs)
+		wg.Wait()
+	}
 	commitments := make([]sharding.Commitment, 0, r.ShardCount)
 	dataLeaves := make([]types.Hash, 0, r.ShardCount)
 	for shard := uint32(0); shard < r.ShardCount; shard++ {
+		out := outputs[shard]
+		if out.err != nil {
+			return Candidate{}, out.err
+		}
+		if out.hasTransactions {
+			candidate.Results[shard] = out.results
+		}
+		candidate.Receipts[shard] = out.receipts
+		if out.hasDelta {
+			candidate.deltas[shard] = out.delta
+		}
+		if shard == 0 {
+			candidate.economicPendingStateHash = out.economicPendingStateHash
+		}
+		if r.economicCollector != nil {
+			candidate.economicObservations[shard] = out.observation
+		}
+		commitments = append(commitments, out.commitment)
+		dataLeaves = append(dataLeaves, out.dataLeaf)
+	}
+	commitmentRoot, err := sharding.CommitmentRoot(commitments)
+	if err != nil {
+		return Candidate{}, err
+	}
+	candidate.Commitments = commitments
+	candidate.Header = sharding.GlobalHeader{Version: 2, Network: r.Network, Height: height, ParentHash: r.ParentHash, ShardCommitmentRoot: commitmentRoot, ValidatorRoot: r.ValidatorRoot, NextValidatorRoot: r.ValidatorRoot, DataRoot: merkle.Root(dataLeaves)}
+	return candidate, nil
+}
+
+type shardBuildOutput struct {
+	results []execution.Result
+	receipts []sharding.CrossShardReceipt
+	delta shardDelta
+	commitment sharding.Commitment
+	dataLeaf types.Hash
+	observation economics.FinalizedShardObservation
+	economicPendingStateHash types.Hash
+	hasTransactions bool
+	hasDelta bool
+	err error
+}
+
+func (r *Runtime) buildShardCandidate(height uint64, shard uint32, batch ShardBatch) (shardBuildOutput, error) {
+	out := shardBuildOutput{}
 		store := r.States[shard]
 		batch := batches[shard]
 		currentRoot := store.Root()
@@ -116,38 +199,39 @@ func (r *Runtime) BuildCandidate(height uint64, batches map[uint32]ShardBatch) (
 		if len(batch.Transactions) > 0 {
 			for _, transaction := range batch.Transactions {
 				if transaction.ShardID != shard || transaction.StateRoot != currentRoot {
-					return Candidate{}, ErrCandidateState
+					return shardBuildOutput{}, ErrCandidateState
 				}
 			}
 			executor := execution.BatchExecutor{Engine: execution.Engine{Network: r.Network, NativeToken: r.NativeToken, ShardCount: r.ShardCount, Height: height}, Workers: r.Workers}
 			var err error
 			results, err = executor.ExecuteBatch(batch.Transactions)
 			if err != nil {
-				return Candidate{}, err
+				return shardBuildOutput{}, err
 			}
 			for _, result := range results {
 				delta.Consumed = append(delta.Consumed, result.Consumed...)
 				delta.Created = append(delta.Created, result.Created...)
 			}
-			candidate.Results[shard] = results
+			out.hasTransactions = true
+			out.results = results
 		}
 		for _, receiptImport := range batch.Imports {
 			if err := r.validateReceiptImport(shard, receiptImport); err != nil {
-				return Candidate{}, err
+				return shardBuildOutput{}, err
 			}
 			destinationObject, err := receiptImport.Receipt.DestinationObject()
 			if err != nil {
-				return Candidate{}, ErrReceiptImport
+				return shardBuildOutput{}, ErrReceiptImport
 			}
 			marker, err := sharding.ReceiptMarker(receiptImport.Receipt)
 			if err != nil {
-				return Candidate{}, ErrReceiptImport
+				return shardBuildOutput{}, ErrReceiptImport
 			}
 			if _, exists := store.GetObject(destinationObject.ID); exists {
-				return Candidate{}, sharding.ErrReceiptReplay
+				return shardBuildOutput{}, sharding.ErrReceiptReplay
 			}
 			if _, exists := store.GetObject(marker.ID); exists {
-				return Candidate{}, sharding.ErrReceiptReplay
+				return shardBuildOutput{}, sharding.ErrReceiptReplay
 			}
 			delta.Created = append(delta.Created, destinationObject, marker)
 		}
@@ -155,26 +239,27 @@ func (r *Runtime) BuildCandidate(height uint64, batches map[uint32]ShardBatch) (
 		if shard == 0 && r.pendingEconomic != nil {
 			stateHash, err := r.pendingEconomic.State.Hash()
 			if err != nil {
-				return Candidate{}, err
+				return shardBuildOutput{}, err
 			}
 			if err := appendEconomicStateDelta(&delta, *r.pendingEconomic); err != nil {
-				return Candidate{}, err
+				return shardBuildOutput{}, err
 			}
-			candidate.economicPendingStateHash = stateHash
+			out.economicPendingStateHash = stateHash
 		}
 
 		newRoot := currentRoot
 		if len(delta.Consumed) > 0 || len(delta.Created) > 0 {
 			simulator, ok := store.(worldstate.Simulator)
 			if !ok {
-				return Candidate{}, ErrStateSimulation
+				return shardBuildOutput{}, ErrStateSimulation
 			}
 			var err error
 			newRoot, err = simulator.Simulate(delta.Consumed, delta.Created)
 			if err != nil {
-				return Candidate{}, err
+				return shardBuildOutput{}, err
 			}
-			candidate.deltas[shard] = delta
+			out.hasDelta = true
+			out.delta = delta
 		}
 		receipts := make([]sharding.CrossShardReceipt, 0)
 		for _, result := range results {
@@ -184,36 +269,29 @@ func (r *Runtime) BuildCandidate(height uint64, batches map[uint32]ShardBatch) (
 		}
 		receiptRoot, err := (sharding.ReceiptBatch{Receipts: receipts}).Root()
 		if err != nil {
-			return Candidate{}, err
+			return shardBuildOutput{}, err
 		}
-		candidate.Receipts[shard] = receipts
+		out.receipts = receipts
 		dataRoot := batch.DataRoot
 		if types.IsZero32([32]byte(dataRoot)) {
 			dataRoot = merkle.Root(nil)
 		}
-		commitments = append(commitments, sharding.Commitment{ShardID: shard, StateRoot: newRoot, ReceiptRoot: receiptRoot, DataRoot: dataRoot})
-		dataLeaves = append(dataLeaves, merkle.Leaf("shard-data-root", dataRoot[:]))
+		out.commitment = sharding.Commitment{ShardID: shard, StateRoot: newRoot, ReceiptRoot: receiptRoot, DataRoot: dataRoot}
+		out.dataLeaf = merkle.Leaf("shard-data-root", dataRoot[:])
 
 		if r.economicCollector != nil {
 			imports := make([]sharding.CrossShardReceipt, 0, len(batch.Imports))
 			for _, receiptImport := range batch.Imports {
 				imports = append(imports, receiptImport.Receipt)
 			}
-			candidate.economicObservations[shard] = economics.FinalizedShardObservation{
+			out.observation = economics.FinalizedShardObservation{
 				Transactions: append([]tx.Transaction(nil), batch.Transactions...),
 				Results:      append([]execution.Result(nil), results...),
 				Imports:      imports,
 				Exports:      append([]sharding.CrossShardReceipt(nil), receipts...),
 			}
 		}
-	}
-	commitmentRoot, err := sharding.CommitmentRoot(commitments)
-	if err != nil {
-		return Candidate{}, err
-	}
-	candidate.Commitments = commitments
-	candidate.Header = sharding.GlobalHeader{Version: 2, Network: r.Network, Height: height, ParentHash: r.ParentHash, ShardCommitmentRoot: commitmentRoot, ValidatorRoot: r.ValidatorRoot, NextValidatorRoot: r.ValidatorRoot, DataRoot: merkle.Root(dataLeaves)}
-	return candidate, nil
+	return out, nil
 }
 
 func appendEconomicStateDelta(delta *shardDelta, preview economics.ShadowEpochPreview) error {
