@@ -1,8 +1,8 @@
 package node
 
 import (
-	"sort"
 	"runtime"
+	"sort"
 	"sync"
 
 	"github.com/zephyr-chain/zephyr-chain/internal/v2/merkle"
