@@ -179,16 +179,16 @@ func (r *Runtime) BuildCandidate(height uint64, batches map[uint32]ShardBatch) (
 }
 
 type shardBuildOutput struct {
-	results []execution.Result
-	receipts []sharding.CrossShardReceipt
-	delta shardDelta
-	commitment sharding.Commitment
-	dataLeaf types.Hash
-	observation economics.FinalizedShardObservation
+	results                  []execution.Result
+	receipts                 []sharding.CrossShardReceipt
+	delta                    shardDelta
+	commitment               sharding.Commitment
+	dataLeaf                 types.Hash
+	observation              economics.FinalizedShardObservation
 	economicPendingStateHash types.Hash
-	hasTransactions bool
-	hasDelta bool
-	err error
+	hasTransactions          bool
+	hasDelta                 bool
+	err                      error
 }
 
 func (r *Runtime) buildShardCandidate(height uint64, shard uint32, batch ShardBatch) (shardBuildOutput, error) {
