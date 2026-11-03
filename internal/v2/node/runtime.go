@@ -100,6 +100,13 @@ func (r *Runtime) BuildCandidate(height uint64, batches map[uint32]ShardBatch) (
 	if height != r.Height+1 || height == 0 {
 		return Candidate{}, ErrCandidateHeight
 	}
+	// Never silently drop batches targeting an unknown shard. Such a batch
+	// must not be accepted as a valid global candidate with missing traffic.
+	for shard := range batches {
+		if shard >= r.ShardCount {
+			return Candidate{}, ErrCandidateState
+		}
+	}
 	candidate := Candidate{
 		Results:              make(map[uint32][]execution.Result),
 		Receipts:             make(map[uint32][]sharding.CrossShardReceipt),
