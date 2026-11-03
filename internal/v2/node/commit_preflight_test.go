@@ -59,6 +59,54 @@ func TestCommitPreflightRejectsStaleLaterShardBeforeAnyApply(t *testing.T) {
 	}
 }
 
+func TestParallelCommitPreflightRejectsStaleLaterShardBeforeAnyApply(t *testing.T) {
+	network := types.NetworkID(types.HashBytes("network", []byte("preflight-stale")))
+	native := types.TokenID(types.HashBytes("token", []byte("ZPH")))
+	key, validators, validatorRoot := schedulerValidatorSet(t, network)
+	state0 := worldstate.NewMemory()
+	state1 := worldstate.NewMemory()
+	runtime, err := NewRuntime(network, native, validatorRoot, map[uint32]worldstate.Backend{0: state0, 1: state1}, 4)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	old0 := systemObjectForShard(0, 1, "old-0")
+	old1 := systemObjectForShard(1, 1, "old-1")
+	if _, err := state0.Apply(nil, []object.Object{old0}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := state1.Apply(nil, []object.Object{old1}); err != nil {
+		t.Fatal(err)
+	}
+	new0 := systemObjectForShard(0, 2, "new-0")
+	new1 := systemObjectForShard(1, 2, "new-1")
+	deltas := map[uint32]shardDelta{
+		0: {Consumed: []types.ObjectID{old0.ID}, Created: []object.Object{new0}},
+		1: {Consumed: []types.ObjectID{old1.ID}, Created: []object.Object{new1}},
+	}
+	candidate := manualCandidateForDeltas(t, runtime, deltas)
+
+	root0Before := state0.Root()
+	interloper := systemObjectForShard(1, 3, "interloper")
+	if _, err := state1.Apply([]types.ObjectID{old1.ID}, []object.Object{interloper}); err != nil {
+		t.Fatal(err)
+	}
+	commitSchedulerCandidateExpectError(t, runtime, key, validators, candidate)
+
+	if state0.Root() != root0Before {
+		t.Fatal("shard 0 mutated before stale shard 1 was rejected")
+	}
+	if _, ok := state0.GetObject(old0.ID); !ok {
+		t.Fatal("shard 0 consumed object despite failed all-shard preflight")
+	}
+	if _, ok := state0.GetObject(new0.ID); ok {
+		t.Fatal("shard 0 created object despite failed all-shard preflight")
+	}
+	if runtime.Height != 0 {
+		t.Fatalf("failed preflight advanced runtime height to %d", runtime.Height)
+	}
+}
+
 func TestCommitPreflightRejectsTamperedUntouchedShardRoot(t *testing.T) {
 	network := types.NetworkID(types.HashBytes("network", []byte("preflight-root")))
 	native := types.TokenID(types.HashBytes("token", []byte("ZPH")))
