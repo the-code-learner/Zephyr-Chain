@@ -11,8 +11,8 @@ import (
 func TestCandidateWorkerBudgetFollowsActiveShards(t *testing.T) {
 	transaction := tx.Transaction{}
 	cases := []struct {
-		name string
-		batches map[uint32]ShardBatch
+		name                             string
+		batches                          map[uint32]ShardBatch
 		shardWorkers, transactionWorkers int
 	}{
 		{name: "all idle", shardWorkers: 4, transactionWorkers: 2},
