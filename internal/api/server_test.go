@@ -1264,7 +1264,6 @@ func TestConsensusAutomationRebroadcastsVoteAfterPeerLinkRestored(t *testing.T) 
 		RequireConsensusCertificates: true,
 	})
 	proposerHTTP := httptest.NewServer(proposerServer.Handler())
-	defer proposerHTTP.Close()
 	proposerServer.setPeerURLs(nil)
 
 	voterServer := newTestServer(t, Config{
@@ -1282,14 +1281,16 @@ func TestConsensusAutomationRebroadcastsVoteAfterPeerLinkRestored(t *testing.T) 
 		RequireConsensusCertificates: true,
 	})
 	voterHTTP := httptest.NewServer(voterServer.Handler())
-	defer voterHTTP.Close()
-	// Both nodes share a live consensus exchange. Shut down both automation
-	// loops before Go's TempDir cleanup for either node can run: otherwise
-	// the first node can still write while the second directory is removed.
-	// The helper's own server.Close cleanups remain idempotent.
+	// Stop producers of peer traffic first, then drain inbound handlers
+	// and their ledger writes before TempDir cleanup. Deferring HTTP.Close
+	// would shut listeners down before this cleanup, while automation could
+	// still be sending requests to the other node. The helper's own
+	// server.Close callbacks remain idempotent.
 	t.Cleanup(func() {
 		voterServer.Close()
 		proposerServer.Close()
+		voterHTTP.Close()
+		proposerHTTP.Close()
 	})
 	proposerServer.setPeerURLs([]string{voterHTTP.URL})
 
