@@ -141,7 +141,10 @@ func (r *Runtime) BuildCandidate(height uint64, batches map[uint32]ShardBatch) (
 				}
 			}()
 		}
-		for shard := uint32(0); shard < r.ShardCount; shard++ {
+		// Prioritize shards with actual transactions or imports so idle
+		// commitments do not block useful execution in the worker queue.
+		// Results are still assembled and errors checked by shard index.
+		for _, shard := range candidateShardSchedule(r.ShardCount, batches) {
 			jobs <- shard
 		}
 		close(jobs)
@@ -202,6 +205,26 @@ func candidateWorkerAllocation(configured int, shardCount uint32) (shardWorkers,
 		transactionWorkers = 1
 	}
 	return shardWorkers, transactionWorkers
+}
+
+// candidateShardSchedule schedules non-empty shards before empty ones.
+// This affects worker dispatch only, never canonical commitment order, state
+// application order, or deterministic lowest-shard error selection.
+func candidateShardSchedule(shardCount uint32, batches map[uint32]ShardBatch) []uint32 {
+	order := make([]uint32, 0, shardCount)
+	for shard := uint32(0); shard < shardCount; shard++ {
+		batch := batches[shard]
+		if len(batch.Transactions) > 0 || len(batch.Imports) > 0 {
+			order = append(order, shard)
+		}
+	}
+	for shard := uint32(0); shard < shardCount; shard++ {
+		batch := batches[shard]
+		if len(batch.Transactions) == 0 && len(batch.Imports) == 0 {
+			order = append(order, shard)
+		}
+	}
+	return order
 }
 
 // candidateWorkerAllocationForBatches distributes CPU budget according to
