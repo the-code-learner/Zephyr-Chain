@@ -116,7 +116,7 @@ func (r *Runtime) BuildCandidate(height uint64, batches map[uint32]ShardBatch) (
 	// Each shard has independent state. Bound concurrency and join every
 	// shard before constructing canonical, ordered commitments and roots.
 	outputs := make([]shardBuildOutput, r.ShardCount)
-	workers, transactionWorkers := candidateWorkerAllocation(r.Workers, r.ShardCount)
+	workers, transactionWorkers := candidateWorkerAllocationForBatches(r.Workers, r.ShardCount, batches)
 	buildShard := func(shard uint32) {
 		out, err := r.buildShardCandidate(height, shard, batches[shard], transactionWorkers)
 		out.err = err
@@ -202,6 +202,23 @@ func candidateWorkerAllocation(configured int, shardCount uint32) (shardWorkers,
 		transactionWorkers = 1
 	}
 	return shardWorkers, transactionWorkers
+}
+
+// candidateWorkerAllocationForBatches distributes CPU budget according to
+// shards with actual transactions or receipt imports. Idle shards still get
+// their canonical commitment, but cannot dilute the active transaction pool.
+// Count activity only after BuildCandidate has rejected out-of-range keys.
+func candidateWorkerAllocationForBatches(configured int, shardCount uint32, batches map[uint32]ShardBatch) (shardWorkers, transactionWorkers int) {
+	var active uint32
+	for _, batch := range batches {
+		if len(batch.Transactions) > 0 || len(batch.Imports) > 0 {
+			active++
+		}
+	}
+	if active == 0 {
+		active = shardCount
+	}
+	return candidateWorkerAllocation(configured, active)
 }
 
 type shardBuildOutput struct {
