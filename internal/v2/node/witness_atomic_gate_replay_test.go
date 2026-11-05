@@ -52,7 +52,7 @@ func TestWitnessAtomicGateRejectsStaleAndForeignRemoteFloorsAfterRestart(t *test
 	zeroHash := cp
 	zeroHash.HeaderHash = types.Hash{}
 	for _, tc := range []struct {
-		name string
+		name  string
 		floor FinalityCheckpoint
 	}{
 		{name: "stale replay", floor: stale},
