@@ -65,7 +65,10 @@ func (b BatchExecutor) ExecuteBatch(transactions []tx.Transaction) ([]Result, er
 		return results, nil
 	}
 	errs := make([]error, len(transactions))
-	jobs := make(chan int)
+	// A bounded queue decouples dispatch from worker handoff without
+	// buffering the whole batch. Indexed result/error slots retain the
+	// original deterministic transaction order.
+	jobs := make(chan int, workers)
 	var wg sync.WaitGroup
 	wg.Add(workers)
 	for i := 0; i < workers; i++ {
