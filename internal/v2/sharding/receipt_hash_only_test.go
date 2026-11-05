@@ -3,6 +3,7 @@ package sharding
 import (
 	"bytes"
 	"errors"
+	"reflect"
 	"sort"
 	"testing"
 
@@ -53,10 +54,8 @@ func TestReceiptHashOnlySortPreservesCanonicalLeavesAndInput(t *testing.T) {
 			t.Fatalf("leaf %d changed", i)
 		}
 	}
-	for i := range receipts {
-		if receipts[i] != original[i] {
-			t.Fatal("receipt hash sorting modified caller-owned batch")
-		}
+	if !reflect.DeepEqual(receipts, original) {
+		t.Fatal("receipt hash sorting modified caller-owned batch")
 	}
 	if _, err := (ReceiptBatch{Receipts: append(receipts, receipts[3])}).sortedHashes(); !errors.Is(err, ErrReceiptReplay) {
 		t.Fatalf("duplicate receipt not rejected: %v", err)
