@@ -22,6 +22,14 @@ func (r *Runtime) preflightCandidateState(candidate Candidate) (map[uint32]shard
 	if r == nil || len(candidate.Commitments) != int(r.ShardCount) {
 		return nil, nil, ErrCandidateState
 	}
+	// Reject receipt entries for shards outside the committed topology.
+	// Otherwise these entries are skipped by the in-range verification loop,
+	// permitting a candidate to carry uncommitted receipt data.
+	for shard := range candidate.Receipts {
+		if shard >= r.ShardCount {
+			return nil, nil, ErrCandidateState
+		}
+	}
 	commitmentRoot, err := sharding.CommitmentRoot(candidate.Commitments)
 	if err != nil || commitmentRoot != candidate.Header.ShardCommitmentRoot {
 		return nil, nil, ErrCandidateState
