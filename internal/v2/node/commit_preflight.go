@@ -30,6 +30,24 @@ func (r *Runtime) preflightCandidateState(candidate Candidate) (map[uint32]shard
 			return nil, nil, ErrCandidateState
 		}
 	}
+	// All shard-keyed candidate metadata must belong to the configured
+	// topology, even when a field is not needed by the current commit path.
+	// Reject malformed candidates before expensive state simulation.
+	for shard := range candidate.Results {
+		if shard >= r.ShardCount {
+			return nil, nil, ErrCandidateState
+		}
+	}
+	for shard := range candidate.economicObservations {
+		if shard >= r.ShardCount {
+			return nil, nil, ErrCandidateState
+		}
+	}
+	for shard := range candidate.deltas {
+		if shard >= r.ShardCount {
+			return nil, nil, ErrCandidateState
+		}
+	}
 	commitmentRoot, err := sharding.CommitmentRoot(candidate.Commitments)
 	if err != nil || commitmentRoot != candidate.Header.ShardCommitmentRoot {
 		return nil, nil, ErrCandidateState
