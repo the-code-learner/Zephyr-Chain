@@ -196,8 +196,11 @@ func sortedCommitments(in []Commitment) ([]Commitment, error) {
 			break
 		}
 	}
-	out := append([]Commitment(nil), in...)
+	// The ordered path is read-only and needs no allocation. Copy only
+	// unordered input, which must be sorted without modifying the caller.
+	out := in
 	if !ordered {
+		out = append([]Commitment(nil), in...)
 		sort.Slice(out, func(i, j int) bool { return out[i].ShardID < out[j].ShardID })
 	}
 	for i := range out {
