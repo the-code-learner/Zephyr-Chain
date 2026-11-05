@@ -42,3 +42,50 @@ func TestOperatorSeparatedWitnessFloorPolicyRejectsFakeRedundancy(t *testing.T) 
 		t.Fatalf("missing second publisher trust keys accepted: %v", err)
 	}
 }
+
+func TestOperatorSeparatedWitnessFloorRequiresCanonicalPublicDNSLabels(t *testing.T) {
+	for _, host := range []string{"witness-a.example.org", "operator-123.witness.example.net", "witness-a.example.org."} {
+		canonical := host
+		if len(canonical) > 0 && canonical[len(canonical)-1] == '.' {
+			canonical = canonical[:len(canonical)-1]
+		}
+		if !validWitnessPublisherDNSName(canonical) {
+			t.Fatalf("valid DNS name %q rejected", canonical)
+		}
+	}
+	for _, host := range []string{
+		"localhost",
+		"witness.local",
+		"node.localhost",
+		"witness",
+		"witness..example.org",
+		"-witness.example.org",
+		"witness-.example.org",
+		"witness.example.org.",
+		"witness_example.org",
+		"witness.éxample.org",
+		"witness.example.a",
+	} {
+		if validWitnessPublisherDNSName(host) {
+			t.Fatalf("noncanonical DNS name %q accepted", host)
+		}
+	}
+	network := types.NetworkID(types.HashBytes("operator-separated", []byte("strict-dns")))
+	root := types.HashBytes("operator-separated", []byte("strict-dns-root"))
+	keys, _ := witnessTestKeys()
+	for _, endpoint := range []string{
+		"https://localhost/checkpoint",
+		"https://witness.local/checkpoint",
+		"https://witness..example.org/checkpoint",
+		"https://witness_example.org/checkpoint",
+		"https://-witness.example.org/checkpoint",
+	} {
+		policies := []WitnessPublisherPolicy{
+			{Endpoint: "https://valid-witness.example.net/checkpoint", Keys: keys},
+			{Endpoint: endpoint, Keys: keys},
+		}
+		if _, err := NewOperatorSeparatedWitnessFloor(policies, network, root); !errors.Is(err, ErrWitnessSigningIntent) {
+			t.Fatalf("unsafe publisher endpoint %q accepted: %v", endpoint, err)
+		}
+	}
+}

@@ -37,9 +37,10 @@ func NewOperatorSeparatedWitnessFloor(policies []WitnessPublisherPolicy, network
 			return nil, ErrWitnessSigningIntent
 		}
 		host := strings.ToLower(strings.TrimSuffix(u.Hostname(), "."))
-		if host == "" || strings.Contains(host, "%") || net.ParseIP(host) != nil {
-			// Require canonical DNS names, not raw addresses or IPv6 zones.
-			// DNS still requires independently audited operator separation.
+		if net.ParseIP(host) != nil || !validWitnessPublisherDNSName(host) {
+			// Reject IP literals, local-only names, non-canonical DNS labels
+			// and deceptive repeated separators. DNS validity alone does
+			// NOT establish independent infrastructure or key custody.
 			return nil, ErrWitnessSigningIntent
 		}
 		if _, duplicate := seenHosts[host]; duplicate {
@@ -57,4 +58,27 @@ func NewOperatorSeparatedWitnessFloor(policies []WitnessPublisherPolicy, network
 		sources = append(sources, verified)
 	}
 	return NewMultiSourceWitnessFloor(sources...)
+}
+
+// validWitnessPublisherDNSName accepts only fully qualified ASCII DNS
+// hostnames. It does not resolve DNS or attempt to prove separate operators;
+// independent infrastructure and publisher key custody remain release gates.
+func validWitnessPublisherDNSName(host string) bool {
+	if len(host) < 4 || len(host) > 253 || !strings.Contains(host, ".") ||
+		strings.HasSuffix(host, ".local") || strings.HasSuffix(host, ".localhost") {
+		return false
+	}
+	labels := strings.Split(host, ".")
+	for _, label := range labels {
+		if len(label) == 0 || len(label) > 63 || label[0] == '-' || label[len(label)-1] == '-' {
+			return false
+		}
+		for i := 0; i < len(label); i++ {
+			c := label[i]
+			if (c < 'a' || c > 'z') && (c < '0' || c > '9') && c != '-' {
+				return false
+			}
+		}
+	}
+	return len(labels[len(labels)-1]) >= 2
 }
