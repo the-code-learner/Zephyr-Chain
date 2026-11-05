@@ -21,7 +21,7 @@ func TestReceiptHashOnceSortPreservesCanonicalRootAndProofs(t *testing.T) {
 		receipts[i] = CrossShardReceipt{
 			SourceShard: 0, DestinationShard: 1, SourceHeight: 7,
 			TransactionID: types.HashBytes("tx", []byte{byte(i)}),
-			OutputIndex: uint32(i), Output: output,
+			OutputIndex:   uint32(i), Output: output,
 			SourceStateRoot: types.HashBytes("root", []byte("receipt-hash-once")),
 		}
 	}
