@@ -2,17 +2,23 @@ package node
 
 import (
 	"errors"
+	"sync"
 
 	"github.com/zephyr-chain/zephyr-chain/internal/v2/types"
 )
 
 // MultiSourceWitnessFloor requires agreement between distinct provisioned
 // witness publications. Each source independently verifies a >2/3 Ed25519
-// quorum using pinned keys. This is NOT a freshness oracle: identical stale
-// signed bundles remain possible and must be checked against a separately
-// authenticated latest-head/freshness policy before production recovery.
+// quorum using pinned keys. The highest observed checkpoint is kept in
+// memory, rejecting later agreed rollback or equivocation within one process.
+// This is NOT a freshness oracle: an initially stale signed bundle or a
+// restart with rolled-back local storage still requires an independently
+// authenticated durable high-water/freshness policy before recovery.
 type MultiSourceWitnessFloor struct {
-	sources []WitnessExternalFloorVerifier
+	sources  []WitnessExternalFloorVerifier
+	mu       sync.Mutex
+	observed bool
+	last     FinalityCheckpoint
 }
 
 // NewMultiSourceWitnessFloor requires at least two separately configured
@@ -58,5 +64,20 @@ func (f *MultiSourceWitnessFloor) AuthenticatedWitnessFloor() (FinalityCheckpoin
 		}
 		agreed = cp
 	}
+	// Serialize the observation update: concurrent reads must never allow
+	// an older signed checkpoint to overwrite a newer accepted one.
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.observed {
+		if agreed.Network != f.last.Network || agreed.ValidatorRoot != f.last.ValidatorRoot ||
+			agreed.Height < f.last.Height {
+			return FinalityCheckpoint{}, ErrWitnessSigningIntent
+		}
+		if agreed.Height == f.last.Height && agreed.HeaderHash != f.last.HeaderHash {
+			return FinalityCheckpoint{}, errors.Join(ErrWitnessSigningIntent, ErrWitnessEquivocation)
+		}
+	}
+	f.last = agreed
+	f.observed = true
 	return agreed, nil
 }
