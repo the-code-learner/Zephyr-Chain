@@ -186,8 +186,20 @@ func sortedCommitments(in []Commitment) ([]Commitment, error) {
 	if len(in) == 0 {
 		return nil, ErrShardCount
 	}
+	// Candidates and verified commitment arrays normally arrive in
+	// canonical ascending shard order. Avoid sorting that common path,
+	// but still sort arbitrary input and reject duplicate shard IDs.
+	ordered := true
+	for i := 1; i < len(in); i++ {
+		if in[i-1].ShardID >= in[i].ShardID {
+			ordered = false
+			break
+		}
+	}
 	out := append([]Commitment(nil), in...)
-	sort.Slice(out, func(i, j int) bool { return out[i].ShardID < out[j].ShardID })
+	if !ordered {
+		sort.Slice(out, func(i, j int) bool { return out[i].ShardID < out[j].ShardID })
+	}
 	for i := range out {
 		if i > 0 && out[i-1].ShardID == out[i].ShardID {
 			return nil, ErrShardCount
