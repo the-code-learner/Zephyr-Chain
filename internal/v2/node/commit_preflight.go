@@ -113,7 +113,10 @@ func (r *Runtime) preflightCandidateState(candidate Candidate) (map[uint32]shard
 			}
 		}
 	} else {
-		jobs := make(chan uint32)
+		// Bound dispatch buffering to the number of workers. Prioritize
+		// expensive state simulations, but keep all verification results
+		// indexed by shard so errors retain deterministic ordering.
+		jobs := make(chan uint32, workers)
 		var wg sync.WaitGroup
 		wg.Add(workers)
 		for i := 0; i < workers; i++ {
@@ -124,7 +127,7 @@ func (r *Runtime) preflightCandidateState(candidate Candidate) (map[uint32]shard
 				}
 			}()
 		}
-		for shard := uint32(0); shard < r.ShardCount; shard++ {
+		for _, shard := range preflightShardSchedule(r.ShardCount, candidate.deltas) {
 			jobs <- shard
 		}
 		close(jobs)
@@ -148,4 +151,22 @@ func (r *Runtime) preflightCandidateState(candidate Candidate) (map[uint32]shard
 	}
 	sort.Ints(shards)
 	return commitments, shards, nil
+}
+
+// preflightShardSchedule dispatches state-changing shards before unchanged
+// shards. The dispatch order does not change canonical result assembly, error
+// selection, or the subsequent ordered application of state.
+func preflightShardSchedule(shardCount uint32, deltas map[uint32]shardDelta) []uint32 {
+	order := make([]uint32, 0, shardCount)
+	for shard := uint32(0); shard < shardCount; shard++ {
+		if _, changed := deltas[shard]; changed {
+			order = append(order, shard)
+		}
+	}
+	for shard := uint32(0); shard < shardCount; shard++ {
+		if _, changed := deltas[shard]; !changed {
+			order = append(order, shard)
+		}
+	}
+	return order
 }
