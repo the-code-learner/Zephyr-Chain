@@ -24,6 +24,26 @@ The observer accepts canonical bounded `SignedWitnessCheckpoint` bundles only ag
 - Genesis mismatch, incorrect validator transition, forged QC and restored unverified state fail closed.
 - Publish run logs and external reviewer approvals on #55; then re-evaluate #42. Never infer production GO from CI or synthetic single-host tests.
 
+## Detached quorum publication assembly (software only)
+
+`node.AssembleSignedWitnessCheckpoint` accepts a finalized checkpoint and
+**already-produced** detached witness signatures; it does not store or access
+private keys, does not operate a signer or publish over a network, and must
+never sign a caller-provided RPC claim. It canonicalizes signer ordering and
+emits a version-bound, network/genesis-root-bound JSON bundle only after the
+existing strict pinned-key verifier approves the complete >2/3 quorum.
+Insufficient, duplicate, unknown or forged signatures cause an error.
+Consumers must repeat pinned-key signature and independent QC-history checks.
+
+The input checkpoint MUST have been independently derived from QC-certified
+genesis-anchored finality by each signing operator, and the signing custody
+MUST be protected by a globally linearizable, rollback-proof remote
+reservation/fencing authority before any production private key use.
+An assembled bundle proves signature provenance only. It does not prove the
+quorum is separately operated, that the attestations are live/fresh, or that
+a publisher origin is independent. The proof of that deployment and its
+cross-host crash/partition/audit evidence remains tracked in #55 and #54.
+
 ## Current change scope
 
 This tranche adds adversarial **verification tests only**; it deliberately does not create an API that signs arbitrary caller-supplied height/hash. Such an API would be a signature oracle and would regress the trust boundary. Signer implementation remains blocked pending a QC-verified input boundary and cross-host fencing design.
