@@ -13,10 +13,10 @@ func TestCanonicalCommitmentFastPathMatchesSortedOracle(t *testing.T) {
 	canonical := make([]Commitment, 12)
 	for shard := range canonical {
 		canonical[shard] = Commitment{
-			ShardID: uint32(shard),
-			StateRoot: types.HashBytes("state", []byte{byte(shard)}),
+			ShardID:     uint32(shard),
+			StateRoot:   types.HashBytes("state", []byte{byte(shard)}),
 			ReceiptRoot: types.HashBytes("receipt", []byte{byte(shard)}),
-			DataRoot: types.HashBytes("data", []byte{byte(shard)}),
+			DataRoot:    types.HashBytes("data", []byte{byte(shard)}),
 		}
 	}
 	oracle := append([]Commitment(nil), canonical...)
