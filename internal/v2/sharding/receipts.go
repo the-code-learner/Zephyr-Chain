@@ -21,7 +21,7 @@ type ReceiptBatch struct {
 }
 
 func (b ReceiptBatch) Root() (types.Hash, error) {
-	hashes, _, err := b.sortedHashes()
+	hashes, err := b.sortedHashes()
 	if err != nil {
 		return types.Hash{}, err
 	}
@@ -33,7 +33,7 @@ func (b ReceiptBatch) Proof(receipt CrossShardReceipt) (merkle.Proof, error) {
 	if err != nil {
 		return merkle.Proof{}, err
 	}
-	hashes, _, err := b.sortedHashes()
+	hashes, err := b.sortedHashes()
 	if err != nil {
 		return merkle.Proof{}, err
 	}
@@ -45,38 +45,27 @@ func (b ReceiptBatch) Proof(receipt CrossShardReceipt) (merkle.Proof, error) {
 	return merkle.Proof{}, ErrReceiptProof
 }
 
-func (b ReceiptBatch) sortedHashes() ([]types.Hash, []CrossShardReceipt, error) {
-	// Hash each receipt exactly once. Sorting by its hex string previously
-	// recomputed hashes O(n log n) times; byte ordering is identical to
-	// lexicographic ordering of fixed-width lowercase hex strings.
-	type hashedReceipt struct {
-		hash    types.Hash
-		receipt CrossShardReceipt
-	}
-	items := make([]hashedReceipt, len(b.Receipts))
+// sortedHashes is the canonical receipt Merkle leaf ordering. Root and Proof
+// use hashes only: do not copy or retain the much larger receipt structures.
+// Hash() already validates each receipt's complete canonical encoding.
+func (b ReceiptBatch) sortedHashes() ([]types.Hash, error) {
+	hashes := make([]types.Hash, len(b.Receipts))
 	for i, receipt := range b.Receipts {
-		if err := receipt.Validate(); err != nil {
-			return nil, nil, err
-		}
 		hash, err := receipt.Hash()
 		if err != nil {
-			return nil, nil, err
+			return nil, err
 		}
-		items[i] = hashedReceipt{hash: hash, receipt: receipt}
+		hashes[i] = hash
 	}
-	sort.Slice(items, func(i, j int) bool {
-		return bytes.Compare(items[i].hash[:], items[j].hash[:]) < 0
+	sort.Slice(hashes, func(i, j int) bool {
+		return bytes.Compare(hashes[i][:], hashes[j][:]) < 0
 	})
-	hashes := make([]types.Hash, len(items))
-	receipts := make([]CrossShardReceipt, len(items))
-	for i, item := range items {
-		hashes[i] = item.hash
-		receipts[i] = item.receipt
-		if i > 0 && hashes[i] == hashes[i-1] {
-			return nil, nil, ErrReceiptReplay
+	for i := 1; i < len(hashes); i++ {
+		if hashes[i] == hashes[i-1] {
+			return nil, ErrReceiptReplay
 		}
 	}
-	return hashes, receipts, nil
+	return hashes, nil
 }
 
 // VerifyFinalizedReceipt proves both that the source shard commitment belongs
