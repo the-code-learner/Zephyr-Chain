@@ -116,17 +116,11 @@ func (r *Runtime) BuildCandidate(height uint64, batches map[uint32]ShardBatch) (
 	// Each shard has independent state. Bound concurrency and join every
 	// shard before constructing canonical, ordered commitments and roots.
 	outputs := make([]shardBuildOutput, r.ShardCount)
+	workers, transactionWorkers := candidateWorkerAllocation(r.Workers, r.ShardCount)
 	buildShard := func(shard uint32) {
-		out, err := r.buildShardCandidate(height, shard, batches[shard])
+		out, err := r.buildShardCandidate(height, shard, batches[shard], transactionWorkers)
 		out.err = err
 		outputs[shard] = out
-	}
-	workers := r.Workers
-	if workers <= 0 {
-		workers = runtime.GOMAXPROCS(0)
-	}
-	if workers > int(r.ShardCount) {
-		workers = int(r.ShardCount)
 	}
 	if workers <= 1 {
 		for shard := uint32(0); shard < r.ShardCount; shard++ {
@@ -185,6 +179,31 @@ func (r *Runtime) BuildCandidate(height uint64, batches map[uint32]ShardBatch) (
 	return candidate, nil
 }
 
+// candidateWorkerAllocation bounds nested shard and transaction execution
+// concurrency to the configured worker budget. A single shard can use the
+// full budget; multiple concurrent shards divide it to avoid W*W workers.
+func candidateWorkerAllocation(configured int, shardCount uint32) (shardWorkers, transactionWorkers int) {
+	budget := configured
+	if budget <= 0 {
+		budget = runtime.GOMAXPROCS(0)
+	}
+	if budget < 1 {
+		budget = 1
+	}
+	shardWorkers = budget
+	if shardWorkers > int(shardCount) {
+		shardWorkers = int(shardCount)
+	}
+	if shardWorkers < 1 {
+		shardWorkers = 1
+	}
+	transactionWorkers = budget / shardWorkers
+	if transactionWorkers < 1 {
+		transactionWorkers = 1
+	}
+	return shardWorkers, transactionWorkers
+}
+
 type shardBuildOutput struct {
 	results                  []execution.Result
 	receipts                 []sharding.CrossShardReceipt
@@ -198,7 +217,7 @@ type shardBuildOutput struct {
 	err                      error
 }
 
-func (r *Runtime) buildShardCandidate(height uint64, shard uint32, batch ShardBatch) (shardBuildOutput, error) {
+func (r *Runtime) buildShardCandidate(height uint64, shard uint32, batch ShardBatch, transactionWorkers int) (shardBuildOutput, error) {
 	out := shardBuildOutput{}
 	store := r.States[shard]
 	currentRoot := store.Root()
@@ -210,7 +229,7 @@ func (r *Runtime) buildShardCandidate(height uint64, shard uint32, batch ShardBa
 				return shardBuildOutput{}, ErrCandidateState
 			}
 		}
-		executor := execution.BatchExecutor{Engine: execution.Engine{Network: r.Network, NativeToken: r.NativeToken, ShardCount: r.ShardCount, Height: height}, Workers: r.Workers}
+		executor := execution.BatchExecutor{Engine: execution.Engine{Network: r.Network, NativeToken: r.NativeToken, ShardCount: r.ShardCount, Height: height}, Workers: transactionWorkers}
 		var err error
 		results, err = executor.ExecuteBatch(batch.Transactions)
 		if err != nil {
