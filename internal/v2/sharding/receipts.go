@@ -1,6 +1,7 @@
 package sharding
 
 import (
+	"bytes"
 	"errors"
 	"sort"
 	"sync"
@@ -45,25 +46,37 @@ func (b ReceiptBatch) Proof(receipt CrossShardReceipt) (merkle.Proof, error) {
 }
 
 func (b ReceiptBatch) sortedHashes() ([]types.Hash, []CrossShardReceipt, error) {
-	items := append([]CrossShardReceipt(nil), b.Receipts...)
-	for _, receipt := range items {
+	// Hash each receipt exactly once. Sorting by its hex string previously
+	// recomputed hashes O(n log n) times; byte ordering is identical to
+	// lexicographic ordering of fixed-width lowercase hex strings.
+	type hashedReceipt struct {
+		hash    types.Hash
+		receipt CrossShardReceipt
+	}
+	items := make([]hashedReceipt, len(b.Receipts))
+	for i, receipt := range b.Receipts {
 		if err := receipt.Validate(); err != nil {
 			return nil, nil, err
 		}
+		hash, err := receipt.Hash()
+		if err != nil {
+			return nil, nil, err
+		}
+		items[i] = hashedReceipt{hash: hash, receipt: receipt}
 	}
 	sort.Slice(items, func(i, j int) bool {
-		a, _ := items[i].Hash()
-		b, _ := items[j].Hash()
-		return a.String() < b.String()
+		return bytes.Compare(items[i].hash[:], items[j].hash[:]) < 0
 	})
 	hashes := make([]types.Hash, len(items))
-	for i, receipt := range items {
-		hashes[i], _ = receipt.Hash()
+	receipts := make([]CrossShardReceipt, len(items))
+	for i, item := range items {
+		hashes[i] = item.hash
+		receipts[i] = item.receipt
 		if i > 0 && hashes[i] == hashes[i-1] {
 			return nil, nil, ErrReceiptReplay
 		}
 	}
-	return hashes, items, nil
+	return hashes, receipts, nil
 }
 
 // VerifyFinalizedReceipt proves both that the source shard commitment belongs
