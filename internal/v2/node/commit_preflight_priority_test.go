@@ -4,6 +4,7 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/zephyr-chain/zephyr-chain/internal/v2/sharding"
 	"github.com/zephyr-chain/zephyr-chain/internal/v2/types"
 	"github.com/zephyr-chain/zephyr-chain/internal/v2/worldstate"
 )
@@ -52,6 +53,11 @@ func TestParallelPreflightChangedShardPriorityMatchesSerialRejection(t *testing.
 			t.Fatalf("workers=%d: unchanged empty delta rejected: %v", workers, err)
 		}
 		candidate.Commitments[3].StateRoot = types.HashBytes("state", []byte("tampered"))
+		root, err := sharding.CommitmentRoot(candidate.Commitments)
+		if err != nil {
+			t.Fatal(err)
+		}
+		candidate.Header.ShardCommitmentRoot = root
 		if _, _, err := r.preflightCandidateState(candidate); err != ErrCandidateState {
 			t.Fatalf("workers=%d: tampered commitment accepted: %v", workers, err)
 		}
