@@ -52,6 +52,8 @@ jobs:
           if [ -n "$unformatted" ]; then
             echo "The following changed Go files need gofmt:"
             echo "$unformatted"
+            # Include the exact patch for review, rather than a filename only.
+            gofmt -d "${files[@]}"
             exit 1
           fi
 
