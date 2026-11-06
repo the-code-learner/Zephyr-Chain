@@ -1718,16 +1718,30 @@ func TestConsensusAutomationSelfProposesVotesAndCommitsCertifiedBlock(t *testing
 	if sender := server.ledger.View(envelope.From); sender.Balance != 75 || sender.Nonce != 1 {
 		t.Fatalf("unexpected sender state after automated commit: %+v", sender)
 	}
-	recovery := server.ledger.ConsensusRecovery()
+	// The committed ledger height becomes observable before the background
+	// producer finishes its separate durable consensus-action WAL write.
+	// Require the matching completed action instead of racing that write;
+	// a persistent missing action must still fail with useful diagnostics.
+	var recovery ledger.ConsensusRecoveryView
 	commitRecorded := false
-	for _, action := range recovery.RecentActions {
-		if action.Type == ledger.ConsensusActionBlockCommit && action.Status == ledger.ConsensusActionCompleted && action.BlockHash == artifacts.LatestCertificate.BlockHash {
-			commitRecorded = true
+	deadline := time.Now().Add(8 * time.Second)
+	for time.Now().Before(deadline) {
+		recovery = server.ledger.ConsensusRecovery()
+		for _, action := range recovery.RecentActions {
+			if action.Type == ledger.ConsensusActionBlockCommit &&
+				action.Status == ledger.ConsensusActionCompleted &&
+				action.BlockHash == artifacts.LatestCertificate.BlockHash {
+				commitRecorded = true
+				break
+			}
+		}
+		if commitRecorded {
 			break
 		}
+		time.Sleep(25 * time.Millisecond)
 	}
 	if !commitRecorded {
-		t.Fatalf("expected completed block_commit action after automated commit, got %+v", recovery.RecentActions)
+		t.Fatalf("expected durable completed block_commit action after automated commit, got %+v", recovery.RecentActions)
 	}
 	actionMetrics := server.ledger.ConsensusActionMetrics()
 	actionTypes := make(map[string]int)

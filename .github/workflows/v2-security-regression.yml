@@ -48,6 +48,10 @@ jobs:
         run: |
           go test ./internal/api -run '^TestConsensusAutomationRebroadcastsVoteAfterPeerLinkRestored$' -count=80 -timeout=4m
           go test -race ./internal/api -run '^(TestConsensusAutomationRebroadcastsVoteAfterPeerLinkRestored|TestPeerURLsSnapshotConcurrentReplacement)$' -count=12 -timeout=4m
+      - name: Certified self-proposed commit action WAL observation stress
+        run: |
+          go test ./internal/api -run '^TestConsensusAutomationSelfProposesVotesAndCommitsCertifiedBlock$' -count=50 -timeout=4m
+          go test -race ./internal/api -run '^TestConsensusAutomationSelfProposesVotesAndCommitsCertifiedBlock$' -count=12 -timeout=4m
       - name: Concurrent peer broadcast shutdown admission stress
         run: |
           go test -race ./internal/api -run '^TestAsyncPeerBroadcastDrainAndCloseAdmission$' -count=20 -timeout=4m
