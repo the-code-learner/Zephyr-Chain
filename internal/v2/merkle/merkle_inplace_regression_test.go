@@ -58,7 +58,8 @@ func TestMerkleInPlaceReductionMatchesLegacyRootsAndProofs(t *testing.T) {
 		for i := range leaves {
 			leaves[i] = Leaf("merkle-inplace", []byte{byte(i), byte(i >> 8), byte(n)})
 		}
-		original := append([]types.Hash(nil), leaves...)
+		original := make([]types.Hash, len(leaves))
+		copy(original, leaves)
 		want := legacyMerkleRoot(leaves)
 		for repeat := 0; repeat < 2; repeat++ {
 			got := Root(leaves)
