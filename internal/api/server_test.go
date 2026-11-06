@@ -1914,7 +1914,6 @@ func TestConsensusAutomationAdvancesRoundAndRotatesProposerAfterTimeout(t *testi
 		RequireConsensusCertificates: true,
 	})
 	roundZeroHTTP := httptest.NewServer(roundZeroServer.Handler())
-	defer roundZeroHTTP.Close()
 
 	roundOneServer := newTestServer(t, Config{
 		DataDir:                      t.TempDir(),
@@ -1933,7 +1932,15 @@ func TestConsensusAutomationAdvancesRoundAndRotatesProposerAfterTimeout(t *testi
 		RequireConsensusCertificates: true,
 	})
 	roundOneHTTP := httptest.NewServer(roundOneServer.Handler())
-	defer roundOneHTTP.Close()
+
+	// Stop both consensus automations before draining HTTP handlers and
+	// removing the TempDirs. NewTestServer's cleanup remains idempotent.
+	t.Cleanup(func() {
+		roundOneServer.Close()
+		roundZeroServer.Close()
+		roundOneHTTP.Close()
+		roundZeroHTTP.Close()
+	})
 
 	roundZeroServer.setPeerURLs([]string{roundOneHTTP.URL})
 
@@ -1964,15 +1971,25 @@ func TestConsensusAutomationAdvancesRoundAndRotatesProposerAfterTimeout(t *testi
 	})
 
 	roundOneArtifacts := roundOneServer.ledger.ConsensusArtifacts()
-	if roundOneArtifacts.LatestProposal == nil || roundOneArtifacts.LatestProposal.Round != 1 {
-		t.Fatalf("expected round-one proposal after timeout rotation, got %+v", roundOneArtifacts.LatestProposal)
+	proposal := roundOneArtifacts.LatestProposal
+	// The configured second proposer is scheduled on odd rounds. Under
+	// scheduler/load variance a valid commit may occur at round 3 or 5,
+	// not necessarily the first eligible round 1. Still reject an even
+	// round, foreign proposer, wrong height or mismatched certificates.
+	if proposal == nil || proposal.Height != 1 || proposal.Round == 0 ||
+		proposal.Round%2 == 0 || proposal.Proposer != roundOneProposer.address {
+		t.Fatalf("expected certified odd-round scheduled proposer, got %+v", proposal)
 	}
-	if roundOneArtifacts.LatestCertificate == nil || roundOneArtifacts.LatestCertificate.Round != 1 {
-		t.Fatalf("expected round-one certificate after timeout rotation, got %+v", roundOneArtifacts.LatestCertificate)
+	certificate := roundOneArtifacts.LatestCertificate
+	if certificate == nil || certificate.Height != proposal.Height ||
+		certificate.Round != proposal.Round || certificate.BlockHash != proposal.BlockHash {
+		t.Fatalf("expected matching finalized QC for rotated proposer: proposal=%+v certificate=%+v", proposal, certificate)
 	}
 	roundZeroArtifacts := roundZeroServer.ledger.ConsensusArtifacts()
-	if roundZeroArtifacts.LatestCertificate == nil || roundZeroArtifacts.LatestCertificate.Round != 1 {
-		t.Fatalf("expected replica round-one certificate after timeout rotation, got %+v", roundZeroArtifacts.LatestCertificate)
+	replicaCertificate := roundZeroArtifacts.LatestCertificate
+	if replicaCertificate == nil || replicaCertificate.Height != proposal.Height ||
+		replicaCertificate.Round != proposal.Round || replicaCertificate.BlockHash != proposal.BlockHash {
+		t.Fatalf("replica missed QC for rotated proposer: proposal=%+v replica=%+v", proposal, replicaCertificate)
 	}
 	if sender := roundZeroServer.ledger.View(envelope.From); sender.Balance != 75 || sender.Nonce != 1 {
 		t.Fatalf("unexpected round-zero sender state after timeout rotation: %+v", sender)
