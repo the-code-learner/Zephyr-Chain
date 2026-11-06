@@ -24,6 +24,31 @@ The observer accepts canonical bounded `SignedWitnessCheckpoint` bundles only ag
 - Genesis mismatch, incorrect validator transition, forged QC and restored unverified state fail closed.
 - Publish run logs and external reviewer approvals on #55; then re-evaluate #42. Never infer production GO from CI or synthetic single-host tests.
 
+## Challenged remote fencing reservation contract (software only)
+
+`ReserveAndVerifyWitnessFence` is a NON-SIGNING, pre-key-use safety boundary
+for a separately deployed remote reservation authority. It verifies the
+genesis-pinned QC checkpoint with an independently supplied verifier, fsyncs
+the local intent journal, generates a fresh 256-bit challenge, requests a
+remote reservation and verifies an Ed25519 grant against a separately pinned
+authority public key. The grant's domain-separated digest binds NetworkID,
+genesis validator root, finalized height/header hash, random challenge and
+positive remote fencing revision. Forged signatures, replayed grants from an
+earlier request, bad revision, wrong checkpoint and remote outage fail closed;
+a remote outage does not erase the durable local reservation.
+
+This contract **does not implement** a distributed linearizable remote store,
+HSM or signing service. A valid signed grant proves that the pinned authority
+attested the specific request. It does NOT establish the authority's actual
+atomicity, key exclusivity, durability against its own rollback or multisite
+operator independence. A key-holding custodian must atomically reserve AND
+sign under the *same* globally exclusive HSM/fencing authority; a separate
+signer that merely observes these receipts can still equivocate in a race.
+Tests use an in-process serialized authority fixture and do not prove real
+network partitions or genuine cross-host linearizability. Independently
+review the remote implementation, hardware/storage, 3+ operators, key
+rotation and rollback/partition drills before considering #54/#55 complete.
+
 ## Detached quorum publication assembly (software only)
 
 `node.AssembleSignedWitnessCheckpoint` accepts a finalized checkpoint and
