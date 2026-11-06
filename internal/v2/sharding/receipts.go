@@ -37,12 +37,16 @@ func (b ReceiptBatch) Proof(receipt CrossShardReceipt) (merkle.Proof, error) {
 	if err != nil {
 		return merkle.Proof{}, err
 	}
-	for i, hash := range hashes {
-		if hash == target {
-			return merkle.BuildProof(hashes, i)
-		}
+	// Canonical hashes are strictly sorted (duplicates were rejected).
+	// Locate the requested leaf in O(log n) comparisons rather than scan
+	// each receipt again after building the Merkle leaf sequence.
+	index := sort.Search(len(hashes), func(i int) bool {
+		return bytes.Compare(hashes[i][:], target[:]) >= 0
+	})
+	if index == len(hashes) || hashes[index] != target {
+		return merkle.Proof{}, ErrReceiptProof
 	}
-	return merkle.Proof{}, ErrReceiptProof
+	return merkle.BuildProof(hashes, index)
 }
 
 // sortedHashes is the canonical receipt Merkle leaf ordering. Root and Proof
