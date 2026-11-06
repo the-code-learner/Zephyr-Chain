@@ -60,7 +60,10 @@ func BuildProof(leaves []types.Hash, index int) (Proof, error) {
 	for n := width; n > 1; n /= 2 {
 		depth++
 	}
-	proof := Proof{Index: uint32(index), LeafCount: uint32(len(leaves)), Siblings: make([]types.Hash, 0, depth)}
+	proof := Proof{Index: uint32(index), LeafCount: uint32(len(leaves))}
+	if depth > 0 {
+		proof.Siblings = make([]types.Hash, 0, depth)
+	}
 	position := index
 	for width > 1 {
 		proof.Siblings = append(proof.Siblings, level[position^1])
