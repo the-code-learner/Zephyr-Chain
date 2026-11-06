@@ -1718,10 +1718,9 @@ func TestConsensusAutomationSelfProposesVotesAndCommitsCertifiedBlock(t *testing
 	if sender := server.ledger.View(envelope.From); sender.Balance != 75 || sender.Nonce != 1 {
 		t.Fatalf("unexpected sender state after automated commit: %+v", sender)
 	}
-	// The committed ledger height becomes observable before the background
-	// producer finishes its separate durable consensus-action WAL write.
-	// Require the matching completed action instead of racing that write;
-	// a persistent missing action must still fail with useful diagnostics.
+	// Certified block height and completed action now persist atomically.
+	// The producer runs asynchronously, so poll with a bounded deadline:
+	// a persistently missing action still fails with useful diagnostics.
 	var recovery ledger.ConsensusRecoveryView
 	commitRecorded := false
 	deadline := time.Now().Add(8 * time.Second)
