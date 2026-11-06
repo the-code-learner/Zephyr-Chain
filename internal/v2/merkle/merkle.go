@@ -15,46 +15,63 @@ type Proof struct {
 	Siblings  []types.Hash
 }
 
+// Root computes the canonical padded Merkle tree using one private level
+// buffer. Parent hashes overwrite completed lower-level entries in place;
+// the caller's leaves are never modified.
 func Root(leaves []types.Hash) types.Hash {
 	if len(leaves) == 0 {
 		return emptyLeaf()
 	}
-	level := append([]types.Hash(nil), leaves...)
-	target := nextPowerOfTwo(len(level))
-	for len(level) < target {
-		level = append(level, emptyLeaf())
-	}
-	for len(level) > 1 {
-		next := make([]types.Hash, len(level)/2)
-		for i := 0; i < len(level); i += 2 {
-			next[i/2] = branch(level[i], level[i+1])
+	width := nextPowerOfTwo(len(leaves))
+	level := make([]types.Hash, width)
+	copy(level, leaves)
+	if len(leaves) < width {
+		padding := emptyLeaf()
+		for i := len(leaves); i < width; i++ {
+			level[i] = padding
 		}
-		level = next
+	}
+	for width > 1 {
+		for i := 0; i < width; i += 2 {
+			level[i/2] = branch(level[i], level[i+1])
+		}
+		width /= 2
 	}
 	return level[0]
 }
 
+// BuildProof uses the same in-place private buffer as Root. Reading each
+// sibling before reducing its level preserves the canonical proof bytes and
+// does not change any input leaf.
 func BuildProof(leaves []types.Hash, index int) (Proof, error) {
 	if index < 0 || index >= len(leaves) {
 		return Proof{}, ErrIndex
 	}
-	leafCount := len(leaves)
-	level := append([]types.Hash(nil), leaves...)
-	target := nextPowerOfTwo(len(level))
-	for len(level) < target {
-		level = append(level, emptyLeaf())
+	width := nextPowerOfTwo(len(leaves))
+	level := make([]types.Hash, width)
+	copy(level, leaves)
+	if len(leaves) < width {
+		padding := emptyLeaf()
+		for i := len(leaves); i < width; i++ {
+			level[i] = padding
+		}
 	}
-	proof := Proof{Index: uint32(index), LeafCount: uint32(leafCount)}
+	depth := 0
+	for n := width; n > 1; n /= 2 {
+		depth++
+	}
+	proof := Proof{Index: uint32(index), LeafCount: uint32(len(leaves))}
+	if depth > 0 {
+		proof.Siblings = make([]types.Hash, 0, depth)
+	}
 	position := index
-	for len(level) > 1 {
-		sibling := position ^ 1
-		proof.Siblings = append(proof.Siblings, level[sibling])
-		next := make([]types.Hash, len(level)/2)
-		for i := 0; i < len(level); i += 2 {
-			next[i/2] = branch(level[i], level[i+1])
+	for width > 1 {
+		proof.Siblings = append(proof.Siblings, level[position^1])
+		for i := 0; i < width; i += 2 {
+			level[i/2] = branch(level[i], level[i+1])
 		}
 		position /= 2
-		level = next
+		width /= 2
 	}
 	return proof, nil
 }
