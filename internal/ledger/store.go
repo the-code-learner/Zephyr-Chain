@@ -449,7 +449,28 @@ func (s *Store) ProduceBlockWithOptions(maxTransactions int, producedAt time.Tim
 		return Block{}, err
 	}
 
-	nextState = completeConsensusActionsForHeightInState(nextState, block.Height, time.Now().UTC(), "block committed")
+	committedAt := time.Now().UTC()
+	nextState = completeConsensusActionsForHeightInState(nextState, block.Height, committedAt, "block committed")
+	if requireConsensus {
+		// Persist the completed certified commit action in the SAME atomic
+		// ledger state write as the block. A separate post-commit WAL write
+		// leaves a crash window where the height is durable but the action
+		// needed for recovery/audit is absent.
+		proposal, err := proposalForProduction(state, producedAt, true)
+		if err != nil || proposal.BlockHash != block.Hash {
+			return Block{}, ErrConsensusProposalRequired
+		}
+		nextState = recordConsensusActionIntoState(nextState, ConsensusAction{
+			Type:       ConsensusActionBlockCommit,
+			Height:     block.Height,
+			Round:      proposal.Round,
+			BlockHash:  block.Hash,
+			Validator:  proposal.Proposer,
+			RecordedAt: committedAt,
+			Status:     ConsensusActionCompleted,
+			Note:       "local certified block commit",
+		})
+	}
 	if err := s.writeState(nextState); err != nil {
 		return Block{}, err
 	}
