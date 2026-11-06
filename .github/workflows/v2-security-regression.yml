@@ -48,6 +48,42 @@ jobs:
         run: |
           go test ./internal/api -run '^TestConsensusAutomationRebroadcastsVoteAfterPeerLinkRestored$' -count=80 -timeout=4m
           go test -race ./internal/api -run '^(TestConsensusAutomationRebroadcastsVoteAfterPeerLinkRestored|TestPeerURLsSnapshotConcurrentReplacement)$' -count=12 -timeout=4m
+      - name: Atomic certified commit and WAL crash-recovery regression
+        run: go test -race ./internal/ledger -run '^TestCertifiedCommitActionAtomicOnWriteFailureAndRestart
+        run: |
+          go test ./internal/api -run '^TestConsensusAutomationSelfProposesVotesAndCommitsCertifiedBlock$' -count=50 -timeout=4m
+          go test -race ./internal/api -run '^TestConsensusAutomationSelfProposesVotesAndCommitsCertifiedBlock$' -count=12 -timeout=4m
+      - name: Concurrent peer broadcast shutdown admission stress
+        run: |
+          go test -race ./internal/api -run '^TestAsyncPeerBroadcastDrainAndCloseAdmission$' -count=20 -timeout=4m
+          go test -race ./internal/api -run '^TestAsyncPeerBroadcastConcurrentClose$' -count=20 -timeout=4m
+      - name: Threshold-witness checkpoint and dual independent-ancestor regressions
+        run: go test -race ./internal/v2/node -run '^Test(WitnessCheckpoint|WitnessAndExternalHighWater|WitnessBundleAssembly)' -count=1 -timeout=3m
+      - name: Witness durability, equivocation and QC-tip adapter regressions
+        run: |
+          go test -race ./internal/v2/node -run '^Test(WitnessIntent|WitnessEvidenceSet|WitnessQuorumConsistency|RuntimeWitnessVerifier)' -count=5 -timeout=4m
+          go test -race ./internal/v2/node -run '^Test(FinalityAnchorStore|CertifiedHistory)' -count=2 -timeout=4m
+      - name: Witness external floor rollback and split-brain recovery regression
+        run: go test -race ./internal/v2/node -run '^TestWitnessRemoteFloor' -count=10 -timeout=3m
+      - name: Authenticated external witness quorum floor regression
+        run: go test -race ./internal/v2/node -run '^TestQuorumAuthenticatedWitnessFloor' -count=10 -timeout=3m
+      - name: Bounded remote witness transport regression
+        run: go test -race ./internal/v2/node -run '^TestHTTPWitnessFloor' -count=5 -timeout=3m
+      - name: End-to-end HTTPS quorum witness recovery regression
+        run: go test -race ./internal/v2/node -run '^TestWitnessHTTPSQuorumRecoveryEndToEnd$' -count=5 -timeout=3m
+      - name: Multi-source signed witness conflict regression
+        run: go test -race ./internal/v2/node -run '^TestMultiSourceWitnessFloor' -count=10 -timeout=3m
+      - name: Stale quorum external floor regression
+        run: go test -race ./internal/v2/node -run '^TestCertifiedWitnessFloorMinimum' -count=10 -timeout=3m
+      - name: Witness operator separation policy regression
+        run: go test -race ./internal/v2/node -run '^TestOperatorSeparatedWitnessFloor' -count=10 -timeout=3m
+      - name: Atomic witness local remote recovery gate regression
+        run: go test -race ./internal/v2/node -run '^TestWitnessAtomicReserveRemoteGate' -count=10 -timeout=3m
+      - name: Challenged authenticated witness fencing grant and cross-host fixture regression
+        run: go test -race ./internal/v2/node -run '^TestWitnessFence' -count=10 -timeout=3m
+      - name: Protected validator signing restart regression under race detector
+        run: go test -race ./internal/v2/node -run '^TestProtectedValidatorServicePersistsSigningIntent$' -count=1 -timeout=3m
+ -count=12 -timeout=3m
       - name: Certified self-proposed commit action WAL observation stress
         run: |
           go test ./internal/api -run '^TestConsensusAutomationSelfProposesVotesAndCommitsCertifiedBlock$' -count=50 -timeout=4m
