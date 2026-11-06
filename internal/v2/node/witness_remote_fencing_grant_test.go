@@ -18,13 +18,13 @@ import (
 // hosts with independent local journals. It is NOT an HSM or real multi-host
 // globally durable storage, and must never be used as a production signer.
 type witnessFenceAuthorityFixture struct {
-	mu         sync.Mutex
-	private    ed25519.PrivateKey
-	highest    FinalityCheckpoint
-	revision   uint64
+	mu          sync.Mutex
+	private     ed25519.PrivateKey
+	highest     FinalityCheckpoint
+	revision    uint64
 	unavailable error
-	change     func(WitnessFencingGrant) WitnessFencingGrant
-	requests   int
+	change      func(WitnessFencingGrant) WitnessFencingGrant
+	requests    int
 }
 
 func (f *witnessFenceAuthorityFixture) ReserveWitnessFence(ctx context.Context, cp FinalityCheckpoint, challenge [32]byte) (WitnessFencingGrant, error) {
@@ -88,11 +88,11 @@ func TestWitnessFenceGrantBindsChallengeRevisionAndChain(t *testing.T) {
 		t.Fatalf("valid signed challenged remote receipt rejected: %v", err)
 	}
 	for _, tc := range []struct {
-		name string
-		grant WitnessFencingGrant
-		cp FinalityCheckpoint
+		name      string
+		grant     WitnessFencingGrant
+		cp        FinalityCheckpoint
 		challenge [32]byte
-		key []byte
+		key       []byte
 	}{
 		{name: "replayed previous challenge", grant: grant, cp: cp, challenge: [32]byte{9}, key: key},
 		{name: "wrong authority", grant: grant, cp: cp, challenge: challenge, key: make([]byte, 32)},
@@ -151,7 +151,7 @@ func TestWitnessFenceGuardRejectsUntrustedRemoteAndSurvivesRestart(t *testing.T)
 	}
 	authority.unavailable = nil
 	for _, tc := range []struct {
-		name string
+		name   string
 		change func(WitnessFencingGrant) WitnessFencingGrant
 	}{
 		{name: "wrong challenge", change: func(g WitnessFencingGrant) WitnessFencingGrant { g.Challenge[0] ^= 1; return g }},
