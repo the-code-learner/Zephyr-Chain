@@ -21,7 +21,7 @@ func TestReceiptProofBinarySearchRetainsCanonicalIndexAndMissingRejection(t *tes
 		receipts[i] = CrossShardReceipt{
 			SourceShard: 0, DestinationShard: 1, SourceHeight: 17,
 			TransactionID: types.HashBytes("receipt-proof-lookup", []byte{byte(i)}),
-			OutputIndex: uint32(i), Output: output,
+			OutputIndex:   uint32(i), Output: output,
 			SourceStateRoot: types.HashBytes("receipt-proof-lookup", []byte("root")),
 		}
 	}
