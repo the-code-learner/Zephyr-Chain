@@ -197,8 +197,14 @@ func TestWitnessFenceGuardSharedAuthorityRefusesConflictingHosts(t *testing.T) {
 	var wg sync.WaitGroup
 	errs := make([]error, 2)
 	wg.Add(2)
-	go func() { defer wg.Done(); errs[0] = ReserveAndVerifyWitnessFence(context.Background(), j1, cp, authority, key) }()
-	go func() { defer wg.Done(); errs[1] = ReserveAndVerifyWitnessFence(context.Background(), j2, conflict, authority, key) }()
+	go func() {
+		defer wg.Done()
+		errs[0] = ReserveAndVerifyWitnessFence(context.Background(), j1, cp, authority, key)
+	}()
+	go func() {
+		defer wg.Done()
+		errs[1] = ReserveAndVerifyWitnessFence(context.Background(), j2, conflict, authority, key)
+	}()
 	wg.Wait()
 	if (errs[0] == nil) == (errs[1] == nil) {
 		t.Fatalf("fixture authority failed to fence conflicting hosts: %v %v", errs[0], errs[1])
