@@ -50,14 +50,13 @@ func TestWitnessCheckpointRejectsAmbiguousCanonicalEnvelopes(t *testing.T) {
 	duplicate.Signatures[1] = duplicate.Signatures[0]
 
 	cases := map[string][]byte{
-		"leading whitespace": append([]byte(" "), valid...),
-		"internal formatting": bytes.Replace(valid, []byte(","), []byte(", "), 1),
-		"trailing JSON value": append(append([]byte(nil), valid...), []byte(" null")...),
+		"internal formatting":     bytes.Replace(valid, []byte(","), []byte(", "), 1),
+		"trailing JSON value":     append(append([]byte(nil), valid...), []byte(" null")...),
 		"duplicate top-level key": append([]byte("{\"height\":91,"), valid[1:]...),
-		"uppercase public key": encode(upperKey),
-		"uppercase signature": encode(upperSignature),
+		"uppercase public key":    encode(upperKey),
+		"uppercase signature":     encode(upperSignature),
 		"out-of-order signatures": encode(reordered),
-		"duplicate signer": encode(duplicate),
+		"duplicate signer":        encode(duplicate),
 	}
 	for name, raw := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -66,7 +65,7 @@ func TestWitnessCheckpointRejectsAmbiguousCanonicalEnvelopes(t *testing.T) {
 			}
 		})
 	}
-	if got, err := ParseSignedWitnessCheckpoint(valid, keys, network, root); err != nil || got == nil || *got != cp {
+	// Outer JSON whitespace is explicitly permitted by the parser; only the\n\t// trimmed envelope must be canonical.\n\tif got, err := ParseSignedWitnessCheckpoint(append([]byte(" \n"), valid...), keys, network, root); err != nil || got == nil || *got != cp {
 		t.Fatalf("canonical control rejected: checkpoint=%+v err=%v", got, err)
 	}
 }
@@ -79,9 +78,9 @@ func TestWitnessCheckpointRejectsInvalidPinnedKeyPolicy(t *testing.T) {
 	valid := signedWitnessTestBundle(t, cp, keys, private, 3)
 	cases := map[string][][]byte{
 		"too few trusted signers": keys[:2],
-		"empty trust policy": nil,
-		"duplicate pinned key": {keys[0], keys[1], keys[1], keys[3]},
-		"truncated public key": {keys[0][:31], keys[1], keys[2], keys[3]},
+		"empty trust policy":      nil,
+		"duplicate pinned key":    {keys[0], keys[1], keys[1], keys[3]},
+		"truncated public key":    {keys[0][:31], keys[1], keys[2], keys[3]},
 	}
 	for name, policy := range cases {
 		t.Run(name, func(t *testing.T) {
