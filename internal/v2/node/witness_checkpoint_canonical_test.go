@@ -65,7 +65,9 @@ func TestWitnessCheckpointRejectsAmbiguousCanonicalEnvelopes(t *testing.T) {
 			}
 		})
 	}
-	// Outer JSON whitespace is explicitly permitted by the parser; only the\n\t// trimmed envelope must be canonical.\n\tif got, err := ParseSignedWitnessCheckpoint(append([]byte(" \n"), valid...), keys, network, root); err != nil || got == nil || *got != cp {
+	// Outer JSON whitespace is explicitly permitted by the parser; only the
+	// trimmed envelope must be canonical.
+	if got, err := ParseSignedWitnessCheckpoint(append([]byte(" \n"), valid...), keys, network, root); err != nil || got == nil || *got != cp {
 		t.Fatalf("canonical control rejected: checkpoint=%+v err=%v", got, err)
 	}
 }
