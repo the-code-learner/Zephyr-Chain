@@ -47,13 +47,13 @@ func TestAtomicWitnessCustodyHTTPHandlerAuthenticatedCanonicalRoundTrip(t *testi
 	fixture := &witnessAtomicCustodianFixture{authority: authority, witness: witness}
 	keyA := authority.Public().(ed25519.PublicKey)
 	keyW := witness.Public().(ed25519.PublicKey)
-	if _, err := NewHTTPWitnessCustodyHandler(nil, keyA, keyW); err == nil {
+	if _, err := NewHTTPWitnessCustodyHandler(nil, network, root, keyA, keyW); err == nil {
 		t.Fatal("nil remote custodian was accepted")
 	}
-	if _, err := NewHTTPWitnessCustodyHandler(fixture, keyA, keyA); err == nil {
+	if _, err := NewHTTPWitnessCustodyHandler(fixture, network, root, keyA, keyA); err == nil {
 		t.Fatal("same signing and authority key was accepted")
 	}
-	h, err := NewHTTPWitnessCustodyHandler(fixture, keyA, keyW)
+	h, err := NewHTTPWitnessCustodyHandler(fixture, network, root, keyA, keyW)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -102,7 +102,7 @@ func TestAtomicWitnessCustodyHTTPHandlerRejectsUntrustedRequestsBeforeSigning(t 
 	cp := FinalityCheckpoint{Network: network, ValidatorRoot: root, Height: 10, HeaderHash: types.Hash{1}}
 	challenge := [32]byte{9}
 	fixture := &witnessAtomicCustodianFixture{authority: authority, witness: witness}
-	h, err := NewHTTPWitnessCustodyHandler(fixture, authority.Public().(ed25519.PublicKey), witness.Public().(ed25519.PublicKey))
+	h, err := NewHTTPWitnessCustodyHandler(fixture, network, root, authority.Public().(ed25519.PublicKey), witness.Public().(ed25519.PublicKey))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -130,6 +130,13 @@ func TestAtomicWitnessCustodyHTTPHandlerRejectsUntrustedRequestsBeforeSigning(t 
 		}},
 		{"oversized body", func(r *http.Request) {
 			r.Body = io.NopCloser(strings.NewReader(strings.Repeat("x", maxWitnessCustodyRequestBytes+1)))
+		}},
+		{"foreign network", func(r *http.Request) {
+			var body witnessCustodyRequestJSON
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			body.NetworkID = strings.Repeat("a", 64)
+			raw, _ := json.Marshal(body)
+			r.Body = io.NopCloser(bytes.NewReader(raw))
 		}},
 		{"zero challenge", func(r *http.Request) {
 			var body witnessCustodyRequestJSON
