@@ -72,9 +72,9 @@ func TestAtomicWitnessCustodyMTLSTwoClientsCannotEquivocate(t *testing.T) {
 	server := httptest.NewUnstartedServer(handler)
 	server.TLS = &tls.Config{
 		Certificates: []tls.Certificate{serverCert},
-		ClientAuth: tls.RequireAndVerifyClientCert,
-		ClientCAs: pool,
-		MinVersion: tls.VersionTLS13,
+		ClientAuth:   tls.RequireAndVerifyClientCert,
+		ClientCAs:    pool,
+		MinVersion:   tls.VersionTLS13,
 	}
 	server.StartTLS()
 	defer server.Close()
@@ -86,10 +86,10 @@ func TestAtomicWitnessCustodyMTLSTwoClientsCannotEquivocate(t *testing.T) {
 	newRemote := func(cert tls.Certificate) *HTTPWitnessAtomicCustodian {
 		t.Helper()
 		remote, err := NewHTTPWitnessAtomicCustodianWithTLS(endpoint, &tls.Config{
-			RootCAs: pool,
+			RootCAs:      pool,
 			Certificates: []tls.Certificate{cert},
-			ServerName: "custody.operator.example.org",
-			MinVersion: tls.VersionTLS13,
+			ServerName:   "custody.operator.example.org",
+			MinVersion:   tls.VersionTLS13,
 		})
 		if err != nil {
 			t.Fatal(err)
