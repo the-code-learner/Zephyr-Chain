@@ -8,6 +8,7 @@ import (
 	"crypto/ed25519"
 	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
@@ -108,7 +109,19 @@ func TestAtomicWitnessCustodyMTLSVerifiedEndToEnd(t *testing.T) {
 	backend := &witnessSynchronizedCustodyFixture{inner: &witnessAtomicCustodianFixture{authority: authority, witness: witness}}
 	keyA := authority.Public().(ed25519.PublicKey)
 	keyW := witness.Public().(ed25519.PublicKey)
-	handler, err := NewHTTPWitnessCustodyHandler(backend, network, root, keyA, keyW)
+	approvedLeaf, err := x509.ParseCertificate(clientCert.Certificate[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	approvedPin := sha256.Sum256(approvedLeaf.RawSubjectPublicKeyInfo)
+	for _, invalid := range [][][32]byte{
+		nil, {{0}}, {approvedPin, approvedPin},
+	} {
+		if _, err := NewPinnedHTTPWitnessCustodyHandler(backend, network, root, keyA, keyW, invalid); err == nil {
+			t.Fatal("invalid custody client pin policy accepted")
+		}
+	}
+	handler, err := NewPinnedHTTPWitnessCustodyHandler(backend, network, root, keyA, keyW, [][32]byte{approvedPin})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -170,5 +183,21 @@ func TestAtomicWitnessCustodyMTLSVerifiedEndToEnd(t *testing.T) {
 	}
 	if backend.calls() != 1 {
 		t.Fatalf("anonymous client reached backend: calls=%d", backend.calls())
+	}
+	// This second client was signed by the SAME trusted mTLS CA. Its TLS
+	// handshake succeeds, but the handler must reject it BEFORE key custody.
+	rogueCert := witnessCustodyTestTLSCertificate(t, ca, caKey, 4, true)
+	rogueConfig := config.Clone()
+	rogueConfig.Certificates = []tls.Certificate{rogueCert}
+	rogue, err := NewHTTPWitnessAtomicCustodianWithTLS(endpoint, rogueConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rogue.client.Transport.(*http.Transport).DialContext = transport.DialContext
+	if _, err := ReserveAndVerifyAtomicWitnessCheckpoint(context.Background(), j, cp, rogue, keyA, keyW); err == nil {
+		t.Fatal("CA-trusted but unpinned client reached protected custody")
+	}
+	if backend.calls() != 1 {
+		t.Fatalf("unauthorized CA-trusted client invoked signer: calls=%d", backend.calls())
 	}
 }
