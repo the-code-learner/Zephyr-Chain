@@ -24,6 +24,8 @@ func TestAtomicWitnessCustodyHTTPEndpointPolicy(t *testing.T) {
 	for _, endpoint := range []string{
 		"http://custody.operator.example.org/v1/reserve-and-sign",
 		"https://127.0.0.1/v1/reserve-and-sign",
+		"https://192.168.1.10/v1/reserve-and-sign",
+		"https://[2001:db8::10]/v1/reserve-and-sign",
 		"https://localhost/v1/reserve-and-sign",
 		"https://custody.local/v1/reserve-and-sign",
 		"https://CUSTODY.operator.example.org/v1/reserve-and-sign",
