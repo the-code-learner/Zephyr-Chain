@@ -127,7 +127,7 @@ func TestAtomicWitnessCustodyHTTPSAuthenticatedRoundTripAndBadResponses(t *testi
 			raw = append([]byte("{\"dangerous\":1,"), raw[1:]...)
 		}
 		if mode == "noncanonical" {
-			raw = append([]byte("  "), raw...)
+			raw = []byte(strings.Replace(string(raw), ",", ", ", 1))
 		}
 		if mode == "wrong-media" {
 			w.Header().Set("Content-Type", "text/plain")
