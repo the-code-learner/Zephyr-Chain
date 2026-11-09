@@ -15,6 +15,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"testing"
 	"time"
 
@@ -77,6 +78,25 @@ func witnessCustodyTestTLSCertificate(t *testing.T, ca *x509.Certificate, caKey 
 	return tls.Certificate{Certificate: [][]byte{der, ca.Raw}, PrivateKey: key}
 }
 
+// The server handler runs on a separate goroutine. Protect the test-only
+// fixture's call counter explicitly, independent of HTTP response timing.
+type witnessSynchronizedCustodyFixture struct {
+	mu sync.Mutex
+	inner *witnessAtomicCustodianFixture
+}
+
+func (f *witnessSynchronizedCustodyFixture) ReserveAndSignWitnessCheckpoint(ctx context.Context, cp FinalityCheckpoint, challenge [32]byte) (WitnessAtomicCustodyAttestation, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.inner.ReserveAndSignWitnessCheckpoint(ctx, cp, challenge)
+}
+
+func (f *witnessSynchronizedCustodyFixture) calls() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.inner.calls
+}
+
 func TestAtomicWitnessCustodyMTLSVerifiedEndToEnd(t *testing.T) {
 	ca, caKey, pool := witnessCustodyTestCA(t)
 	serverCert := witnessCustodyTestTLSCertificate(t, ca, caKey, 2, false)
@@ -85,7 +105,7 @@ func TestAtomicWitnessCustodyMTLSVerifiedEndToEnd(t *testing.T) {
 	network := types.NetworkID(types.HashBytes("custody-mtls", []byte("network")))
 	root := types.HashBytes("custody-mtls", []byte("root"))
 	cp := FinalityCheckpoint{Network: network, ValidatorRoot: root, Height: 74, HeaderHash: types.Hash{8}}
-	backend := &witnessAtomicCustodianFixture{authority: authority, witness: witness}
+	backend := &witnessSynchronizedCustodyFixture{inner: &witnessAtomicCustodianFixture{authority: authority, witness: witness}}
 	keyA := authority.Public().(ed25519.PublicKey)
 	keyW := witness.Public().(ed25519.PublicKey)
 	handler, err := NewHTTPWitnessCustodyHandler(backend, network, root, keyA, keyW)
@@ -134,8 +154,8 @@ func TestAtomicWitnessCustodyMTLSVerifiedEndToEnd(t *testing.T) {
 	}
 	j := witnessFenceTestJournal(t, cp, witnessIntentTestVerifier{allowed: map[uint64]types.Hash{cp.Height: cp.HeaderHash}})
 	a, err := ReserveAndVerifyAtomicWitnessCheckpoint(context.Background(), j, cp, remote, keyA, keyW)
-	if err != nil || a.Revision != 1 || backend.calls != 1 {
-		t.Fatalf("real mutual TLS custody round trip failed: attestation=%+v calls=%d err=%v", a, backend.calls, err)
+	if err != nil || a.Revision != 1 || backend.calls() != 1 {
+		t.Fatalf("real mutual TLS custody round trip failed: attestation=%+v calls=%d err=%v", a, backend.calls(), err)
 	}
 	// A client without a certificate must fail the server-side TLS handshake.
 	noCert := &HTTPWitnessAtomicCustodian{
@@ -149,6 +169,6 @@ func TestAtomicWitnessCustodyMTLSVerifiedEndToEnd(t *testing.T) {
 		t.Fatal("anonymous TLS client reached protected custody")
 	}
 	if backend.calls != 1 {
-		t.Fatalf("anonymous client reached backend: calls=%d", backend.calls)
+		t.Fatalf("anonymous client reached backend: calls=%d", backend.calls())
 	}
 }
