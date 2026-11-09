@@ -17,11 +17,11 @@ import (
 // This does not prove that the backend is globally linearizable or that its
 // keys are isolated: those properties require independent remote audit.
 type WitnessAtomicCustodyAttestation struct {
-	Checkpoint        FinalityCheckpoint
-	Challenge         [32]byte
-	Revision          uint64
-	WitnessPublicKey  []byte
-	WitnessSignature  []byte
+	Checkpoint         FinalityCheckpoint
+	Challenge          [32]byte
+	Revision           uint64
+	WitnessPublicKey   []byte
+	WitnessSignature   []byte
 	AuthoritySignature []byte
 }
 
