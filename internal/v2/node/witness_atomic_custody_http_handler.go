@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"crypto/ed25519"
+	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
 	"io"
@@ -30,6 +32,7 @@ type HTTPWitnessCustodyHandler struct {
 	validatorRoot types.Hash
 	authorityKey  []byte
 	witnessKey    []byte
+	clientSPKIPins [][32]byte
 }
 
 // NewHTTPWitnessCustodyHandler pins both independent public keys. Deployment
@@ -49,6 +52,35 @@ func NewHTTPWitnessCustodyHandler(backend WitnessAtomicCustodian, network types.
 		authorityKey:  append([]byte(nil), authorityKey...),
 		witnessKey:    append([]byte(nil), witnessKey...),
 	}, nil
+}
+
+// NewPinnedHTTPWitnessCustodyHandler narrows a verified mTLS CA to a set
+// of independently provisioned client public-key fingerprints. Only the
+// SHA-256 digest of the leaf certificate SubjectPublicKeyInfo is pinned:
+// certificate renewal with the same key does not silently expand access.
+// A production operator must choose a narrow ClientCAs policy AND these
+// explicit client keys; neither is a substitute for remote signer fencing.
+func NewPinnedHTTPWitnessCustodyHandler(backend WitnessAtomicCustodian, network types.NetworkID, validatorRoot types.Hash, authorityKey, witnessKey []byte, clientSPKIPins [][32]byte) (*HTTPWitnessCustodyHandler, error) {
+	if len(clientSPKIPins) == 0 || len(clientSPKIPins) > 32 {
+		return nil, ErrWitnessSigningIntent
+	}
+	h, err := NewHTTPWitnessCustodyHandler(backend, network, validatorRoot, authorityKey, witnessKey)
+	if err != nil {
+		return nil, err
+	}
+	h.clientSPKIPins = make([][32]byte, 0, len(clientSPKIPins))
+	for _, pin := range clientSPKIPins {
+		if pin == ([32]byte{}) {
+			return nil, ErrWitnessSigningIntent
+		}
+		for _, existing := range h.clientSPKIPins {
+			if subtle.ConstantTimeCompare(existing[:], pin[:]) == 1 {
+				return nil, ErrWitnessSigningIntent
+			}
+		}
+		h.clientSPKIPins = append(h.clientSPKIPins, pin)
+	}
+	return h, nil
 }
 
 func custodyHTTPReject(w http.ResponseWriter, code int) {
@@ -78,6 +110,27 @@ func (h *HTTPWitnessCustodyHandler) ServeHTTP(w http.ResponseWriter, r *http.Req
 	if r.TLS == nil || len(r.TLS.PeerCertificates) == 0 || len(r.TLS.VerifiedChains) == 0 {
 		custodyHTTPReject(w, http.StatusForbidden)
 		return
+	}
+	// The first authenticated chain must begin with the same presented leaf.
+	// Pinning a verified SPKI constrains admission to operator-approved
+	// client identities even when the mTLS CA signs other certificates.
+	if len(h.clientSPKIPins) > 0 {
+		leaf := r.TLS.PeerCertificates[0]
+		if leaf == nil || len(leaf.RawSubjectPublicKeyInfo) == 0 ||
+			len(r.TLS.VerifiedChains[0]) == 0 || r.TLS.VerifiedChains[0][0] == nil ||
+			!bytes.Equal(leaf.Raw, r.TLS.VerifiedChains[0][0].Raw) {
+			custodyHTTPReject(w, http.StatusForbidden)
+			return
+		}
+		digest := sha256.Sum256(leaf.RawSubjectPublicKeyInfo)
+		allowed := 0
+		for _, pin := range h.clientSPKIPins {
+			allowed |= subtle.ConstantTimeCompare(digest[:], pin[:])
+		}
+		if allowed != 1 {
+			custodyHTTPReject(w, http.StatusForbidden)
+			return
+		}
 	}
 	mediaType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
 	if err != nil || mediaType != "application/json" || r.Body == nil {
