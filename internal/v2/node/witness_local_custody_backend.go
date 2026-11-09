@@ -49,7 +49,7 @@ func OpenLocalWitnessCustodyBackend(path string, network types.NetworkID, root t
 	}
 	return &LocalWitnessCustodyBackend{
 		store: store, verifier: verifier, signer: signer,
-		witnessKey: append(ed25519.PublicKey(nil), witnessKey...),
+		witnessKey:   append(ed25519.PublicKey(nil), witnessKey...),
 		authorityKey: append(ed25519.PublicKey(nil), authorityKey...),
 	}, nil
 }
