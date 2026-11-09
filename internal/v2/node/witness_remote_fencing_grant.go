@@ -120,5 +120,10 @@ func ReserveAndVerifyWitnessFence(ctx context.Context, j *WitnessSigningIntentJo
 	if err := j.verifier.VerifyFinalizedCheckpoint(checkpoint); err != nil {
 		return errors.Join(ErrWitnessSigningIntent, err)
 	}
+	// A verifier may perform blocking IO or cancel the parent context while
+	// checking finality; never report a successful reservation after that.
+	if ctx.Err() != nil || requestCtx.Err() != nil {
+		return ErrWitnessSigningIntent
+	}
 	return nil
 }
