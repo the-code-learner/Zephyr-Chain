@@ -94,9 +94,9 @@ func TestWitnessFloorCancellationPropagatesThroughHTTPSQuorumAndMultiSource(t *t
 // made under the custody mutex before any signer call, must honor the
 // request cancellation rather than wait for the external floor to recover.
 type custodyCancellationFloor struct {
-	cp      FinalityCheckpoint
-	entered chan struct{}
-	calls   atomic.Int32
+	cp	FinalityCheckpoint
+	entered	chan struct{}
+	calls	atomic.Int32
 }
 
 func (f *custodyCancellationFloor) AuthenticatedWitnessFloor() (FinalityCheckpoint, error) {
