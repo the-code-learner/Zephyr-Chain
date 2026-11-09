@@ -65,6 +65,7 @@ func NewOperatorSeparatedWitnessFloor(policies []WitnessPublisherPolicy, network
 // independent infrastructure and publisher key custody remain release gates.
 func validWitnessPublisherDNSName(host string) bool {
 	if len(host) < 4 || len(host) > 253 || !strings.Contains(host, ".") ||
+		net.ParseIP(host) != nil ||
 		strings.HasSuffix(host, ".local") || strings.HasSuffix(host, ".localhost") {
 		return false
 	}
