@@ -4,9 +4,9 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
-	"time"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestHTTPWitnessFloorRejectsUntrustedURLAndResponses(t *testing.T) {
