@@ -86,5 +86,7 @@ jobs:
         run: go test -race ./internal/v2/node -run '^TestWitnessAtomicReserveRemoteGate' -count=10 -timeout=3m
       - name: Challenged authenticated witness fencing grant and cross-host fixture regression
         run: go test -race ./internal/v2/node -run '^TestWitnessFence' -count=10 -timeout=3m
+      - name: Atomic witness custody signature, concurrency, restart and rollback regression
+        run: go test -race ./internal/v2/node -run '^TestAtomicWitnessCustody' -count=5 -timeout=4m
       - name: Protected validator signing restart regression under race detector
         run: go test -race ./internal/v2/node -run '^TestProtectedValidatorServicePersistsSigningIntent$' -count=1 -timeout=3m
