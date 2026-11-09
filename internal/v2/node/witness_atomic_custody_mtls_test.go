@@ -81,7 +81,7 @@ func witnessCustodyTestTLSCertificate(t *testing.T, ca *x509.Certificate, caKey 
 // The server handler runs on a separate goroutine. Protect the test-only
 // fixture's call counter explicitly, independent of HTTP response timing.
 type witnessSynchronizedCustodyFixture struct {
-	mu sync.Mutex
+	mu    sync.Mutex
 	inner *witnessAtomicCustodianFixture
 }
 
@@ -168,7 +168,7 @@ func TestAtomicWitnessCustodyMTLSVerifiedEndToEnd(t *testing.T) {
 	if _, err := ReserveAndVerifyAtomicWitnessCheckpoint(context.Background(), j, cp, noCert, keyA, keyW); err == nil {
 		t.Fatal("anonymous TLS client reached protected custody")
 	}
-	if backend.calls != 1 {
+	if backend.calls() != 1 {
 		t.Fatalf("anonymous client reached backend: calls=%d", backend.calls())
 	}
 }
