@@ -90,5 +90,7 @@ jobs:
         run: go test -race ./internal/v2/node -run '^TestAtomicWitnessCustody' -count=5 -timeout=4m
       - name: Local custody signer-provider fencing, crash and equivocation race regression
         run: go test -race ./internal/v2/node -run '^TestLocalWitnessCustody' -count=5 -timeout=4m
+      - name: Operator-diverse witness signature quorum regression
+        run: go test -race ./internal/v2/node -run '^TestOperatorDiverseWitnessFloor' -count=5 -timeout=4m
       - name: Protected validator signing restart regression under race detector
         run: go test -race ./internal/v2/node -run '^TestProtectedValidatorServicePersistsSigningIntent$' -count=1 -timeout=3m
