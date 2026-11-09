@@ -20,8 +20,8 @@ import (
 // No test origin should be mistaken for an independent deployed witness.
 // The signatures and TLS certificates in this file are ephemeral fixtures.
 type countedSignedFloorSource struct {
-	payload []byte
-	calls   atomic.Int32
+	payload	[]byte
+	calls	atomic.Int32
 }
 
 func (s *countedSignedFloorSource) SignedWitnessFloor() ([]byte, error) {
