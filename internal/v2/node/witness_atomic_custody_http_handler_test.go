@@ -33,7 +33,7 @@ func witnessCustodyHandlerUnitRequest(cp FinalityCheckpoint, challenge [32]byte)
 	peer := &x509.Certificate{}
 	r.TLS = &tls.ConnectionState{
 		PeerCertificates: []*x509.Certificate{peer},
-		VerifiedChains: [][]*x509.Certificate{{peer}},
+		VerifiedChains:   [][]*x509.Certificate{{peer}},
 	}
 	return r
 }
@@ -107,7 +107,7 @@ func TestAtomicWitnessCustodyHTTPHandlerRejectsUntrustedRequestsBeforeSigning(t 
 		t.Fatal(err)
 	}
 	for _, tc := range []struct {
-		name string
+		name   string
 		change func(*http.Request)
 	}{
 		{"no mTLS", func(r *http.Request) { r.TLS = nil }},
