@@ -101,9 +101,9 @@ func TestAtomicWitnessCustodyHTTPSAuthenticatedRoundTripAndBadResponses(t *testi
 		wire := witnessCustodyResponseJSON{
 			NetworkID: request.NetworkID, ValidatorRoot: request.ValidatorRoot,
 			Height: cp.Height, HeaderHash: request.HeaderHash, Challenge: request.Challenge,
-			Revision: a.Revision,
-			WitnessPublicKey: hex.EncodeToString(a.WitnessPublicKey),
-			WitnessSignature: hex.EncodeToString(a.WitnessSignature),
+			Revision:           a.Revision,
+			WitnessPublicKey:   hex.EncodeToString(a.WitnessPublicKey),
+			WitnessSignature:   hex.EncodeToString(a.WitnessSignature),
 			AuthoritySignature: hex.EncodeToString(a.AuthoritySignature),
 		}
 		if mode == "foreign-checkpoint" {
