@@ -12,8 +12,6 @@ import (
 	"net/url"
 	"strings"
 	"time"
-
-	"github.com/zephyr-chain/zephyr-chain/internal/v2/types"
 )
 
 const maxWitnessCustodyResponseBytes = 4096
@@ -165,7 +163,3 @@ func (s *HTTPWitnessAtomicCustodian) ReserveAndSignWitnessCheckpoint(ctx context
 		AuthoritySignature: authoritySignature,
 	}, nil
 }
-
-// Assert the HTTP wire does not contain any chain identifiers invented by
-// the server; all returned fields are matched against this trusted request.
-var _ = types.NetworkID{}
