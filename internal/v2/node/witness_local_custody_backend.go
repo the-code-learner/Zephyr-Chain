@@ -24,14 +24,14 @@ type WitnessCustodySigningProvider interface {
 // geographically independent custody or mainnet-grade antirollback.
 // Only a separately audited monotonic signing authority can provide those.
 type LocalWitnessCustodyBackend struct {
-	mu           sync.Mutex
-	store        *FinalityAnchorStore
-	verifier     WitnessFinalityVerifier
-	signer       WitnessCustodySigningProvider
+	mu            sync.Mutex
+	store         *FinalityAnchorStore
+	verifier      WitnessFinalityVerifier
+	signer        WitnessCustodySigningProvider
 	externalFloor WitnessExternalFloorVerifier
-	witnessKey   ed25519.PublicKey
-	authorityKey ed25519.PublicKey
-	closed       bool
+	witnessKey    ed25519.PublicKey
+	authorityKey  ed25519.PublicKey
+	closed        bool
 }
 
 // OpenLocalWitnessCustodyBackend keeps signing keys outside the node's
