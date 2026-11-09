@@ -137,7 +137,11 @@ func (r *Runtime) BuildCandidate(height uint64, batches map[uint32]ShardBatch) (
 			}
 		}
 	} else {
-		jobs := make(chan uint32)
+		// Bound pending dispatch to the active worker pool. A short buffer
+		// avoids stalling the canonical shard scheduler on each worker
+		// handoff without allocating a queue proportional to shard count.
+		// Completion and commitment assembly remain ordered by shard ID.
+		jobs := make(chan uint32, workers)
 		var wg sync.WaitGroup
 		wg.Add(workers)
 		for i := 0; i < workers; i++ {
