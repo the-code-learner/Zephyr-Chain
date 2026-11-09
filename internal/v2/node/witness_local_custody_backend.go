@@ -67,7 +67,7 @@ func OpenLocalWitnessCustodyBackend(path string, network types.NetworkID, root t
 // example QuorumAuthenticatedWitnessFloor). This mode detects local rollback
 // ONLY if the external source preserves a newer authentic floor. It cannot
 // protect against a rollback of both sources, a dishonest floor authority,
-// unbounded floor calls, or independent hardware key use outside this mutex.
+// unbounded legacy floor implementations, or independent hardware key use outside this mutex.
 // A real nonrollbackable HSM/remote fencing authority is still mandatory.
 func OpenReconciledLocalWitnessCustodyBackend(path string, network types.NetworkID, root types.Hash, verifier WitnessFinalityVerifier, signer WitnessCustodySigningProvider, witnessKey, authorityKey []byte, remote WitnessExternalFloorVerifier) (*LocalWitnessCustodyBackend, error) {
 	if remote == nil {
@@ -78,7 +78,7 @@ func OpenReconciledLocalWitnessCustodyBackend(path string, network types.Network
 		return nil, err
 	}
 	b.mu.Lock()
-	err = b.reconcileExternalFloorLocked(remote)
+	err = b.reconcileExternalFloorLocked(context.Background(), remote)
 	if err == nil {
 		b.externalFloor = remote
 	}
@@ -94,17 +94,24 @@ func OpenReconciledLocalWitnessCustodyBackend(path string, network types.Network
 // authenticated independent floor is intentionally a strict liveness tradeoff:
 // remote lag, failure and stale evidence deny signing rather than weakening
 // the monotonicity check.
-func (b *LocalWitnessCustodyBackend) reconcileExternalFloorLocked(remote WitnessExternalFloorVerifier) error {
-	if remote == nil || b.store == nil || b.verifier == nil {
+func (b *LocalWitnessCustodyBackend) reconcileExternalFloorLocked(ctx context.Context, remote WitnessExternalFloorVerifier) error {
+	if ctx == nil || ctx.Err() != nil || remote == nil || b.store == nil || b.verifier == nil {
 		return ErrWitnessSigningIntent
 	}
 	local, err := b.store.Current()
 	if err != nil || local.Height == 0 || local.Validate(local.Network, local.ValidatorRoot) != nil {
 		return ErrWitnessSigningIntent
 	}
-	floor, err := remote.AuthenticatedWitnessFloor()
-	if err != nil || floor != local {
-		return ErrWitnessSigningIntent
+	var floor FinalityCheckpoint
+	if contextual, ok := remote.(interface {
+		AuthenticatedWitnessFloorContext(context.Context) (FinalityCheckpoint, error)
+	}); ok {
+		floor, err = contextual.AuthenticatedWitnessFloorContext(ctx)
+	} else {
+		floor, err = remote.AuthenticatedWitnessFloor()
+	}
+	if err != nil || ctx.Err() != nil || floor != local {
+		return errors.Join(ErrWitnessSigningIntent, err, ctx.Err())
 	}
 	if err := b.verifier.VerifyFinalizedCheckpoint(floor); err != nil {
 		return errors.Join(ErrWitnessSigningIntent, err)
@@ -130,7 +137,7 @@ func (b *LocalWitnessCustodyBackend) ReserveAndSignWitnessCheckpoint(ctx context
 		return fail(nil)
 	}
 	if b.externalFloor != nil {
-		if err := b.reconcileExternalFloorLocked(b.externalFloor); err != nil {
+		if err := b.reconcileExternalFloorLocked(ctx, b.externalFloor); err != nil {
 			return fail(err)
 		}
 		if ctx.Err() != nil {

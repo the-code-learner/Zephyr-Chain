@@ -1,6 +1,7 @@
 package node
 
 import (
+	"context"
 	"errors"
 
 	"github.com/zephyr-chain/zephyr-chain/internal/v2/types"
@@ -51,16 +52,35 @@ func NewQuorumAuthenticatedWitnessFloor(source SignedWitnessFloorSource, keys []
 }
 
 func (f *QuorumAuthenticatedWitnessFloor) AuthenticatedWitnessFloor() (FinalityCheckpoint, error) {
-	if f == nil || f.source == nil {
+	return f.AuthenticatedWitnessFloorContext(context.Background())
+}
+
+// AuthenticatedWitnessFloorContext propagates cancellation to a context-aware
+// source (including the production HTTPS source), and never authorizes a
+// checkpoint after cancellation. Legacy sources remain supported for local
+// fixtures but MUST provide their own bounded I/O in production.
+func (f *QuorumAuthenticatedWitnessFloor) AuthenticatedWitnessFloorContext(ctx context.Context) (FinalityCheckpoint, error) {
+	if f == nil || f.source == nil || ctx == nil || ctx.Err() != nil {
 		return FinalityCheckpoint{}, ErrWitnessSigningIntent
 	}
-	data, err := f.source.SignedWitnessFloor()
-	if err != nil {
-		return FinalityCheckpoint{}, errors.Join(ErrWitnessSigningIntent, err)
+	var data []byte
+	var err error
+	if source, ok := f.source.(interface {
+		SignedWitnessFloorContext(context.Context) ([]byte, error)
+	}); ok {
+		data, err = source.SignedWitnessFloorContext(ctx)
+	} else {
+		data, err = f.source.SignedWitnessFloor()
+	}
+	if err != nil || ctx.Err() != nil {
+		return FinalityCheckpoint{}, errors.Join(ErrWitnessSigningIntent, err, ctx.Err())
 	}
 	cp, err := ParseSignedWitnessCheckpoint(data, f.trustedKeys, f.network, f.validatorRoot)
 	if err != nil {
 		return FinalityCheckpoint{}, errors.Join(ErrWitnessSigningIntent, ErrWitnessCheckpoint)
+	}
+	if ctx.Err() != nil {
+		return FinalityCheckpoint{}, errors.Join(ErrWitnessSigningIntent, ctx.Err())
 	}
 	return *cp, nil
 }

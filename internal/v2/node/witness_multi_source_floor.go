@@ -1,6 +1,7 @@
 package node
 
 import (
+	"context"
 	"errors"
 	"sync"
 
@@ -43,17 +44,34 @@ func NewMultiSourceWitnessFloor(sources ...WitnessExternalFloorVerifier) (*Multi
 // heights are conservatively rejected because quorum signatures do not
 // themselves prove QC ancestry between different heights.
 func (f *MultiSourceWitnessFloor) AuthenticatedWitnessFloor() (FinalityCheckpoint, error) {
-	if f == nil || len(f.sources) < 2 || len(f.sources) > 8 {
+	return f.AuthenticatedWitnessFloorContext(context.Background())
+}
+
+// AuthenticatedWitnessFloorContext shares one caller deadline across all
+// authenticated origins. An expired request must never update the observed
+// high-water mark or allow a signing caller to proceed. Legacy verifier
+// implementations cannot interrupt their own synchronous reads.
+func (f *MultiSourceWitnessFloor) AuthenticatedWitnessFloorContext(ctx context.Context) (FinalityCheckpoint, error) {
+	if f == nil || len(f.sources) < 2 || len(f.sources) > 8 ||
+		ctx == nil || ctx.Err() != nil {
 		return FinalityCheckpoint{}, ErrWitnessSigningIntent
 	}
 	var agreed FinalityCheckpoint
 	for i, source := range f.sources {
-		if source == nil {
+		if source == nil || ctx.Err() != nil {
 			return FinalityCheckpoint{}, ErrWitnessSigningIntent
 		}
-		cp, err := source.AuthenticatedWitnessFloor()
-		if err != nil {
-			return FinalityCheckpoint{}, errors.Join(ErrWitnessSigningIntent, err)
+		var cp FinalityCheckpoint
+		var err error
+		if contextual, ok := source.(interface {
+			AuthenticatedWitnessFloorContext(context.Context) (FinalityCheckpoint, error)
+		}); ok {
+			cp, err = contextual.AuthenticatedWitnessFloorContext(ctx)
+		} else {
+			cp, err = source.AuthenticatedWitnessFloor()
+		}
+		if err != nil || ctx.Err() != nil {
+			return FinalityCheckpoint{}, errors.Join(ErrWitnessSigningIntent, err, ctx.Err())
 		}
 		if cp.Validate(cp.Network, cp.ValidatorRoot) != nil ||
 			types.IsZero32([32]byte(cp.HeaderHash)) {
@@ -68,6 +86,9 @@ func (f *MultiSourceWitnessFloor) AuthenticatedWitnessFloor() (FinalityCheckpoin
 	// an older signed checkpoint to overwrite a newer accepted one.
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if ctx.Err() != nil {
+		return FinalityCheckpoint{}, errors.Join(ErrWitnessSigningIntent, ctx.Err())
+	}
 	if f.observed {
 		if agreed.Network != f.last.Network || agreed.ValidatorRoot != f.last.ValidatorRoot ||
 			agreed.Height < f.last.Height {

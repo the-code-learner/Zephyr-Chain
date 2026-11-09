@@ -56,10 +56,18 @@ func NewHTTPWitnessFloorSource(endpoint string) (*HTTPWitnessFloorSource, error)
 // redirects, empty payloads, oversized bodies and unavailable origins fail.
 // Callers MUST pass its output to the pinned quorum verification layer.
 func (s *HTTPWitnessFloorSource) SignedWitnessFloor() ([]byte, error) {
-	if s == nil || s.client == nil {
+	return s.SignedWitnessFloorContext(context.Background())
+}
+
+// SignedWitnessFloorContext also obeys the caller's cancellation. This
+// prevents a cancelled custody request from holding its signing mutex while
+// an otherwise valid HTTPS origin stalls. The five-second deadline still
+// bounds standalone reads.
+func (s *HTTPWitnessFloorSource) SignedWitnessFloorContext(ctx context.Context) ([]byte, error) {
+	if s == nil || s.client == nil || ctx == nil || ctx.Err() != nil {
 		return nil, ErrWitnessSigningIntent
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, s.endpoint, nil)
 	if err != nil {
@@ -75,8 +83,8 @@ func (s *HTTPWitnessFloorSource) SignedWitnessFloor() ([]byte, error) {
 		return nil, fmt.Errorf("%w: unexpected HTTP status %d", ErrWitnessSigningIntent, response.StatusCode)
 	}
 	payload, err := io.ReadAll(io.LimitReader(response.Body, maxWitnessBundleBytes+1))
-	if err != nil || len(payload) == 0 || len(payload) > maxWitnessBundleBytes {
-		return nil, ErrWitnessSigningIntent
+	if err != nil || len(payload) == 0 || len(payload) > maxWitnessBundleBytes || ctx.Err() != nil {
+		return nil, errors.Join(ErrWitnessSigningIntent, err, ctx.Err())
 	}
 	return payload, nil
 }
