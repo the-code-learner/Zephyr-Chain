@@ -24,13 +24,14 @@ type WitnessCustodySigningProvider interface {
 // geographically independent custody or mainnet-grade antirollback.
 // Only a separately audited monotonic signing authority can provide those.
 type LocalWitnessCustodyBackend struct {
-	mu           sync.Mutex
-	store        *FinalityAnchorStore
-	verifier     WitnessFinalityVerifier
-	signer       WitnessCustodySigningProvider
-	witnessKey   ed25519.PublicKey
-	authorityKey ed25519.PublicKey
-	closed       bool
+	mu            sync.Mutex
+	store         *FinalityAnchorStore
+	verifier      WitnessFinalityVerifier
+	signer        WitnessCustodySigningProvider
+	externalFloor WitnessExternalFloorVerifier
+	witnessKey    ed25519.PublicKey
+	authorityKey  ed25519.PublicKey
+	closed        bool
 }
 
 // OpenLocalWitnessCustodyBackend keeps signing keys outside the node's
@@ -54,6 +55,63 @@ func OpenLocalWitnessCustodyBackend(path string, network types.NetworkID, root t
 	}, nil
 }
 
+// OpenReconciledLocalWitnessCustodyBackend is the explicit recovery-gated
+// mode for a previously provisioned LOCAL custody anchor. It refuses to open
+// signing capability until an independently AUTHENTICATED remote floor
+// EXACTLY matches the local durable checkpoint and QC history. At EVERY
+// subsequent signing request it repeats reconciliation under the custody
+// mutex, before calling either signing provider method. A new higher local
+// checkpoint cannot be signed again until the external floor catches up.
+//
+// The floor source MUST verify independently pinned witness quorum keys (for
+// example QuorumAuthenticatedWitnessFloor). This mode detects local rollback
+// ONLY if the external source preserves a newer authentic floor. It cannot
+// protect against a rollback of both sources, a dishonest floor authority,
+// unbounded floor calls, or independent hardware key use outside this mutex.
+// A real nonrollbackable HSM/remote fencing authority is still mandatory.
+func OpenReconciledLocalWitnessCustodyBackend(path string, network types.NetworkID, root types.Hash, verifier WitnessFinalityVerifier, signer WitnessCustodySigningProvider, witnessKey, authorityKey []byte, remote WitnessExternalFloorVerifier) (*LocalWitnessCustodyBackend, error) {
+	if remote == nil {
+		return nil, ErrWitnessSigningIntent
+	}
+	b, err := OpenLocalWitnessCustodyBackend(path, network, root, false, verifier, signer, witnessKey, authorityKey)
+	if err != nil {
+		return nil, err
+	}
+	b.mu.Lock()
+	err = b.reconcileExternalFloorLocked(remote)
+	if err == nil {
+		b.externalFloor = remote
+	}
+	b.mu.Unlock()
+	if err != nil {
+		_ = b.Close()
+		return nil, errors.Join(ErrWitnessSigningIntent, err)
+	}
+	return b, nil
+}
+
+// Caller holds b.mu. Matching a nonzero QC-certified local floor to an
+// authenticated independent floor is intentionally a strict liveness tradeoff:
+// remote lag, failure and stale evidence deny signing rather than weakening
+// the monotonicity check.
+func (b *LocalWitnessCustodyBackend) reconcileExternalFloorLocked(remote WitnessExternalFloorVerifier) error {
+	if remote == nil || b.store == nil || b.verifier == nil {
+		return ErrWitnessSigningIntent
+	}
+	local, err := b.store.Current()
+	if err != nil || local.Height == 0 || local.Validate(local.Network, local.ValidatorRoot) != nil {
+		return ErrWitnessSigningIntent
+	}
+	floor, err := remote.AuthenticatedWitnessFloor()
+	if err != nil || floor != local {
+		return ErrWitnessSigningIntent
+	}
+	if err := b.verifier.VerifyFinalizedCheckpoint(floor); err != nil {
+		return errors.Join(ErrWitnessSigningIntent, err)
+	}
+	return nil
+}
+
 // ReserveAndSignWitnessCheckpoint serializes independent QC verification,
 // durable monotonic reservation, and BOTH signing-provider calls. A failed
 // signing call never rolls back the already-fsynced reservation; retries of
@@ -70,6 +128,14 @@ func (b *LocalWitnessCustodyBackend) ReserveAndSignWitnessCheckpoint(ctx context
 	defer b.mu.Unlock()
 	if b.closed || b.store == nil || b.verifier == nil || b.signer == nil || ctx.Err() != nil {
 		return fail(nil)
+	}
+	if b.externalFloor != nil {
+		if err := b.reconcileExternalFloorLocked(b.externalFloor); err != nil {
+			return fail(err)
+		}
+		if ctx.Err() != nil {
+			return fail(ctx.Err())
+		}
 	}
 	if err := b.verifier.VerifyFinalizedCheckpoint(cp); err != nil {
 		return fail(err)
