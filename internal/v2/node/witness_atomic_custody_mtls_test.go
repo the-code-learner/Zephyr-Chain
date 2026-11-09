@@ -30,13 +30,13 @@ func witnessCustodyTestCA(t *testing.T) (*x509.Certificate, *ecdsa.PrivateKey, *
 	}
 	now := time.Now()
 	template := &x509.Certificate{
-		SerialNumber: big.NewInt(1),
-		Subject: pkix.Name{CommonName: "Zephyr custody test CA"},
-		NotBefore: now.Add(-time.Hour),
-		NotAfter: now.Add(time.Hour),
-		IsCA: true,
+		SerialNumber:          big.NewInt(1),
+		Subject:               pkix.Name{CommonName: "Zephyr custody test CA"},
+		NotBefore:             now.Add(-time.Hour),
+		NotAfter:              now.Add(time.Hour),
+		IsCA:                  true,
 		BasicConstraintsValid: true,
-		KeyUsage: x509.KeyUsageCertSign | x509.KeyUsageDigitalSignature,
+		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageDigitalSignature,
 	}
 	der, err := x509.CreateCertificate(rand.Reader, template, template, &key.PublicKey, key)
 	if err != nil {
@@ -60,9 +60,9 @@ func witnessCustodyTestTLSCertificate(t *testing.T, ca *x509.Certificate, caKey 
 	now := time.Now()
 	template := &x509.Certificate{
 		SerialNumber: big.NewInt(serial),
-		NotBefore: now.Add(-time.Hour),
-		NotAfter: now.Add(time.Hour),
-		KeyUsage: x509.KeyUsageDigitalSignature,
+		NotBefore:    now.Add(-time.Hour),
+		NotAfter:     now.Add(time.Hour),
+		KeyUsage:     x509.KeyUsageDigitalSignature,
 	}
 	if client {
 		template.Subject = pkix.Name{CommonName: "Zephyr custody test client"}
@@ -115,9 +115,9 @@ func TestAtomicWitnessCustodyMTLSVerifiedEndToEnd(t *testing.T) {
 	server := httptest.NewUnstartedServer(handler)
 	server.TLS = &tls.Config{
 		Certificates: []tls.Certificate{serverCert},
-		ClientAuth: tls.RequireAndVerifyClientCert,
-		ClientCAs: pool,
-		MinVersion: tls.VersionTLS13,
+		ClientAuth:   tls.RequireAndVerifyClientCert,
+		ClientCAs:    pool,
+		MinVersion:   tls.VersionTLS13,
 	}
 	server.StartTLS()
 	defer server.Close()
@@ -127,10 +127,10 @@ func TestAtomicWitnessCustodyMTLSVerifiedEndToEnd(t *testing.T) {
 	}
 	endpoint := "https://custody.operator.example.org:" + port + witnessCustodyHandlerPath
 	config := &tls.Config{
-		RootCAs: pool,
+		RootCAs:      pool,
 		Certificates: []tls.Certificate{clientCert},
-		ServerName: "custody.operator.example.org",
-		MinVersion: tls.VersionTLS13,
+		ServerName:   "custody.operator.example.org",
+		MinVersion:   tls.VersionTLS13,
 	}
 	for _, invalid := range []*tls.Config{
 		nil,
@@ -162,7 +162,7 @@ func TestAtomicWitnessCustodyMTLSVerifiedEndToEnd(t *testing.T) {
 		endpoint: endpoint,
 		client: &http.Client{Transport: &http.Transport{
 			TLSClientConfig: &tls.Config{RootCAs: pool, ServerName: "custody.operator.example.org", MinVersion: tls.VersionTLS13},
-			DialContext: transport.DialContext,
+			DialContext:     transport.DialContext,
 		}},
 	}
 	if _, err := ReserveAndVerifyAtomicWitnessCheckpoint(context.Background(), j, cp, noCert, keyA, keyW); err == nil {
