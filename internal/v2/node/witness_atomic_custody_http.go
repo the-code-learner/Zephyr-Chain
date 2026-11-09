@@ -3,6 +3,7 @@ package node
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -69,6 +70,37 @@ func NewHTTPWitnessAtomicCustodian(endpoint string) (*HTTPWitnessAtomicCustodian
 			},
 		},
 	}, nil
+}
+
+// NewHTTPWitnessAtomicCustodianWithTLS configures authenticated transport
+// to a server that requires verified client certificates. Operators must
+// provision the client TLS certificate and a separate trusted server CA;
+// these credentials are NOT witness-signing or authority private keys.
+func NewHTTPWitnessAtomicCustodianWithTLS(endpoint string, config *tls.Config) (*HTTPWitnessAtomicCustodian, error) {
+	if config == nil || config.InsecureSkipVerify || config.RootCAs == nil ||
+		(len(config.Certificates) == 0 && config.GetClientCertificate == nil) ||
+		(config.MaxVersion != 0 && config.MaxVersion < tls.VersionTLS13) {
+		return nil, ErrWitnessSigningIntent
+	}
+	u, err := url.Parse(endpoint)
+	if err != nil || (config.ServerName != "" && config.ServerName != u.Hostname()) {
+		return nil, ErrWitnessSigningIntent
+	}
+	client, err := NewHTTPWitnessAtomicCustodian(endpoint)
+	if err != nil {
+		return nil, err
+	}
+	tlsConfig := config.Clone()
+	if tlsConfig.MinVersion < tls.VersionTLS13 {
+		tlsConfig.MinVersion = tls.VersionTLS13
+	}
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	// Never silently route custody authority traffic through an ambient
+	// HTTPS_PROXY/HTTP_PROXY process or a different trust domain.
+	transport.Proxy = nil
+	transport.TLSClientConfig = tlsConfig
+	client.client.Transport = transport
+	return client, nil
 }
 
 func decodeCanonicalWitnessCustodyHex(value string, length int) ([]byte, error) {
