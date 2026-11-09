@@ -16,6 +16,8 @@ func TestHTTPWitnessFloorRejectsUntrustedURLAndResponses(t *testing.T) {
 		"https://example.org/checkpoint#frag",
 		"https://example.org/checkpoint?token=secret",
 		"https://127.0.0.1/checkpoint",
+		"https://192.168.1.10/checkpoint",
+		"https://[2001:db8::10]/checkpoint",
 		"https://localhost/checkpoint",
 		"https://witness.local/checkpoint",
 		"https://UPPER.example.org/checkpoint",
