@@ -107,11 +107,18 @@ func (r *Runtime) BuildCandidate(height uint64, batches map[uint32]ShardBatch) (
 			return Candidate{}, ErrCandidateState
 		}
 	}
+	// A candidate always records one receipts entry per shard. Pre-size
+	// canonical shard-indexed maps rather than repeatedly growing them while
+	// assembling a multi-shard candidate. Sparse maps use the batch count.
+	observationCapacity := 0
+	if r.economicCollector != nil {
+		observationCapacity = int(r.ShardCount)
+	}
 	candidate := Candidate{
-		Results:              make(map[uint32][]execution.Result),
-		Receipts:             make(map[uint32][]sharding.CrossShardReceipt),
-		deltas:               make(map[uint32]shardDelta),
-		economicObservations: make(map[uint32]economics.FinalizedShardObservation),
+		Results:              make(map[uint32][]execution.Result, len(batches)),
+		Receipts:             make(map[uint32][]sharding.CrossShardReceipt, int(r.ShardCount)),
+		deltas:               make(map[uint32]shardDelta, len(batches)),
+		economicObservations: make(map[uint32]economics.FinalizedShardObservation, observationCapacity),
 	}
 	// Each shard has independent state. Bound concurrency and join every
 	// shard before constructing canonical, ordered commitments and roots.
