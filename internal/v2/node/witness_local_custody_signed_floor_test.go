@@ -104,8 +104,10 @@ func TestLocalWitnessCustodySignedQuorumFloorRejectsSnapshotRollback(t *testing.
 	if signer.calls != before {
 		t.Fatal("rollback recovery touched private-key signing provider")
 	}
-	// A valid but old 3-of-4 signed floor must not pass against the newer
-	// local file either. Unavailable or stale witnesses deny, never reset.
+	// IMPORTANT LIMITATION: if BOTH the local file and the independently
+	// authenticated source are restored to the exact same historical tip,
+	// this interface cannot detect the coordinated rollback. Mainnet still
+	// requires nonrollbackable hardware/global fencing and independent audit.
 	source.payload = signedWitnessTestBundle(t, first, keys, private, 3)
 	if b, err := OpenReconciledLocalWitnessCustodyBackend(path, network, root, verifier, signer, keyW, keyA, remoteFloor); err != nil || b == nil {
 		t.Fatalf("matching restored historical floor refused: %v", err)
