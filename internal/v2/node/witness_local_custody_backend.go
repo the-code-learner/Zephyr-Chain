@@ -6,6 +6,7 @@ import (
 	"crypto/ed25519"
 	"errors"
 	"sync"
+	"time"
 
 	"github.com/zephyr-chain/zephyr-chain/internal/v2/types"
 )
@@ -67,18 +68,38 @@ func OpenLocalWitnessCustodyBackend(path string, network types.NetworkID, root t
 // example QuorumAuthenticatedWitnessFloor). This mode detects local rollback
 // ONLY if the external source preserves a newer authentic floor. It cannot
 // protect against a rollback of both sources, a dishonest floor authority,
-// unbounded legacy floor implementations, or independent hardware key use outside this mutex.
-// A real nonrollbackable HSM/remote fencing authority is still mandatory.
+// unbounded legacy floor implementations, or independent hardware key use
+// outside this mutex. Startup reconciliation has a shared five-second
+// deadline for context-aware sources; the WithContext constructor permits a
+// narrower operator-defined budget. A real nonrollbackable HSM/remote fencing
+// authority is still mandatory.
 func OpenReconciledLocalWitnessCustodyBackend(path string, network types.NetworkID, root types.Hash, verifier WitnessFinalityVerifier, signer WitnessCustodySigningProvider, witnessKey, authorityKey []byte, remote WitnessExternalFloorVerifier) (*LocalWitnessCustodyBackend, error) {
-	if remote == nil {
-		return nil, ErrWitnessSigningIntent
+	// Apply one deadline to the ENTIRE startup reconciliation, not a new
+	// five-second budget for every serial HTTPS publication. A failed
+	// recovery must never expose a signing handle.
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	return OpenReconciledLocalWitnessCustodyBackendWithContext(ctx, path, network, root, verifier, signer, witnessKey, authorityKey, remote)
+}
+
+// OpenReconciledLocalWitnessCustodyBackendWithContext makes the startup
+// recovery deadline explicitly operator-controlled. The no-context
+// constructor above provides the safe default. Production floors MUST
+// implement AuthenticatedWitnessFloorContext; legacy synchronous verifiers
+// cannot be interrupted even when the caller's deadline expires.
+func OpenReconciledLocalWitnessCustodyBackendWithContext(ctx context.Context, path string, network types.NetworkID, root types.Hash, verifier WitnessFinalityVerifier, signer WitnessCustodySigningProvider, witnessKey, authorityKey []byte, remote WitnessExternalFloorVerifier) (*LocalWitnessCustodyBackend, error) {
+	if ctx == nil || ctx.Err() != nil || remote == nil {
+		return nil, errors.Join(ErrWitnessSigningIntent, contextError(ctx))
 	}
 	b, err := OpenLocalWitnessCustodyBackend(path, network, root, false, verifier, signer, witnessKey, authorityKey)
 	if err != nil {
 		return nil, err
 	}
 	b.mu.Lock()
-	err = b.reconcileExternalFloorLocked(context.Background(), remote)
+	err = b.reconcileExternalFloorLocked(ctx, remote)
+	if err == nil && ctx.Err() != nil {
+		err = ctx.Err()
+	}
 	if err == nil {
 		b.externalFloor = remote
 	}
@@ -88,6 +109,14 @@ func OpenReconciledLocalWitnessCustodyBackend(path string, network types.Network
 		return nil, errors.Join(ErrWitnessSigningIntent, err)
 	}
 	return b, nil
+}
+
+// contextError never dereferences a nil context.
+func contextError(ctx context.Context) error {
+	if ctx == nil {
+		return nil
+	}
+	return ctx.Err()
 }
 
 // Caller holds b.mu. Matching a nonzero QC-certified local floor to an
@@ -114,6 +143,9 @@ func (b *LocalWitnessCustodyBackend) reconcileExternalFloorLocked(ctx context.Co
 		return errors.Join(ErrWitnessSigningIntent, err, ctx.Err())
 	}
 	if err := b.verifier.VerifyFinalizedCheckpoint(floor); err != nil {
+		return errors.Join(ErrWitnessSigningIntent, err)
+	}
+	if err := ctx.Err(); err != nil {
 		return errors.Join(ErrWitnessSigningIntent, err)
 	}
 	return nil
