@@ -134,14 +134,22 @@ func (t *httpPeerTransport) PostFaucet(peerURL string, request FaucetRequest) er
 }
 
 func (t *httpPeerTransport) PostProposal(peerURL string, proposal consensus.Proposal) error {
-	return t.postJSON(peerURL+"/v1/consensus/proposals", proposal)
+	return t.postJSONWithConflictPolicy(peerURL+"/v1/consensus/proposals", proposal, false)
 }
 
 func (t *httpPeerTransport) PostVote(peerURL string, vote consensus.Vote) error {
-	return t.postJSON(peerURL+"/v1/consensus/votes", vote)
+	return t.postJSONWithConflictPolicy(peerURL+"/v1/consensus/votes", vote, false)
 }
 
 func (t *httpPeerTransport) postJSON(target string, payload any) error {
+	// Existing transaction / block propagation may treat an idempotent
+	// conflict as an already-seen message. Consensus votes and proposals
+	// have stricter semantics: a 409 can mean a peer rejected the round,
+	// height, or block hash and MUST be reported to replication diagnostics.
+	return t.postJSONWithConflictPolicy(target, payload, true)
+}
+
+func (t *httpPeerTransport) postJSONWithConflictPolicy(target string, payload any, allowConflict bool) error {
 	body, err := json.Marshal(payload)
 	if err != nil {
 		return err
@@ -161,7 +169,10 @@ func (t *httpPeerTransport) postJSON(target string, payload any) error {
 		return err
 	}
 	defer response.Body.Close()
-	if response.StatusCode >= 400 && response.StatusCode != http.StatusConflict && response.StatusCode != http.StatusAccepted && response.StatusCode != http.StatusOK {
+	if response.StatusCode == http.StatusConflict && allowConflict {
+		return nil
+	}
+	if response.StatusCode >= http.StatusBadRequest {
 		return fmt.Errorf("peer returned status %d", response.StatusCode)
 	}
 	return nil
