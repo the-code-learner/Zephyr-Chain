@@ -27,11 +27,11 @@ const (
 // and signing under one remote key authority. This handler does NOT implement
 // those properties or configure TLS listener certificates.
 type HTTPWitnessCustodyHandler struct {
-	backend       WitnessAtomicCustodian
-	network       types.NetworkID
-	validatorRoot types.Hash
-	authorityKey  []byte
-	witnessKey    []byte
+	backend        WitnessAtomicCustodian
+	network        types.NetworkID
+	validatorRoot  types.Hash
+	authorityKey   []byte
+	witnessKey     []byte
 	clientSPKIPins [][32]byte
 }
 
