@@ -20,8 +20,8 @@ import (
 // No test origin should be mistaken for an independent deployed witness.
 // The signatures and TLS certificates in this file are ephemeral fixtures.
 type countedSignedFloorSource struct {
-	payload	[]byte
-	calls	atomic.Int32
+	payload []byte
+	calls   atomic.Int32
 }
 
 func (s *countedSignedFloorSource) SignedWitnessFloor() ([]byte, error) {
@@ -94,9 +94,9 @@ func TestWitnessFloorCancellationPropagatesThroughHTTPSQuorumAndMultiSource(t *t
 // made under the custody mutex before any signer call, must honor the
 // request cancellation rather than wait for the external floor to recover.
 type custodyCancellationFloor struct {
-	cp	FinalityCheckpoint
-	entered	chan struct{}
-	calls	atomic.Int32
+	cp      FinalityCheckpoint
+	entered chan struct{}
+	calls   atomic.Int32
 }
 
 func (f *custodyCancellationFloor) AuthenticatedWitnessFloor() (FinalityCheckpoint, error) {
