@@ -263,6 +263,7 @@ func (r *Runtime) buildShardCandidate(height uint64, shard uint32, batch ShardBa
 	currentRoot := store.Root()
 	delta := shardDelta{}
 	results := make([]execution.Result, 0, len(batch.Transactions))
+	outboundCount := 0
 	if len(batch.Transactions) > 0 {
 		for _, transaction := range batch.Transactions {
 			if transaction.ShardID != shard || transaction.StateRoot != currentRoot {
@@ -278,6 +279,7 @@ func (r *Runtime) buildShardCandidate(height uint64, shard uint32, batch ShardBa
 		for _, result := range results {
 			delta.Consumed = append(delta.Consumed, result.Consumed...)
 			delta.Created = append(delta.Created, result.Created...)
+			outboundCount += len(result.Outbound)
 		}
 		out.hasTransactions = true
 		out.results = results
@@ -328,7 +330,9 @@ func (r *Runtime) buildShardCandidate(height uint64, shard uint32, batch ShardBa
 		out.hasDelta = true
 		out.delta = delta
 	}
-	receipts := make([]sharding.CrossShardReceipt, 0)
+	// The existing delta pass already visits each result; count outbound
+	// receipts there to avoid repeated slice growth without changing order.
+	receipts := make([]sharding.CrossShardReceipt, 0, outboundCount)
 	for _, result := range results {
 		for _, outbound := range result.Outbound {
 			receipts = append(receipts, sharding.CrossShardReceipt{SourceShard: shard, DestinationShard: outbound.DestinationShard, SourceHeight: height, TransactionID: result.TxID, OutputIndex: outbound.OutputIndex, Output: outbound.Output, SourceStateRoot: newRoot})
