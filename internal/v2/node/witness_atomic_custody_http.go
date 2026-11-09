@@ -95,6 +95,9 @@ func NewHTTPWitnessAtomicCustodianWithTLS(endpoint string, config *tls.Config) (
 		tlsConfig.MinVersion = tls.VersionTLS13
 	}
 	transport := http.DefaultTransport.(*http.Transport).Clone()
+	// Never silently route custody authority traffic through an ambient
+	// HTTPS_PROXY/HTTP_PROXY process or a different trust domain.
+	transport.Proxy = nil
 	transport.TLSClientConfig = tlsConfig
 	client.client.Transport = transport
 	return client, nil
