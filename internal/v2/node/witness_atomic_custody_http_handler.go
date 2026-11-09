@@ -15,7 +15,7 @@ import (
 )
 
 const (
-	witnessCustodyHandlerPath = "/v1/reserve-and-sign"
+	witnessCustodyHandlerPath     = "/v1/reserve-and-sign"
 	maxWitnessCustodyRequestBytes = 1024
 )
 
@@ -46,8 +46,8 @@ func NewHTTPWitnessCustodyHandler(backend WitnessAtomicCustodian, network types.
 		backend:       backend,
 		network:       network,
 		validatorRoot: validatorRoot,
-		authorityKey: append([]byte(nil), authorityKey...),
-		witnessKey: append([]byte(nil), witnessKey...),
+		authorityKey:  append([]byte(nil), authorityKey...),
+		witnessKey:    append([]byte(nil), witnessKey...),
 	}, nil
 }
 
@@ -144,7 +144,7 @@ func (h *HTTPWitnessCustodyHandler) ServeHTTP(w http.ResponseWriter, r *http.Req
 		NetworkID: request.NetworkID, ValidatorRoot: request.ValidatorRoot,
 		Height: cp.Height, HeaderHash: request.HeaderHash, Challenge: request.Challenge,
 		Revision: a.Revision, WitnessPublicKey: hex.EncodeToString(a.WitnessPublicKey),
-		WitnessSignature: hex.EncodeToString(a.WitnessSignature),
+		WitnessSignature:   hex.EncodeToString(a.WitnessSignature),
 		AuthoritySignature: hex.EncodeToString(a.AuthoritySignature),
 	}
 	encoded, err := json.Marshal(response)
