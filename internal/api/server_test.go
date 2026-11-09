@@ -1966,9 +1966,26 @@ func TestConsensusAutomationAdvancesRoundAndRotatesProposerAfterTimeout(t *testi
 		t.Fatalf("accept tx: %v", err)
 	}
 
-	waitFor(t, func() bool {
-		return roundZeroServer.ledger.Status().Height == 1 && roundOneServer.ledger.Status().Height == 1
-	})
+	// Keep the same strict eight-second liveness budget as waitFor, but
+	// report BOTH peers' live consensus state on failure. Without the
+	// proposal, vote, round and QC observations a stressed CI failure
+	// cannot be distinguished from an actual consensus liveness defect.
+	deadline := time.Now().Add(8 * time.Second)
+	finalized := false
+	for time.Now().Before(deadline) {
+		if roundZeroServer.ledger.Status().Height == 1 && roundOneServer.ledger.Status().Height == 1 {
+			finalized = true
+			break
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+	if !finalized {
+		t.Fatalf("consensus proposer rotation stalled after 8s: nodeA_status=%+v nodeB_status=%+v nodeA_consensus=%+v nodeB_consensus=%+v nodeA_round=%+v nodeB_round=%+v nodeA_artifacts=%+v nodeB_artifacts=%+v",
+			roundZeroServer.ledger.Status(), roundOneServer.ledger.Status(),
+			roundZeroServer.ledger.Consensus(), roundOneServer.ledger.Consensus(),
+			roundZeroServer.ledger.RoundState(), roundOneServer.ledger.RoundState(),
+			roundZeroServer.ledger.ConsensusArtifacts(), roundOneServer.ledger.ConsensusArtifacts())
+	}
 
 	roundOneArtifacts := roundOneServer.ledger.ConsensusArtifacts()
 	proposal := roundOneArtifacts.LatestProposal
