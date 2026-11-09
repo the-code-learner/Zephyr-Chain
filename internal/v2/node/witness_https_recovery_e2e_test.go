@@ -32,14 +32,14 @@ func TestWitnessHTTPSQuorumRecoveryEndToEnd(t *testing.T) {
 		_, _ = w.Write(payload)
 	}))
 	defer server.Close()
-	source, err := NewHTTPWitnessFloorSource(server.URL + "/checkpoint")
-	if err != nil {
-		t.Fatal(err)
-	}
-	// The test server has ephemeral private TLS roots. Do not weaken TLS
-	// verification in production: test-only transport certificate trust.
+	// A loopback test server is injected directly. The production floor
+	// constructor now forbids IP-literal and local HTTPS origins; a test
+	// TLS certificate is never treated as an independently trusted witness.
 	testClient := server.Client()
-	source.client = testClient
+	source := &HTTPWitnessFloorSource{
+		endpoint: server.URL + "/checkpoint",
+		client:   testClient,
+	}
 	defer testClient.CloseIdleConnections()
 	if _, ok := testClient.Transport.(*http.Transport); !ok {
 		t.Fatal("TLS test transport unavailable")

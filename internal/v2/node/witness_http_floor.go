@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 )
 
@@ -23,13 +24,27 @@ type HTTPWitnessFloorSource struct {
 func NewHTTPWitnessFloorSource(endpoint string) (*HTTPWitnessFloorSource, error) {
 	u, err := url.Parse(endpoint)
 	if err != nil || u.Scheme != "https" || u.Host == "" || u.User != nil ||
-		u.Fragment != "" || u.RawQuery != "" || u.Opaque != "" {
+		u.Fragment != "" || u.RawQuery != "" || u.ForceQuery || u.Opaque != "" ||
+		u.Path == "" || !strings.HasPrefix(u.Path, "/") {
 		return nil, ErrWitnessSigningIntent
 	}
+	// This network endpoint comes from operator provisioning, not an
+	// arbitrary requester. Disallow loopback, IP literals, pseudo-local
+	// names and noncanonical DNS identities in production. Signatures
+	// still need independent Ed25519 quorum verification above.
+	host := u.Hostname()
+	if host != strings.ToLower(host) || !validWitnessPublisherDNSName(host) {
+		return nil, ErrWitnessSigningIntent
+	}
+	// Do not let an ambient HTTPS_PROXY silently become a witness floor
+	// authority or a second, unreviewed network control plane.
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.Proxy = nil
 	return &HTTPWitnessFloorSource{
 		endpoint: u.String(),
 		client: &http.Client{
-			Timeout: 5 * time.Second,
+			Timeout:   5 * time.Second,
+			Transport: transport,
 			CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
 				return http.ErrUseLastResponse
 			},
