@@ -25,22 +25,27 @@ const (
 // and signing under one remote key authority. This handler does NOT implement
 // those properties or configure TLS listener certificates.
 type HTTPWitnessCustodyHandler struct {
-	backend WitnessAtomicCustodian
-	authorityKey []byte
-	witnessKey []byte
+	backend       WitnessAtomicCustodian
+	network       types.NetworkID
+	validatorRoot types.Hash
+	authorityKey  []byte
+	witnessKey    []byte
 }
 
 // NewHTTPWitnessCustodyHandler pins both independent public keys. Deployment
 // MUST configure the HTTP server with tls.RequireAndVerifyClientCert and a
 // separately provisioned ClientCAs policy; requests without a verified client
 // TLS chain are rejected even if they reach this handler.
-func NewHTTPWitnessCustodyHandler(backend WitnessAtomicCustodian, authorityKey, witnessKey []byte) (*HTTPWitnessCustodyHandler, error) {
-	if backend == nil || len(authorityKey) != ed25519.PublicKeySize ||
+func NewHTTPWitnessCustodyHandler(backend WitnessAtomicCustodian, network types.NetworkID, validatorRoot types.Hash, authorityKey, witnessKey []byte) (*HTTPWitnessCustodyHandler, error) {
+	if backend == nil || types.IsZero32([32]byte(network)) || types.IsZero32([32]byte(validatorRoot)) ||
+		len(authorityKey) != ed25519.PublicKeySize ||
 		len(witnessKey) != ed25519.PublicKeySize || bytes.Equal(authorityKey, witnessKey) {
 		return nil, ErrWitnessSigningIntent
 	}
 	return &HTTPWitnessCustodyHandler{
-		backend: backend,
+		backend:       backend,
+		network:       network,
+		validatorRoot: validatorRoot,
 		authorityKey: append([]byte(nil), authorityKey...),
 		witnessKey: append([]byte(nil), witnessKey...),
 	}, nil
@@ -124,7 +129,7 @@ func (h *HTTPWitnessCustodyHandler) ServeHTTP(w http.ResponseWriter, r *http.Req
 	copy(header[:], headerBytes)
 	copy(challenge[:], challengeBytes)
 	cp := FinalityCheckpoint{Network: network, ValidatorRoot: root, Height: request.Height, HeaderHash: header}
-	if cp.Validate(network, root) != nil || isZeroWitnessFenceChallenge(challenge) {
+	if cp.Validate(h.network, h.validatorRoot) != nil || isZeroWitnessFenceChallenge(challenge) {
 		custodyHTTPReject(w, http.StatusBadRequest)
 		return
 	}
