@@ -6,6 +6,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	"errors"
+	"os"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -64,7 +65,11 @@ func TestLocalWitnessCustodyFencesRivalRequestsAcrossRestart(t *testing.T) {
 	// height claim: the fsynced single-writer store must still fence it.
 	verifier := witnessFaultyCustodyVerifier{}
 	sign := &localCustodyTestSigner{witness: w, authority: a}
-	path := filepath.Join(t.TempDir(), "single-writer-anchor")
+	directory := t.TempDir()
+	if err := os.Chmod(directory, 0700); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(directory, "single-writer-anchor")
 	open := func(create bool) *LocalWitnessCustodyBackend {
 		t.Helper()
 		backend, err := OpenLocalWitnessCustodyBackend(path, network, root, create, verifier, sign, w.Public().(ed25519.PublicKey), a.Public().(ed25519.PublicKey))
@@ -143,7 +148,11 @@ func TestLocalWitnessCustodySignerFailureNeverUndoesDurableIntent(t *testing.T) 
 	evil := cp
 	evil.HeaderHash = types.Hash{2}
 	signer := &localCustodyTestSigner{authority: a, witness: w, failAuthority: true}
-	path := filepath.Join(t.TempDir(), "durable-failure-anchor")
+	directory := t.TempDir()
+	if err := os.Chmod(directory, 0700); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(directory, "durable-failure-anchor")
 	open := func(create bool) *LocalWitnessCustodyBackend {
 		t.Helper()
 		b, err := OpenLocalWitnessCustodyBackend(path, network, root, create, witnessFaultyCustodyVerifier{}, signer, w.Public().(ed25519.PublicKey), a.Public().(ed25519.PublicKey))
