@@ -16,12 +16,12 @@ import (
 // Only these tests possess private keys. LocalWitnessCustodyBackend itself
 // sees only public keys and opaque, pluggable signing operations.
 type localCustodyTestSigner struct {
-	mu sync.Mutex
-	witness ed25519.PrivateKey
-	authority ed25519.PrivateKey
+	mu            sync.Mutex
+	witness       ed25519.PrivateKey
+	authority     ed25519.PrivateKey
 	failAuthority bool
-	badWitness bool
-	calls int
+	badWitness    bool
+	calls         int
 }
 
 func (s *localCustodyTestSigner) SignWitnessCheckpointDigest(ctx context.Context, digest [32]byte) ([]byte, error) {
