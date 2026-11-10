@@ -54,7 +54,7 @@ func NewHTTPWitnessAtomicCustodian(endpoint string) (*HTTPWitnessAtomicCustodian
 	u, err := url.Parse(endpoint)
 	if err != nil || u.Scheme != "https" || u.Host == "" || u.User != nil ||
 		u.Fragment != "" || u.RawQuery != "" || u.ForceQuery || u.Opaque != "" ||
-		u.Path == "" || !strings.HasPrefix(u.Path, "/") {
+		!canonicalWitnessHTTPSPath(u) {
 		return nil, ErrWitnessSigningIntent
 	}
 	host := u.Hostname()
