@@ -4,6 +4,7 @@ import (
 	"net"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/zephyr-chain/zephyr-chain/internal/v2/types"
 )
@@ -57,7 +58,17 @@ func NewOperatorSeparatedWitnessFloor(policies []WitnessPublisherPolicy, network
 		}
 		sources = append(sources, verified)
 	}
-	return NewMultiSourceWitnessFloor(sources...)
+	floor, err := NewMultiSourceWitnessFloor(sources...)
+	if err != nil {
+		return nil, err
+	}
+	// These independently configured HTTPS sources are read sequentially.
+	// Apply one aggregate five-second budget rather than permitting each
+	// unresponsive publisher to consume its own five-second client timeout.
+	// The strict 3+ operator attested constructor has the same fail-closed
+	// budget; this legacy constructor still does NOT prove independence.
+	floor.readTimeout = 5 * time.Second
+	return floor, nil
 }
 
 // validWitnessPublisherDNSName accepts only fully qualified ASCII DNS
