@@ -81,6 +81,26 @@ func (t *httpPeerTransport) FetchStatus(peerURL string) (StatusResponse, error) 
 	return payload, nil
 }
 
+// decodeSinglePeerJSON requires a complete single JSON document, including
+// EOF after optional whitespace. A single Decoder.Decode silently ignores
+// trailing documents or attacker-controlled bytes. Decode incrementally to
+// preserve streaming for legitimately large snapshots; HTTP client timeouts
+// and higher-level authenticated ledger validation remain unchanged.
+func decodeSinglePeerJSON(body io.Reader, destination any) error {
+	decoder := json.NewDecoder(body)
+	if err := decoder.Decode(destination); err != nil {
+		return err
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		if err != nil {
+			return err
+		}
+		return fmt.Errorf("peer response contained multiple JSON documents")
+	}
+	return nil
+}
+
 func (t *httpPeerTransport) FetchBlock(peerURL string, height uint64) (ledger.Block, error) {
 	response, err := t.client.Get(fmt.Sprintf("%s/v1/blocks/%d", peerURL, height))
 	if err != nil {
@@ -92,7 +112,7 @@ func (t *httpPeerTransport) FetchBlock(peerURL string, height uint64) (ledger.Bl
 	}
 
 	var payload BlockAtHeightResponse
-	if err := json.NewDecoder(response.Body).Decode(&payload); err != nil {
+	if err := decodeSinglePeerJSON(response.Body, &payload); err != nil {
 		return ledger.Block{}, err
 	}
 	return payload.Block, nil
@@ -117,7 +137,7 @@ func (t *httpPeerTransport) FetchBlockEvidence(peerURL string, height uint64) ([
 	}
 
 	var payload BlockEvidenceResponse
-	if err := json.NewDecoder(response.Body).Decode(&payload); err != nil {
+	if err := decodeSinglePeerJSON(response.Body, &payload); err != nil {
 		return nil, err
 	}
 	return payload.Evidence, nil
@@ -142,7 +162,7 @@ func (t *httpPeerTransport) FetchSnapshot(peerURL string) (ledger.Snapshot, erro
 	}
 
 	var payload SnapshotResponse
-	if err := json.NewDecoder(response.Body).Decode(&payload); err != nil {
+	if err := decodeSinglePeerJSON(response.Body, &payload); err != nil {
 		return ledger.Snapshot{}, err
 	}
 	return payload.Snapshot, nil
