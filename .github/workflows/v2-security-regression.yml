@@ -96,6 +96,24 @@ jobs:
         run: go test -race ./internal/v2/node -run '^TestAttestedMultiOperatorHTTPSWitnessFloor' -count=8 -timeout=4m
       - name: Strict three-operator HTTPS witness publication and quorum regression
         run: go test -race ./internal/v2/node -run '^TestProvisionedMultiOperatorHTTPSWitnessFloor' -count=8 -timeout=4m
+      - name: Shared aggregate HTTPS witness floor deadline and cancellation regression
+        run: go test -race ./internal/v2/node -run '^TestProvisionedMultiOperatorHTTPSWitnessFloorSharesOneReadDeadline      - name: Witness operator separation policy regression
+        run: go test -race ./internal/v2/node -run '^TestOperatorSeparatedWitnessFloor' -count=10 -timeout=3m
+      - name: Atomic witness local remote recovery gate regression
+        run: go test -race ./internal/v2/node -run '^TestWitnessAtomicReserveRemoteGate' -count=10 -timeout=3m
+      - name: Context-bound witness intent reservation and recovery regression
+        run: go test -race ./internal/v2/node -run '^TestWitnessAtomicGateContext' -count=8 -timeout=4m
+      - name: Custody HTTPS transport proxy exclusion regression
+        run: go test -race ./internal/v2/node -run '^TestAtomicWitnessCustodyHTTP(NoAmbientProxy|EndpointPolicy)$' -count=10 -timeout=3m
+      - name: Challenged authenticated witness fencing grant and cross-host fixture regression
+        run: go test -race ./internal/v2/node -run '^TestWitnessFence' -count=10 -timeout=3m
+      - name: Atomic witness custody signature, concurrency, restart and rollback regression
+        run: go test -race ./internal/v2/node -run '^TestAtomicWitnessCustody' -count=5 -timeout=4m
+      - name: Local custody signer-provider fencing, crash and equivocation race regression
+        run: go test -race ./internal/v2/node -run '^TestLocalWitnessCustody' -count=5 -timeout=4m
+      - name: Protected validator signing restart regression under race detector
+        run: go test -race ./internal/v2/node -run '^TestProtectedValidatorServicePersistsSigningIntent$' -count=1 -timeout=3m
+ -count=10 -timeout=3m
       - name: Witness operator separation policy regression
         run: go test -race ./internal/v2/node -run '^TestOperatorSeparatedWitnessFloor' -count=10 -timeout=3m
       - name: Atomic witness local remote recovery gate regression
