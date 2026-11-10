@@ -33,6 +33,12 @@ func TestAtomicWitnessCustodyHTTPEndpointPolicy(t *testing.T) {
 		"https://custody.operator.example.org./v1/reserve-and-sign",
 		"https://user:pass@custody.operator.example.org/v1/reserve-and-sign",
 		"https://custody.operator.example.org/v1/reserve-and-sign?x=1",
+		"https://custody.operator.example.org/v1/%72eserve-and-sign",
+		"https://custody.operator.example.org/v1/%2e/reserve-and-sign",
+		"https://custody.operator.example.org/v1/../v1/reserve-and-sign",
+		"https://custody.operator.example.org/v1/./reserve-and-sign",
+		"https://custody.operator.example.org/v1//reserve-and-sign",
+		"https://custody.operator.example.org/v1/%2freserve-and-sign",
 		"https://custody.operator.example.org/v1/reserve-and-sign#part",
 		"https://custody.operator.example.org",
 	} {
