@@ -4,6 +4,7 @@ package node
 
 import (
 	"bytes"
+	"context"
 	"crypto/ed25519"
 	"crypto/tls"
 	"crypto/x509"
@@ -174,5 +175,73 @@ func TestAtomicWitnessCustodyHTTPHandlerRejectsUntrustedRequestsBeforeSigning(t 
 	h.ServeHTTP(response, r)
 	if response.Code != http.StatusServiceUnavailable || response.Body.String() == "" {
 		t.Fatalf("forged backend signature was published: %d", response.Code)
+	}
+}
+
+type witnessCancelOnReadCloser struct {
+	io.ReadCloser
+	cancel context.CancelFunc
+}
+
+func (b *witnessCancelOnReadCloser) Read(p []byte) (int, error) {
+	n, err := b.ReadCloser.Read(p)
+	if n > 0 {
+		b.cancel()
+	}
+	return n, err
+}
+
+// A valid, fully read and canonical request is still unauthorized for
+// remote key-custody work once its caller has canceled. In particular,
+// the request may be canceled DURING an otherwise successful body read.
+// Some custody backends do not respect context cancellation on entry.
+func TestAtomicWitnessCustodyHTTPHandlerCancelledBeforeRemoteSigning(t *testing.T) {
+	authority, witness := witnessAtomicTestKeys()
+	network := types.NetworkID(types.HashBytes("custody-cancel-before-sign", []byte("network")))
+	root := types.HashBytes("custody-cancel-before-sign", []byte("root"))
+	cp := FinalityCheckpoint{Network: network, ValidatorRoot: root, Height: 52, HeaderHash: types.Hash{7}}
+	challenge := [32]byte{9}
+	fixture := &witnessAtomicCustodianFixture{authority: authority, witness: witness}
+	h, err := NewHTTPWitnessCustodyHandler(fixture, network, root,
+		authority.Public().(ed25519.PublicKey), witness.Public().(ed25519.PublicKey))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, tc := range []struct {
+		name string
+		cancelOnBodyRead bool
+	}{
+		{name: "already canceled"},
+		{name: "canceled while reading canonical JSON", cancelOnBodyRead: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			request := witnessCustodyHandlerUnitRequest(cp, challenge).WithContext(ctx)
+			if tc.cancelOnBodyRead {
+				request.Body = &witnessCancelOnReadCloser{ReadCloser: request.Body, cancel: cancel}
+			} else {
+				cancel()
+			}
+			before := fixture.calls
+			response := httptest.NewRecorder()
+			h.ServeHTTP(response, request)
+			if response.Code != http.StatusServiceUnavailable {
+				t.Fatalf("canceled custody request was accepted: status=%d", response.Code)
+			}
+			if fixture.calls != before {
+				t.Fatalf("abandoned request delegated to signer: before=%d after=%d", before, fixture.calls)
+			}
+		})
+	}
+
+	// An abandoned request must not fence out a later, independently
+	// authenticated valid request to the exact same checkpoint.
+	before := fixture.calls
+	response := httptest.NewRecorder()
+	h.ServeHTTP(response, witnessCustodyHandlerUnitRequest(cp, challenge))
+	if response.Code != http.StatusOK || fixture.calls != before+1 {
+		t.Fatalf("fresh valid request could not resume: status=%d signerCalls=%d", response.Code, fixture.calls-before)
 	}
 }
