@@ -86,9 +86,13 @@ func TestConsensusAutomationStalledPeerDoesNotBlockRoundRotation(t *testing.T) {
 		case <-r.Context().Done():
 		}
 	}))
+	var healthy *httptest.Server
 	t.Cleanup(func() {
 		releaseOnce.Do(func() { close(release) })
 		s.Close()
+		if healthy != nil {
+			healthy.Close()
+		}
 		peer.Close()
 	})
 	s.setPeerURLs([]string{peer.URL})
@@ -139,6 +143,46 @@ func TestConsensusAutomationStalledPeerDoesNotBlockRoundRotation(t *testing.T) {
 		}
 	}
 
+	// Adding a healthy destination while the original peer is still
+	// blocked must deliver BOTH signed messages without waiting five
+	// seconds. A single global flight per message type would strand it.
+	healthyProposal := make(chan struct{})
+	healthyVote := make(chan struct{})
+	var healthyProposalOnce, healthyVoteOnce sync.Once
+	healthy = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get(sourceSignatureHeader) == "" {
+			http.Error(w, "missing signed peer proof", http.StatusForbidden)
+			return
+		}
+		switch r.URL.Path {
+		case "/v1/consensus/proposals":
+			healthyProposalOnce.Do(func() { close(healthyProposal) })
+		case "/v1/consensus/votes":
+			healthyVoteOnce.Do(func() { close(healthyVote) })
+		default:
+			http.NotFound(w, r)
+			return
+		}
+		w.WriteHeader(http.StatusAccepted)
+	}))
+	s.setPeerURLs([]string{peer.URL, healthy.URL})
+	if err := s.runConsensusAutomation(); err != nil {
+		t.Fatalf("healthy peer could not be scheduled alongside a stalled peer: %v", err)
+	}
+	for _, entry := range []struct {
+		name string
+		ch   <-chan struct{}
+	}{
+		{name: "proposal", ch: healthyProposal},
+		{name: "vote", ch: healthyVote},
+	} {
+		select {
+		case <-entry.ch:
+		case <-time.After(750 * time.Millisecond):
+			t.Fatalf("healthy peer starved behind stalled %s delivery", entry.name)
+		}
+	}
+
 	// A 100ms round timeout must still progress while both previous
 	// round deliveries are blocked. This asserts scheduler liveness, not
 	// a QC or an unauthorized commit.
@@ -162,6 +206,6 @@ func TestConsensusAutomationStalledPeerDoesNotBlockRoundRotation(t *testing.T) {
 
 	releaseOnce.Do(func() { close(release) })
 	waitFor(t, func() bool {
-		return !s.consensusOutbound.proposal.Load() && !s.consensusOutbound.vote.Load()
+		return s.consensusOutbound.idle()
 	})
 }
