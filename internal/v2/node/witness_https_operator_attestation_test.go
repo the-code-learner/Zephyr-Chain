@@ -72,7 +72,7 @@ func TestAttestedMultiOperatorHTTPSWitnessFloorRequiresPinnedSignedRoster(t *tes
 	}
 
 	tests := []struct {
-		name string
+		name   string
 		mutate func([]WitnessHTTPSOperatorAttestation)
 	}{
 		{"mutated endpoint", func(a []WitnessHTTPSOperatorAttestation) {
@@ -122,9 +122,9 @@ func TestAttestedMultiOperatorHTTPSWitnessFloorRequiresPinnedSignedRoster(t *tes
 	alternateRoot := root
 	alternateRoot[0] ^= 1
 	for _, tc := range []struct {
-		name string
-		network types.NetworkID
-		root types.Hash
+		name     string
+		network  types.NetworkID
+		root     types.Hash
 		revision uint64
 	}{
 		{name: "foreign genesis", network: alternateNetwork, root: root, revision: revision},
