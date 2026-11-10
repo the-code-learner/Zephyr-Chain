@@ -69,7 +69,7 @@ func TestHTTPPeerTransportRejectsSignedRedirects(t *testing.T) {
 			check("proposal", transport.PostProposal(source.URL, proposal))
 			check("vote", transport.PostVote(source.URL, vote))
 			check("transaction", transport.PostTransaction(source.URL, tx.Envelope{}))
-			_, err := transport.FetchBlockEvidence(source.URL, 1)
+			_, err := transport.(certifiedBlockEvidenceTransport).FetchBlockEvidence(source.URL, 1)
 			check("signed block evidence", err)
 			_, err = transport.FetchSnapshot(source.URL)
 			check("signed snapshot", err)
