@@ -1,7 +1,6 @@
 package api
 
 import (
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -43,20 +42,19 @@ func TestHTTPPeerTransportRejectsTrailingJSONOnRecoveryResponses(t *testing.T) {
 
 	transport := newHTTPPeerTransport(&http.Client{Timeout: 3 * time.Second}, config.NodeID, identity)
 	for _, endpoint := range []struct {
-		name string
-		path string
+		name  string
 		valid string
 		fetch func() error
 	}{
-		{name: "block", path: "/v1/blocks/1", valid: "{\"block\":{}}", fetch: func() error {
+		{name: "block", valid: "{\"block\":{}}", fetch: func() error {
 			_, err := transport.FetchBlock(peer.URL, 1)
 			return err
 		}},
-		{name: "certified evidence", path: "/v1/internal/block-evidence/1", valid: "{\"evidence\":[]}", fetch: func() error {
+		{name: "certified evidence", valid: "{\"evidence\":[]}", fetch: func() error {
 			_, err := transport.(certifiedBlockEvidenceTransport).FetchBlockEvidence(peer.URL, 1)
 			return err
 		}},
-		{name: "snapshot", path: "/v1/internal/snapshot", valid: "{\"snapshot\":{}}", fetch: func() error {
+		{name: "snapshot", valid: "{\"snapshot\":{}}", fetch: func() error {
 			_, err := transport.FetchSnapshot(peer.URL)
 			return err
 		}},
@@ -65,7 +63,7 @@ func TestHTTPPeerTransportRejectsTrailingJSONOnRecoveryResponses(t *testing.T) {
 			for _, tc := range []struct {
 				name string
 				body string
-				ok bool
+				ok   bool
 			}{
 				{name: "single document", body: endpoint.valid, ok: true},
 				{name: "surrounding whitespace", body: " \n" + endpoint.valid + " \t", ok: true},
@@ -82,7 +80,7 @@ func TestHTTPPeerTransportRejectsTrailingJSONOnRecoveryResponses(t *testing.T) {
 						t.Fatalf("%s rejected valid single JSON document: %v", endpoint.name, err)
 					}
 					if !tc.ok && err == nil {
-						t.Fatal(fmt.Sprintf("%s silently accepted malformed or extra JSON data", endpoint.name))
+						t.Fatalf("%s silently accepted malformed or extra JSON data", endpoint.name)
 					}
 				})
 			}
