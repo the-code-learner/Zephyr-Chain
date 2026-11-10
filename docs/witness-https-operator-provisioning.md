@@ -26,6 +26,14 @@ quorum or cache fallback. Generic fixture adapters retain their previous
 context behavior. The budget is a defensive latency bound, **not** a
 publication-freshness, uptime or liveness guarantee.
 
+The legacy two-or-more-source `NewOperatorSeparatedWitnessFloor` constructor
+now also applies the same **single aggregate five-second read deadline**
+across its HTTPS origins, rather than allowing up to five seconds per source.
+This corrects a cancellation-latency gap but does **not** upgrade legacy
+operator configuration to the strict three-operator attested trust model.
+For public-mainnet provisioning use independently authenticated inventories
+and meet the separate physical operator and HSM/audit release gates.
+
 This constructor has **no private key material, signing operation or
 mechanism to assert who actually owns an operator, host or witness key**.
 An identifier and a DNS name are merely configuration labels. A quorum of
