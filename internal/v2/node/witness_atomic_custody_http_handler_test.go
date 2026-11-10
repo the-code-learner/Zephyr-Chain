@@ -209,7 +209,7 @@ func TestAtomicWitnessCustodyHTTPHandlerCancelledBeforeRemoteSigning(t *testing.
 	}
 
 	for _, tc := range []struct {
-		name string
+		name             string
 		cancelOnBodyRead bool
 	}{
 		{name: "already canceled"},
