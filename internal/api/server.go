@@ -219,24 +219,24 @@ type MetricsResponse struct {
 }
 
 type Server struct {
-	mux            *http.ServeMux
-	ledger         *ledger.Store
-	config         Config
-	nodeID         string
-	httpClient     *http.Client
-	transport      peerTransport
-	identitySigner *transportIdentitySigner
-	eventLogger    *structuredEventLogger
+	mux                   *http.ServeMux
+	ledger                *ledger.Store
+	config                Config
+	nodeID                string
+	httpClient            *http.Client
+	transport             peerTransport
+	identitySigner        *transportIdentitySigner
+	eventLogger           *structuredEventLogger
 	peerMu                sync.RWMutex
 	peerViews             map[string]PeerView
 	peerAdmissionRetrying map[string]struct{}
 	peerURLsMu            sync.RWMutex
-	peerURLs       []string
-	stopCh         chan struct{}
-	wg             sync.WaitGroup
-	closeOnce      sync.Once
-	asyncMu        sync.Mutex
-	asyncClosed    bool
+	peerURLs              []string
+	stopCh                chan struct{}
+	wg                    sync.WaitGroup
+	closeOnce             sync.Once
+	asyncMu               sync.Mutex
+	asyncClosed           bool
 }
 
 func NewServer() *Server {
@@ -277,18 +277,18 @@ func NewServerWithConfig(config Config) (*Server, error) {
 		},
 	}
 	server := &Server{
-		mux:            http.NewServeMux(),
-		ledger:         store,
-		config:         config,
-		nodeID:         config.NodeID,
-		httpClient:     client,
-		transport:      newHTTPPeerTransport(client, config.NodeID, identitySigner),
-		identitySigner: identitySigner,
-		eventLogger:    newStructuredEventLogger(config),
-		peerViews:             make(map[string]PeerView),
-		peerAdmissionRetrying: make(map[string]struct{}),
-		peerURLs:              append([]string(nil), config.PeerURLs...),
-		stopCh:         make(chan struct{}),
+		mux:                    http.NewServeMux(),
+		ledger:                 store,
+		config:                 config,
+		nodeID:                 config.NodeID,
+		httpClient:             client,
+		transport:              newHTTPPeerTransport(client, config.NodeID, identitySigner),
+		identitySigner:         identitySigner,
+		eventLogger:            newStructuredEventLogger(config),
+		peerViews:              make(map[string]PeerView),
+		peerAdmissionRetrying:  make(map[string]struct{}),
+		peerURLs:               append([]string(nil), config.PeerURLs...),
+		stopCh:                 make(chan struct{}),
 	}
 
 	server.routes()
