@@ -100,7 +100,7 @@ func decodeSinglePeerJSON(body io.Reader, destination any) error {
 	for {
 		n, err := remaining.Read(buffer[:])
 		for _, b := range buffer[:n] {
-			if b != ' ' && b != '\\t' && b != '\\n' && b != '\\r' {
+			if b != ' ' && b != '\t' && b != '\n' && b != '\r' {
 				return fmt.Errorf("peer response contained trailing non-whitespace data")
 			}
 		}
