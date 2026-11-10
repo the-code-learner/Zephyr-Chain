@@ -1,6 +1,8 @@
 package api
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
@@ -67,13 +69,43 @@ func TestConsensusAutomationOnlyRebroadcastsActiveRoundArtifacts(t *testing.T) {
 		return -1
 	}
 
-	// A current-round retry must remain operational for disconnected peers.
+	// With no peers, a retry call cannot deliver anything and must not
+	// rewrite the WAL just to record a fictitious network replay.
+	for i := 0; i < 4; i++ {
+		server.maybeRebroadcastProposal()
+		server.maybeRebroadcastVote()
+	}
+	if replayCount(ledger.ConsensusActionProposal, 0) != 0 ||
+		replayCount(ledger.ConsensusActionVote, 0) != 0 {
+		t.Fatal("peerless node rewrote WAL for a nonexistent replay")
+	}
+
+	// Adding a peer later must preserve current-round retry/recovery.
+	// This ephemeral sink is not a production validator or trust proof.
+	peer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusAccepted)
+	}))
+	defer peer.Close()
+	server.setPeerURLs([]string{peer.URL})
 	server.maybeRebroadcastProposal()
 	server.maybeRebroadcastVote()
 	if replayCount(ledger.ConsensusActionProposal, 0) != 1 ||
 		replayCount(ledger.ConsensusActionVote, 0) != 1 {
-		t.Fatal("current-round proposal or vote was not replayed")
+		t.Fatal("new peer did not receive current-round proposal/vote replay")
 	}
+
+	// Removing peers again pauses replay bookkeeping without affecting
+	// the signed actions already stored for crash recovery.
+	server.setPeerURLs(nil)
+	for i := 0; i < 4; i++ {
+		server.maybeRebroadcastProposal()
+		server.maybeRebroadcastVote()
+	}
+	if replayCount(ledger.ConsensusActionProposal, 0) != 1 ||
+		replayCount(ledger.ConsensusActionVote, 0) != 1 {
+		t.Fatal("removing peers did not stop unnecessary WAL replay updates")
+	}
+	server.setPeerURLs([]string{peer.URL})
 
 	advanced, err := server.ledger.AdvanceRound(time.Now().UTC())
 	if err != nil || advanced.Round != 1 {
