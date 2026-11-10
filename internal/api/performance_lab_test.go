@@ -273,10 +273,19 @@ func (c *labCluster) driveUntilHeight(indices []int, height uint64, timeout time
 	c.tb.Helper()
 	startedAt := time.Now()
 	deadline := startedAt.Add(timeout)
+	// Fail-open errors are intentionally tolerated during normal lab
+	// progression. Preserve their LAST reason and count for diagnostics
+	// if finality does not arrive; do not change acceptance or deadlines.
+	ignoredCounts := make([]uint64, len(c.nodes))
+	lastIgnored := make([]string, len(c.nodes))
 	for time.Now().Before(deadline) {
-		for _, node := range c.nodes {
-			if err := node.server.runConsensusAutomation(); err != nil && !ignoreConsensusAutomationError(err) {
-				c.tb.Fatalf("drive consensus on %s: %v", node.server.nodeID, err)
+		for index, node := range c.nodes {
+			if err := node.server.runConsensusAutomation(); err != nil {
+				if !ignoreConsensusAutomationError(err) {
+					c.tb.Fatalf("drive consensus on %s: %v", node.server.nodeID, err)
+				}
+				ignoredCounts[index]++
+				lastIgnored[index] = err.Error()
 			}
 		}
 		if c.indicesAtHeight(indices, height) {
@@ -292,7 +301,20 @@ func (c *labCluster) driveUntilHeight(indices []int, height uint64, timeout time
 		proposals := node.server.ledger.ProposalsForHeight(view.NextHeight)
 		certificates := node.server.ledger.CertificatesForHeight(view.NextHeight)
 		tallies := node.server.ledger.VoteTalliesAt(view.NextHeight, view.CurrentRound)
-		summaries = append(summaries, fmt.Sprintf("node=%d height=%d mempool=%d next=%d round=%d roundHeight=%d proposer=%s proposals=%d tallies=%+v certs=%d", index, status.Height, status.MempoolSize, view.NextHeight, view.CurrentRound, round.Height, view.NextProposer, len(proposals), tallies, len(certificates)))
+		lastLocalVote, hasLocalVote := node.server.ledger.LatestVoteByValidatorForHeight(view.NextHeight, node.signer.address)
+		var lastLocalVoteRound uint64
+		if hasLocalVote {
+			lastLocalVoteRound = lastLocalVote.Round
+		}
+		// A proposer-only tally is ambiguous without each validator's
+		// local signed-vote history. Distinguish a missing local vote
+		// from an earlier-round vote or an accepted-but-undelivered vote.
+		votedActiveRound := node.server.ledger.HasVote(view.NextHeight, view.CurrentRound, node.signer.address)
+		roundAge := time.Duration(0)
+		if !round.StartedAt.IsZero() {
+			roundAge = time.Since(round.StartedAt)
+		}
+		summaries = append(summaries, fmt.Sprintf("node=%d height=%d mempool=%d next=%d round=%d roundHeight=%d roundAge=%s proposer=%s proposals=%d tallies=%+v certs=%d localVotedActive=%t localVotePresent=%t lastLocalVoteRound=%d ignoredAutomationErrors=%d lastIgnoredError=%q", index, status.Height, status.MempoolSize, view.NextHeight, view.CurrentRound, round.Height, roundAge.Round(time.Millisecond), view.NextProposer, len(proposals), tallies, len(certificates), votedActiveRound, hasLocalVote, lastLocalVoteRound, ignoredCounts[index], lastIgnored[index]))
 	}
 	c.tb.Fatalf("target height %d not reached before timeout; consensus=%v", height, summaries)
 	return 0
