@@ -137,6 +137,9 @@ func TestAtomicWitnessCustodyHTTPHandlerRejectsUntrustedRequestsBeforeSigning(t 
 		{"opaque target", func(r *http.Request) { r.URL.Opaque = "/v1/reserve-and-sign" }},
 		{"fragment", func(r *http.Request) { r.URL.Fragment = "other" }},
 		{"wrong media", func(r *http.Request) { r.Header.Set("Content-Type", "text/plain") }},
+		{"missing content type", func(r *http.Request) { r.Header.Del("Content-Type") }},
+		{"duplicate content type", func(r *http.Request) { r.Header.Add("Content-Type", "application/json") }},
+		{"conflicting content type", func(r *http.Request) { r.Header.Add("Content-Type", "text/plain") }},
 		{"gzip body encoding", func(r *http.Request) { r.Header.Set("Content-Encoding", "gzip") }},
 		{"brotli body encoding", func(r *http.Request) { r.Header.Set("Content-Encoding", "br") }},
 		{"ambiguous multiple encodings", func(r *http.Request) {

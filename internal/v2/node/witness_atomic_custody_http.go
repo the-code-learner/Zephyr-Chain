@@ -169,7 +169,11 @@ func (s *HTTPWitnessAtomicCustodian) ReserveAndSignWitnessCheckpoint(ctx context
 	if len(encodings) > 1 || (len(encodings) == 1 && !strings.EqualFold(encodings[0], "identity")) {
 		return fail(nil)
 	}
-	mediaType, _, err := mime.ParseMediaType(response.Header.Get("Content-Type"))
+	contentTypes := response.Header.Values("Content-Type")
+	if len(contentTypes) != 1 {
+		return fail(nil)
+	}
+	mediaType, _, err := mime.ParseMediaType(contentTypes[0])
 	if err != nil || mediaType != "application/json" {
 		return fail(err)
 	}

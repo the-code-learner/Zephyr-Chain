@@ -182,6 +182,12 @@ func TestAtomicWitnessCustodyHTTPSAuthenticatedRoundTripAndBadResponses(t *testi
 		} else {
 			w.Header().Set("Content-Type", "application/json")
 		}
+		if mode == "duplicate-content-type" {
+			w.Header().Add("Content-Type", "application/json")
+		}
+		if mode == "conflicting-content-type" {
+			w.Header().Add("Content-Type", "text/plain")
+		}
 		_, _ = w.Write(raw)
 	}))
 	defer ts.Close()
@@ -199,7 +205,7 @@ func TestAtomicWitnessCustodyHTTPSAuthenticatedRoundTripAndBadResponses(t *testi
 	if a, err := ReserveAndVerifyAtomicWitnessCheckpoint(context.Background(), j, cp, remote, keyA, keyW); err != nil || a.Revision == 0 {
 		t.Fatalf("explicit identity custody representation was rejected: %+v %v", a, err)
 	}
-	for _, bad := range []string{"gzip", "brotli", "duplicate-encoding", "foreign-checkpoint", "wrong-challenge", "bad-signature", "duplicate-member", "unknown-member", "noncanonical", "wrong-media", "non-200", "redirect", "oversized"} {
+	for _, bad := range []string{"gzip", "brotli", "duplicate-encoding", "foreign-checkpoint", "wrong-challenge", "bad-signature", "duplicate-member", "unknown-member", "noncanonical", "wrong-media", "duplicate-content-type", "conflicting-content-type", "non-200", "redirect", "oversized"} {
 		t.Run(bad, func(t *testing.T) {
 			mode = bad
 			before := requests
