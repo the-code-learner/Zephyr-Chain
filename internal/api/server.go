@@ -227,9 +227,10 @@ type Server struct {
 	transport      peerTransport
 	identitySigner *transportIdentitySigner
 	eventLogger    *structuredEventLogger
-	peerMu         sync.RWMutex
-	peerViews      map[string]PeerView
-	peerURLsMu     sync.RWMutex
+	peerMu                sync.RWMutex
+	peerViews             map[string]PeerView
+	peerAdmissionRetrying map[string]struct{}
+	peerURLsMu            sync.RWMutex
 	peerURLs       []string
 	stopCh         chan struct{}
 	wg             sync.WaitGroup
@@ -284,8 +285,9 @@ func NewServerWithConfig(config Config) (*Server, error) {
 		transport:      newHTTPPeerTransport(client, config.NodeID, identitySigner),
 		identitySigner: identitySigner,
 		eventLogger:    newStructuredEventLogger(config),
-		peerViews:      make(map[string]PeerView),
-		peerURLs:       append([]string(nil), config.PeerURLs...),
+		peerViews:             make(map[string]PeerView),
+		peerAdmissionRetrying: make(map[string]struct{}),
+		peerURLs:              append([]string(nil), config.PeerURLs...),
 		stopCh:         make(chan struct{}),
 	}
 
