@@ -17,6 +17,14 @@ import (
 func TestLabSevenValidatorsLastProposerNeedsFollowingSweepForQuorum(t *testing.T) {
 	cluster := newLabCluster(t, 7)
 	defer cluster.Close()
+	// This regression isolates the ordering of two manual scheduler sweeps,
+	// NOT the one-second round timer. Under busy CI, the seven HTTP-backed
+	// sequential ticks can exceed that timer and advance to round 7 before
+	// the following-sweep vote assertions. Leave all production round
+	// deadlines and the separate scheduled-timeout/liveness tests intact.
+	for _, node := range cluster.nodes {
+		node.server.config.ConsensusRoundTimeout = 0
+	}
 
 	transactions := cluster.prepareTransactions(1)
 	cluster.fundTransactions(transactions)
@@ -94,7 +102,8 @@ func TestLabSevenValidatorsLastProposerNeedsFollowingSweepForQuorum(t *testing.T
 	}
 	for index, node := range cluster.nodes {
 		if !node.server.ledger.HasVote(1, 6, node.signer.address) {
-			t.Fatalf("validator %d did not sign after next sweep", index)
+			t.Fatalf("validator %d did not sign after next sweep: status=%+v consensus=%+v round=%+v",
+				index, node.server.ledger.Status(), node.server.ledger.Consensus(), node.server.ledger.RoundState())
 		}
 	}
 	// The signed votes are now present, but finality/QC processing may
