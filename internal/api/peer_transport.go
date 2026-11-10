@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"time"
 
@@ -11,6 +12,11 @@ import (
 	"github.com/zephyr-chain/zephyr-chain/internal/ledger"
 	"github.com/zephyr-chain/zephyr-chain/internal/tx"
 )
+
+// Bound untrusted peer status metadata even when the remote HTTP server is
+// admitted; oversized responses can otherwise monopolize JSON decoding in
+// the consensus admission/liveness path.
+const maxPeerStatusResponseBytes = 1 << 20
 
 type peerTransport interface {
 	FetchStatus(peerURL string) (StatusResponse, error)
@@ -59,8 +65,17 @@ func (t *httpPeerTransport) FetchStatus(peerURL string) (StatusResponse, error) 
 		return StatusResponse{}, fmt.Errorf("peer returned status %d", response.StatusCode)
 	}
 
+	data, err := io.ReadAll(io.LimitReader(response.Body, maxPeerStatusResponseBytes+1))
+	if err != nil {
+		return StatusResponse{}, err
+	}
+	if len(data) == 0 || len(data) > maxPeerStatusResponseBytes {
+		return StatusResponse{}, fmt.Errorf("peer status response exceeds %d-byte limit or is empty", maxPeerStatusResponseBytes)
+	}
 	var payload StatusResponse
-	if err := json.NewDecoder(response.Body).Decode(&payload); err != nil {
+	// Unmarshal rejects trailing JSON values and non-JSON bytes, unlike a
+	// single Decoder.Decode call which may silently accept extra documents.
+	if err := json.Unmarshal(data, &payload); err != nil {
 		return StatusResponse{}, err
 	}
 	return payload, nil
