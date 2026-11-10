@@ -11,6 +11,7 @@ import (
 	"io"
 	"mime"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/zephyr-chain/zephyr-chain/internal/v2/types"
@@ -146,6 +147,15 @@ func (h *HTTPWitnessCustodyHandler) ServeHTTP(w http.ResponseWriter, r *http.Req
 			custodyHTTPReject(w, http.StatusForbidden)
 			return
 		}
+	}
+	// This private-key endpoint accepts one canonical, uncompressed JSON
+	// representation. Reject any encoded or ambiguous request before even
+	// decoding JSON or invoking the remote custody backend. Go HTTP servers
+	// do not normally decompress request bodies, but an intermediary may.
+	encodings := r.Header.Values("Content-Encoding")
+	if len(encodings) > 1 || (len(encodings) == 1 && !strings.EqualFold(encodings[0], "identity")) {
+		custodyHTTPReject(w, http.StatusUnsupportedMediaType)
+		return
 	}
 	mediaType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
 	if err != nil || mediaType != "application/json" || r.Body == nil {
