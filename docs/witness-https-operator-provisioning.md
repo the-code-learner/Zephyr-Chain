@@ -24,6 +24,31 @@ signatures does not, by itself, prove **publication freshness**. In-process
 monotonic observations disappear if their storage is rolled back or a fresh
 process is started.
 
+## Optional pinned Ed25519 operator inventory signatures
+
+`node.NewAttestedMultiOperatorHTTPSWitnessFloor` accepts
+`WitnessHTTPSOperatorAttestation` records and separately pinned
+**operator inventory keys**, in addition to the quorum witness public
+keys. Operators sign the canonical, domain-separated
+`WitnessHTTPSOperatorAttestationDigest` over NetworkID, validator
+root, **expected externally pinned roster revision**, operator label,
+canonical HTTPS endpoint and operator key. All provisioned operator
+keys must sign exactly one entry, remain distinct from the witness
+checkpoint-signing keys and match the previously authenticated roster.
+
+Every malformed, missing, substituted or replayed signature fails closed
+**before the construction of the HTTPS floor readers**. A higher roster
+revision is accepted only when the independently controlled caller
+updates its expected revision; a restored/rolled-back local source must
+not be trusted to supply that minimum. No key material for any signing
+operation is present in the constructed floor.
+
+This is proof of **possession of inventory signing keys**, not proof of
+hardware custody, independent operator control, secure DNS, uptime,
+remote monotonic signing or freshness of published checkpoints. An
+independent auditor must verify who actually possesses each attestation
+key and controls each witness key and deployment failure domain.
+
 ## Operator evidence to collect outside CI
 
 Before a production release, an independently reviewed operator roster must
