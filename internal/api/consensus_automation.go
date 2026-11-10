@@ -210,7 +210,12 @@ func (s *Server) maybeAutomateVote(now time.Time) (bool, error) {
 func (s *Server) maybeRebroadcastProposal() {
 	consensusView := s.ledger.Consensus()
 	proposal, exists := s.ledger.LatestProposalForHeight(consensusView.NextHeight)
-	if !exists || proposal.Proposer != s.config.ValidatorAddress {
+	// A proposal from an earlier round cannot be applied by peers which
+	// have already advanced. Resending it on every automation tick also
+	// produces pointless WAL replay writes and rejected HTTP 409 traffic.
+	// Keep current-round replay for transiently disconnected peers.
+	if !exists || proposal.Round != consensusView.CurrentRound ||
+		proposal.Proposer != s.config.ValidatorAddress {
 		return
 	}
 	if _, exists := s.ledger.Certificate(proposal.Height, proposal.Round, proposal.BlockHash); exists {
@@ -226,7 +231,10 @@ func (s *Server) maybeRebroadcastProposal() {
 func (s *Server) maybeRebroadcastVote() {
 	consensusView := s.ledger.Consensus()
 	vote, exists := s.ledger.LatestVoteByValidatorForHeight(consensusView.NextHeight, s.config.ValidatorAddress)
-	if !exists {
+	// Only rebroadcast a vote for the active round. A historical vote
+	// remains in durable recovery history, but repeatedly replaying it
+	// after round advancement cannot collect a QC in the new round.
+	if !exists || vote.Round != consensusView.CurrentRound {
 		return
 	}
 	if _, exists := s.ledger.Certificate(vote.Height, vote.Round, vote.BlockHash); exists {
