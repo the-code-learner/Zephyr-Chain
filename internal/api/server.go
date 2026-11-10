@@ -277,18 +277,18 @@ func NewServerWithConfig(config Config) (*Server, error) {
 		},
 	}
 	server := &Server{
-		mux:                    http.NewServeMux(),
-		ledger:                 store,
-		config:                 config,
-		nodeID:                 config.NodeID,
-		httpClient:             client,
-		transport:              newHTTPPeerTransport(client, config.NodeID, identitySigner),
-		identitySigner:         identitySigner,
-		eventLogger:            newStructuredEventLogger(config),
-		peerViews:              make(map[string]PeerView),
-		peerAdmissionRetrying:  make(map[string]struct{}),
-		peerURLs:               append([]string(nil), config.PeerURLs...),
-		stopCh:                 make(chan struct{}),
+		mux:                   http.NewServeMux(),
+		ledger:                store,
+		config:                config,
+		nodeID:                config.NodeID,
+		httpClient:            client,
+		transport:             newHTTPPeerTransport(client, config.NodeID, identitySigner),
+		identitySigner:        identitySigner,
+		eventLogger:           newStructuredEventLogger(config),
+		peerViews:             make(map[string]PeerView),
+		peerAdmissionRetrying: make(map[string]struct{}),
+		peerURLs:              append([]string(nil), config.PeerURLs...),
+		stopCh:                make(chan struct{}),
 	}
 
 	server.routes()
