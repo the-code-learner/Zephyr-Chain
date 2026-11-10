@@ -169,9 +169,13 @@ func (s *Server) admittedPeerURLs() []string {
 				peers = append(peers, peerURL)
 			} else if !view.Reachable && !s.config.EnablePeerSync &&
 				s.reservePeerAdmissionRetry(peerURL, time.Now().UTC()) {
-				if refreshed, admitted := s.fetchPeerAdmissionView(peerURL); admitted && refreshed.Reachable {
-					peers = append(peers, peerURL)
-				}
+				// Never block the consensus tick or a transaction handler
+				// on a second 5s status timeout. One tracked retry per peer
+				// runs outside the caller under the existing Close barrier.
+				s.runAsync(func() {
+					defer s.finishPeerAdmissionRetry(peerURL)
+					_, _ = s.fetchPeerAdmissionView(peerURL)
+				})
 			}
 			continue
 		}
@@ -196,9 +200,29 @@ func (s *Server) reservePeerAdmissionRetry(peerURL string, now time.Time) bool {
 		now.Before(view.LastAdmissionAttemptAt.Add(peerAdmissionRetryInterval))) {
 		return false
 	}
+	if _, inFlight := s.peerAdmissionRetrying[peerURL]; inFlight {
+		return false
+	}
+	if s.peerAdmissionRetrying == nil {
+		s.peerAdmissionRetrying = make(map[string]struct{})
+	}
+	s.peerAdmissionRetrying[peerURL] = struct{}{}
 	view.LastAdmissionAttemptAt = cloneAPITimeValue(now)
 	s.peerViews[peerURL] = view
 	return true
+}
+
+// finishPeerAdmissionRetry releases the per-peer slot even after failed
+// transport, and starts the backoff AFTER the request has finished. Repeated
+// long HTTP timeouts therefore cannot spawn overlapping recovery requests.
+func (s *Server) finishPeerAdmissionRetry(peerURL string) {
+	s.peerMu.Lock()
+	defer s.peerMu.Unlock()
+	delete(s.peerAdmissionRetrying, peerURL)
+	if view, ok := s.peerViews[peerURL]; ok {
+		view.LastAdmissionAttemptAt = cloneAPITimeValue(time.Now().UTC())
+		s.peerViews[peerURL] = view
+	}
 }
 
 func (s *Server) validatePeerRequest(r *http.Request) error {
