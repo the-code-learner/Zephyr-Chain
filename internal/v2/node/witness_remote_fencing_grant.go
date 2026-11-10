@@ -97,12 +97,24 @@ func ReserveAndVerifyWitnessFence(ctx context.Context, j *WitnessSigningIntentJo
 	if err := j.verifier.VerifyFinalizedCheckpoint(checkpoint); err != nil {
 		return errors.Join(ErrWitnessSigningIntent, err)
 	}
+	// An independent QC verifier may cancel its caller while returning a
+	// successful proof. In that case, do not fsync a new pre-sign intent or
+	// contact any remote fencing authority for an abandoned request.
+	if err := ctx.Err(); err != nil {
+		return errors.Join(ErrWitnessSigningIntent, err)
+	}
 	if err := j.store.advance(checkpoint); err != nil {
 		return errors.Join(ErrWitnessSigningIntent, err)
 	}
 	current, err := j.store.Current()
 	if err != nil || current != checkpoint {
 		return ErrWitnessSigningIntent
+	}
+	// Once persisted, an intent must NEVER be rolled back merely because
+	// its caller canceled; deny the remote request while retaining the
+	// durable reservation for subsequent independent reconciliation.
+	if err := ctx.Err(); err != nil {
+		return errors.Join(ErrWitnessSigningIntent, err)
 	}
 	var challenge [32]byte
 	if _, err := rand.Read(challenge[:]); err != nil || isZeroWitnessFenceChallenge(challenge) {
