@@ -99,7 +99,15 @@ func (h *HTTPWitnessCustodyHandler) ServeHTTP(w http.ResponseWriter, r *http.Req
 		custodyHTTPReject(w, http.StatusServiceUnavailable)
 		return
 	}
-	if r.URL == nil || r.URL.Path != witnessCustodyHandlerPath || r.URL.RawQuery != "" {
+	// The private-key endpoint has one canonical request-target. Alternate
+	// percent-escaped paths, empty query delimiters and opaque URL forms
+	// can be interpreted differently by proxies and HTTP servers; never
+	// let an ambiguous route reach a custody backend.
+	if r.URL == nil || r.URL.Path != witnessCustodyHandlerPath ||
+		r.URL.EscapedPath() != witnessCustodyHandlerPath ||
+		(r.URL.RawPath != "" && r.URL.RawPath != witnessCustodyHandlerPath) ||
+		r.URL.RawQuery != "" || r.URL.ForceQuery ||
+		r.URL.Opaque != "" || r.URL.Fragment != "" {
 		custodyHTTPReject(w, http.StatusNotFound)
 		return
 	}
