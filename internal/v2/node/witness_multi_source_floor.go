@@ -62,7 +62,7 @@ func (f *MultiSourceWitnessFloor) AuthenticatedWitnessFloorContext(ctx context.C
 	// Operator-provisioned HTTPS origins are queried sequentially. Without
 	// a shared deadline, N unresponsive sources each consume their own 5s
 	// timeout, multiplying the signing/recovery latency by N. Preserve the
-	// caller\u0027s earlier deadline and fail closed when the total budget ends.
+	// caller's earlier deadline and fail closed when the total budget ends.
 	if f.readTimeout > 0 {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, f.readTimeout)
