@@ -12,6 +12,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/zephyr-chain/zephyr-chain/internal/v2/types"
 )
@@ -40,6 +41,29 @@ func TestAtomicWitnessCustodyHTTPEndpointPolicy(t *testing.T) {
 				t.Fatalf("untrusted endpoint accepted: %v", err)
 			}
 		})
+	}
+}
+
+// The transport for an externally authenticated custody service must not
+// inherit ambient HTTPS_PROXY. Even though signed attestations are pinned
+// above transport, a proxy is a second unreviewed control plane for access
+// to a remote signer. Enforce direct TLS unless an explicitly configured
+// separately reviewed transport is introduced.
+func TestAtomicWitnessCustodyHTTPNoAmbientProxy(t *testing.T) {
+	t.Setenv("HTTPS_PROXY", "http://untrusted-proxy.example.net:8443")
+	custodian, err := NewHTTPWitnessAtomicCustodian("https://custody.operator.example.org/v1/reserve-and-sign")
+	if err != nil {
+		t.Fatal(err)
+	}
+	transport, ok := custodian.client.Transport.(*http.Transport)
+	if !ok || transport.Proxy != nil {
+		t.Fatal("custody client inherited an ambient proxy or lacks a dedicated transport")
+	}
+	if custodian.client.Timeout != 5*time.Second {
+		t.Fatalf("unexpected custody transport timeout: %v", custodian.client.Timeout)
+	}
+	if custodian.client.CheckRedirect == nil {
+		t.Fatal("custody client may follow redirects outside the signed endpoint")
 	}
 }
 

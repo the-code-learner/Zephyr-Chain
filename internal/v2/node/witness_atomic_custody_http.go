@@ -61,10 +61,17 @@ func NewHTTPWitnessAtomicCustodian(endpoint string) (*HTTPWitnessAtomicCustodian
 	if host != strings.ToLower(host) || !validWitnessPublisherDNSName(host) {
 		return nil, ErrWitnessSigningIntent
 	}
+	// A process-wide HTTPS_PROXY must not silently become a custody
+	// network control plane. The mTLS constructor and authenticated
+	// witness floor already disable ambient proxies; do the same for
+	// the default HTTPS custodian while keeping system CA verification.
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.Proxy = nil
 	return &HTTPWitnessAtomicCustodian{
 		endpoint: u.String(),
 		client: &http.Client{
-			Timeout: 5 * time.Second,
+			Timeout:   5 * time.Second,
+			Transport: transport,
 			CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
 				return http.ErrUseLastResponse
 			},
