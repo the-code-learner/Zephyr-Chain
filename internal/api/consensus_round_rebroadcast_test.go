@@ -85,14 +85,18 @@ func TestConsensusAutomationOnlyRebroadcastsActiveRoundArtifacts(t *testing.T) {
 	peer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusAccepted)
 	}))
-	defer peer.Close()
+	// Drain tracked outbound tasks before shutting down the synthetic peer.
+	t.Cleanup(func() { server.Close(); peer.Close() })
 	server.setPeerURLs([]string{peer.URL})
 	server.maybeRebroadcastProposal()
 	server.maybeRebroadcastVote()
 	if replayCount(ledger.ConsensusActionProposal, 0) != 1 ||
 		replayCount(ledger.ConsensusActionVote, 0) != 1 {
-		t.Fatal("new peer did not receive current-round proposal/vote replay")
+		t.Fatal("new peer did not schedule current-round proposal/vote replay")
 	}
+	waitFor(t, func() bool {
+		return !server.consensusOutbound.proposal.Load() && !server.consensusOutbound.vote.Load()
+	})
 
 	// Removing peers again pauses replay bookkeeping without affecting
 	// the signed actions already stored for crash recovery.
