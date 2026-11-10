@@ -134,9 +134,19 @@ func (s *Server) syncPeers() {
 	}
 }
 
+// nextPeerSyncBlockHeight treats both bounds as uint64, avoiding
+// localHeight+1 wrap at MaxUint64 and the final height++ wrap after the
+// highest possible block. Zero additional blocks is a valid empty range.
+func nextPeerSyncBlockHeight(current, remote uint64) (uint64, bool) {
+	if current >= remote {
+		return 0, false
+	}
+	return current + 1, true
+}
+
 func (s *Server) syncFromPeer(peerURL string, localHeight uint64, remoteHeight uint64) (peerSyncResult, error) {
 	result := peerSyncResult{Attempted: true}
-	for height := localHeight + 1; height <= remoteHeight; height++ {
+	for height, pending := nextPeerSyncBlockHeight(localHeight, remoteHeight); pending; height, pending = nextPeerSyncBlockHeight(height, remoteHeight) {
 		block, err := s.fetchPeerBlock(peerURL, height)
 		if err != nil {
 			restore, restoreErr := s.restoreSnapshotFromPeer(peerURL, "fetch_fallback")
