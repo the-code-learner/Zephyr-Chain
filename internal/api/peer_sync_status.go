@@ -1,6 +1,7 @@
 package api
 
 import (
+	"math"
 	"time"
 
 	"github.com/zephyr-chain/zephyr-chain/internal/ledger"
@@ -28,8 +29,28 @@ type peerSnapshotRestoreResult struct {
 	Reason     string
 }
 
+// peerHeightDelta preserves the sign of an untrusted uint64 peer height
+// difference. Direct int64 conversion/subtraction can wrap across the signed
+// boundary, falsely reporting a peer ahead as behind (or vice versa).
+// Saturation affects diagnostic fields only; full uint64 height comparisons
+// continue to decide whether a peer needs synchronization.
+func peerHeightDelta(remoteHeight, localHeight uint64) int64 {
+	if remoteHeight >= localHeight {
+		delta := remoteHeight - localHeight
+		if delta > math.MaxInt64 {
+			return math.MaxInt64
+		}
+		return int64(delta)
+	}
+	delta := localHeight - remoteHeight
+	if delta >= uint64(math.MaxInt64)+1 {
+		return math.MinInt64
+	}
+	return -int64(delta)
+}
+
 func derivePeerSyncState(local ledger.StatusView, remote ledger.StatusView) (string, int64, bool) {
-	heightDelta := int64(remote.Height) - int64(local.Height)
+	heightDelta := peerHeightDelta(remote.Height, local.Height)
 	switch {
 	case remote.Height > local.Height:
 		return "peer_ahead", heightDelta, true
