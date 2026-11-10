@@ -67,6 +67,9 @@ func NewHTTPWitnessAtomicCustodian(endpoint string) (*HTTPWitnessAtomicCustodian
 	// the default HTTPS custodian while keeping system CA verification.
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.Proxy = nil
+	// Custody attestation bytes must not be implicitly decompressed by the
+	// default Go transport, or transformed by an HTTP intermediary.
+	transport.DisableCompression = true
 	return &HTTPWitnessAtomicCustodian{
 		endpoint: u.String(),
 		client: &http.Client{
@@ -105,6 +108,7 @@ func NewHTTPWitnessAtomicCustodianWithTLS(endpoint string, config *tls.Config) (
 	// Never silently route custody authority traffic through an ambient
 	// HTTPS_PROXY/HTTP_PROXY process or a different trust domain.
 	transport.Proxy = nil
+	transport.DisableCompression = true
 	transport.TLSClientConfig = tlsConfig
 	client.client.Transport = transport
 	return client, nil
@@ -157,6 +161,12 @@ func (s *HTTPWitnessAtomicCustodian) ReserveAndSignWitnessCheckpoint(ctx context
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
+		return fail(nil)
+	}
+	// Accept only an unchanged canonical wire representation. This check
+	// must run before the bounded read and signature/authority verification.
+	encodings := response.Header.Values("Content-Encoding")
+	if len(encodings) > 1 || (len(encodings) == 1 && !strings.EqualFold(encodings[0], "identity")) {
 		return fail(nil)
 	}
 	mediaType, _, err := mime.ParseMediaType(response.Header.Get("Content-Type"))
