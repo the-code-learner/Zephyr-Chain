@@ -27,9 +27,9 @@ func signedWitnessOperatorInventoryTestFixture(
 		private[i] = ed25519.NewKeyFromSeed(seed)
 		keys[i] = append([]byte(nil), private[i].Public().(ed25519.PublicKey)...)
 		attested[i] = WitnessHTTPSOperatorAttestation{
-			OperatorID: publication.OperatorID,
-			Endpoint: publication.Endpoint,
-			Revision: revision,
+			OperatorID:        publication.OperatorID,
+			Endpoint:          publication.Endpoint,
+			Revision:          revision,
 			OperatorPublicKey: append([]byte(nil), keys[i]...),
 		}
 		signWitnessOperatorInventoryTestEntry(t, &attested[i], private[i], network, root)
