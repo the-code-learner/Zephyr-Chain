@@ -55,7 +55,6 @@ func TestWitnessFenceRejectsCancellationDuringFinalQCRecheck(t *testing.T) {
 	}
 }
 
-
 // A QC source may cancel during its first check but still return nil.
 // The remote fencing path must not publish a new fsynced intent, generate
 // a challenged request, or contact a signer authority after that point.
