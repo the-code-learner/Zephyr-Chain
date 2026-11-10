@@ -92,6 +92,8 @@ jobs:
         run: go test -race ./internal/v2/node -run '^TestMultiSourceWitnessFloor' -count=10 -timeout=3m
       - name: Stale quorum external floor regression
         run: go test -race ./internal/v2/node -run '^TestCertifiedWitnessFloorMinimum' -count=10 -timeout=3m
+      - name: Signed operator roster and network-scoped anti-replay regression
+        run: go test -race ./internal/v2/node -run '^TestAttestedMultiOperatorHTTPSWitnessFloor' -count=8 -timeout=4m
       - name: Strict three-operator HTTPS witness publication and quorum regression
         run: go test -race ./internal/v2/node -run '^TestProvisionedMultiOperatorHTTPSWitnessFloor' -count=8 -timeout=4m
       - name: Witness operator separation policy regression
