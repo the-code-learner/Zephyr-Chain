@@ -94,6 +94,13 @@ func TestAtomicWitnessCustodyHTTPHandlerAuthenticatedCanonicalRoundTrip(t *testi
 	if fixture.calls != 1 {
 		t.Fatalf("custody backend called %d times", fixture.calls)
 	}
+	identityRequest := witnessCustodyHandlerUnitRequest(cp, challenge)
+	identityRequest.Header.Set("Content-Encoding", "identity")
+	identityResponse := httptest.NewRecorder()
+	h.ServeHTTP(identityResponse, identityRequest)
+	if identityResponse.Code != http.StatusOK || fixture.calls != 2 {
+		t.Fatalf("single explicit identity request rejected: status=%d backendCalls=%d", identityResponse.Code, fixture.calls)
+	}
 }
 
 func TestAtomicWitnessCustodyHTTPHandlerRejectsUntrustedRequestsBeforeSigning(t *testing.T) {
@@ -130,6 +137,13 @@ func TestAtomicWitnessCustodyHTTPHandlerRejectsUntrustedRequestsBeforeSigning(t 
 		{"opaque target", func(r *http.Request) { r.URL.Opaque = "/v1/reserve-and-sign" }},
 		{"fragment", func(r *http.Request) { r.URL.Fragment = "other" }},
 		{"wrong media", func(r *http.Request) { r.Header.Set("Content-Type", "text/plain") }},
+		{"gzip body encoding", func(r *http.Request) { r.Header.Set("Content-Encoding", "gzip") }},
+		{"brotli body encoding", func(r *http.Request) { r.Header.Set("Content-Encoding", "br") }},
+		{"ambiguous multiple encodings", func(r *http.Request) {
+			r.Header.Add("Content-Encoding", "identity")
+			r.Header.Add("Content-Encoding", "identity")
+		}},
+		{"comma joined encodings", func(r *http.Request) { r.Header.Set("Content-Encoding", "identity, gzip") }},
 		{"unknown JSON field", func(r *http.Request) {
 			raw, _ := io.ReadAll(r.Body)
 			r.Body = io.NopCloser(bytes.NewReader(append([]byte("{\"unexpected\":1,"), raw[1:]...)))
