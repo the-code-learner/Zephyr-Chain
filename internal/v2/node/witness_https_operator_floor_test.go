@@ -68,19 +68,49 @@ func TestProvisionedMultiOperatorHTTPSWitnessFloorRejectsAmbiguousProvisioning(t
 		edit func([]WitnessHTTPSPublication) []WitnessHTTPSPublication
 	}{
 		{"missing operator", func(p []WitnessHTTPSPublication) []WitnessHTTPSPublication { return p[:2] }},
-		{"duplicate operator", func(p []WitnessHTTPSPublication) []WitnessHTTPSPublication { p[1].OperatorID = p[0].OperatorID; return p }},
-		{"same DNS different path", func(p []WitnessHTTPSPublication) []WitnessHTTPSPublication { p[1].Endpoint = "https://witness.north.example.org/different"; return p }},
-		{"same DNS different port", func(p []WitnessHTTPSPublication) []WitnessHTTPSPublication { p[1].Endpoint = "https://witness.north.example.org:8443/other"; return p }},
+		{"duplicate operator", func(p []WitnessHTTPSPublication) []WitnessHTTPSPublication {
+			p[1].OperatorID = p[0].OperatorID
+			return p
+		}},
+		{"same DNS different path", func(p []WitnessHTTPSPublication) []WitnessHTTPSPublication {
+			p[1].Endpoint = "https://witness.north.example.org/different"
+			return p
+		}},
+		{"same DNS different port", func(p []WitnessHTTPSPublication) []WitnessHTTPSPublication {
+			p[1].Endpoint = "https://witness.north.example.org:8443/other"
+			return p
+		}},
 		{"duplicate endpoint", func(p []WitnessHTTPSPublication) []WitnessHTTPSPublication { p[1].Endpoint = p[0].Endpoint; return p }},
-		{"HTTP origin", func(p []WitnessHTTPSPublication) []WitnessHTTPSPublication { p[0].Endpoint = "http://witness.north.example.org/v1/floor"; return p }},
-		{"encoded path alias", func(p []WitnessHTTPSPublication) []WitnessHTTPSPublication { p[0].Endpoint = "https://witness.north.example.org/v1/%66loor"; return p }},
-		{"local IP literal", func(p []WitnessHTTPSPublication) []WitnessHTTPSPublication { p[0].Endpoint = "https://127.0.0.1/v1/floor"; return p }},
+		{"HTTP origin", func(p []WitnessHTTPSPublication) []WitnessHTTPSPublication {
+			p[0].Endpoint = "http://witness.north.example.org/v1/floor"
+			return p
+		}},
+		{"encoded path alias", func(p []WitnessHTTPSPublication) []WitnessHTTPSPublication {
+			p[0].Endpoint = "https://witness.north.example.org/v1/%66loor"
+			return p
+		}},
+		{"local IP literal", func(p []WitnessHTTPSPublication) []WitnessHTTPSPublication {
+			p[0].Endpoint = "https://127.0.0.1/v1/floor"
+			return p
+		}},
 		{"empty operator ID", func(p []WitnessHTTPSPublication) []WitnessHTTPSPublication { p[0].OperatorID = ""; return p }},
-		{"case alias", func(p []WitnessHTTPSPublication) []WitnessHTTPSPublication { p[0].OperatorID = "Operator-north"; return p }},
-		{"padded operator ID", func(p []WitnessHTTPSPublication) []WitnessHTTPSPublication { p[0].OperatorID = "operator-north "; return p }},
-		{"trailing hyphen", func(p []WitnessHTTPSPublication) []WitnessHTTPSPublication { p[0].OperatorID = "operator-north-"; return p }},
+		{"case alias", func(p []WitnessHTTPSPublication) []WitnessHTTPSPublication {
+			p[0].OperatorID = "Operator-north"
+			return p
+		}},
+		{"padded operator ID", func(p []WitnessHTTPSPublication) []WitnessHTTPSPublication {
+			p[0].OperatorID = "operator-north "
+			return p
+		}},
+		{"trailing hyphen", func(p []WitnessHTTPSPublication) []WitnessHTTPSPublication {
+			p[0].OperatorID = "operator-north-"
+			return p
+		}},
 		{"leading digit", func(p []WitnessHTTPSPublication) []WitnessHTTPSPublication { p[0].OperatorID = "9north"; return p }},
-		{"operator ID too long", func(p []WitnessHTTPSPublication) []WitnessHTTPSPublication { p[0].OperatorID = "a" + strings.Repeat("b", 63); return p }},
+		{"operator ID too long", func(p []WitnessHTTPSPublication) []WitnessHTTPSPublication {
+			p[0].OperatorID = "a" + strings.Repeat("b", 63)
+			return p
+		}},
 		{"oversized source count", func(p []WitnessHTTPSPublication) []WitnessHTTPSPublication {
 			for i := 0; i < 6; i++ {
 				p = append(p, WitnessHTTPSPublication{OperatorID: "extra" + string(rune('a'+i)), Endpoint: "https://extra" + string(rune('a'+i)) + ".example.org/v1/floor"})
