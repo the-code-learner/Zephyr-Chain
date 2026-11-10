@@ -38,6 +38,15 @@ func TestHTTPWitnessFloorRejectsUntrustedURLAndResponses(t *testing.T) {
 		switch r.URL.Path {
 		case "/good":
 			_, _ = w.Write([]byte("{}"))
+		case "/identity":
+			w.Header().Set("Content-Encoding", "identity")
+			_, _ = w.Write([]byte("{}"))
+		case "/compressed":
+			w.Header().Set("Content-Encoding", "gzip")
+			_, _ = w.Write([]byte("{}"))
+		case "/brotli":
+			w.Header().Set("Content-Encoding", "br")
+			_, _ = w.Write([]byte("{}"))
 		case "/redirect":
 			http.Redirect(w, r, "/good", http.StatusFound)
 		case "/oversized":
@@ -49,7 +58,7 @@ func TestHTTPWitnessFloorRejectsUntrustedURLAndResponses(t *testing.T) {
 		}
 	}))
 	defer server.Close()
-	for _, path := range []string{"/good", "/redirect", "/oversized", "/empty", "/missing"} {
+	for _, path := range []string{"/good", "/identity", "/compressed", "/brotli", "/redirect", "/oversized", "/empty", "/missing"} {
 		// The production constructor intentionally forbids loopback and
 		// IP-literal origins. This TLS test harness injects its ephemeral
 		// trusted test CA directly, without weakening production policy.
@@ -60,7 +69,7 @@ func TestHTTPWitnessFloorRejectsUntrustedURLAndResponses(t *testing.T) {
 		}
 		source := &HTTPWitnessFloorSource{endpoint: server.URL + path, client: client}
 		data, err := source.SignedWitnessFloor()
-		if path == "/good" {
+		if path == "/good" || path == "/identity" {
 			if err != nil || string(data) != "{}" {
 				t.Fatalf("valid bounded fetch failed: %v %q", err, data)
 			}
@@ -81,6 +90,9 @@ func TestHTTPWitnessFloorProductionDNSPolicyAndNoAmbientProxy(t *testing.T) {
 	transport, ok := source.client.Transport.(*http.Transport)
 	if !ok || transport.Proxy != nil {
 		t.Fatal("floor source inherited ambient proxy or lacked dedicated HTTP transport")
+	}
+	if !transport.DisableCompression {
+		t.Fatal("witness floor constructor must disable ambient gzip negotiation")
 	}
 	if source.client.Timeout != 5*time.Second {
 		t.Fatalf("unexpected floor request timeout: %s", source.client.Timeout)
