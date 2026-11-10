@@ -56,6 +56,8 @@ jobs:
         run: go test -race ./internal/api -run '^TestConsensusAutomationOnlyRebroadcastsActiveRoundArtifacts$' -count=12 -timeout=3m
       - name: Slow accepted consensus peer delivery and bounded incident regression
         run: go test -race ./internal/api -run '^TestSlowConsensusDelivery' -count=8 -timeout=4m
+      - name: Seven-validator last-proposer sweep and QC liveness regression
+        run: go test -race ./internal/api -run '^TestLabSevenValidatorsLastProposerNeedsFollowingSweepForQuorum$' -count=5 -timeout=4m
       - name: Scheduled proposer rotation across later odd rounds
         run: |
           go test ./internal/api -run '^TestConsensusAutomationAdvancesRoundAndRotatesProposerAfterTimeout$' -count=50 -timeout=5m
