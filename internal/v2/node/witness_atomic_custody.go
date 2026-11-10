@@ -6,6 +6,7 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"errors"
+	"io"
 	"time"
 
 	"github.com/zephyr-chain/zephyr-chain/internal/v2/codec"
@@ -89,10 +90,18 @@ func VerifyWitnessAtomicCustodyAttestation(a WitnessAtomicCustodyAttestation, cp
 // A successful response proves the provided signatures are valid, NOT remote
 // atomicity, hardware custody, independent operation or network freshness.
 func ReserveAndVerifyAtomicWitnessCheckpoint(ctx context.Context, j *WitnessSigningIntentJournal, cp FinalityCheckpoint, remote WitnessAtomicCustodian, authorityKey, witnessKey []byte) (WitnessAtomicCustodyAttestation, error) {
+	return reserveAndVerifyAtomicWitnessCheckpointWithEntropy(ctx, j, cp, remote, authorityKey, witnessKey, rand.Reader)
+}
+
+// reserveAndVerifyAtomicWitnessCheckpointWithEntropy is kept private to
+// permit deterministic cancellation fault injection without replacing
+// crypto/rand.Reader globally (unsafe under concurrent/race tests). Public
+// callers ALWAYS use the operating system cryptographic random source.
+func reserveAndVerifyAtomicWitnessCheckpointWithEntropy(ctx context.Context, j *WitnessSigningIntentJournal, cp FinalityCheckpoint, remote WitnessAtomicCustodian, authorityKey, witnessKey []byte, entropy io.Reader) (WitnessAtomicCustodyAttestation, error) {
 	fail := func(err error) (WitnessAtomicCustodyAttestation, error) {
 		return WitnessAtomicCustodyAttestation{}, errors.Join(ErrWitnessSigningIntent, err)
 	}
-	if ctx == nil || j == nil || remote == nil ||
+	if ctx == nil || j == nil || remote == nil || entropy == nil ||
 		len(authorityKey) != ed25519.PublicKeySize || len(witnessKey) != ed25519.PublicKeySize ||
 		bytes.Equal(authorityKey, witnessKey) {
 		return fail(nil)
@@ -112,15 +121,29 @@ func ReserveAndVerifyAtomicWitnessCheckpoint(ctx context.Context, j *WitnessSign
 		return fail(err)
 	}
 	current, err := j.store.Current()
-	if err != nil || current != cp || ctx.Err() != nil {
+	if err != nil || current != cp {
+		return fail(err)
+	}
+	// An already fsynced intent is NEVER rolled back after cancellation,
+	// but the client must not publish a new remote signing request.
+	if err := ctx.Err(); err != nil {
 		return fail(err)
 	}
 	var challenge [32]byte
-	if _, err := rand.Read(challenge[:]); err != nil || isZeroWitnessFenceChallenge(challenge) {
+	if _, err := io.ReadFull(entropy, challenge[:]); err != nil || isZeroWitnessFenceChallenge(challenge) {
+		return fail(err)
+	}
+	// Entropy retrieval can block until AFTER the caller canceled. A
+	// custodian which ignores context on entry might still sign a request
+	// if contacted here. Fail closed *before* calling that backend.
+	if err := ctx.Err(); err != nil {
 		return fail(err)
 	}
 	requestCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
+	if err := requestCtx.Err(); err != nil {
+		return fail(err)
+	}
 	a, err := remote.ReserveAndSignWitnessCheckpoint(requestCtx, cp, challenge)
 	if err != nil || requestCtx.Err() != nil {
 		return fail(err)
