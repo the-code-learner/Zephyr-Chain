@@ -89,7 +89,8 @@ func (s *HTTPWitnessFloorSource) SignedWitnessFloorContext(ctx context.Context) 
 	// Do not let an HTTP intermediary change the representation passed to
 	// canonical Ed25519 witness checkpoint verification. Encoding must be
 	// absent or explicit identity; compressed bodies are never accepted.
-	if encoding := response.Header.Get("Content-Encoding"); encoding != "" && !strings.EqualFold(encoding, "identity") {
+	encodings := response.Header.Values("Content-Encoding")
+	if len(encodings) > 1 || (len(encodings) == 1 && !strings.EqualFold(encodings[0], "identity")) {
 		return nil, fmt.Errorf("%w: unsupported witness content encoding", ErrWitnessSigningIntent)
 	}
 	payload, err := io.ReadAll(io.LimitReader(response.Body, maxWitnessBundleBytes+1))
