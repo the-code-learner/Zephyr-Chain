@@ -162,6 +162,9 @@ func TestAtomicWitnessCustodyMTLSVerifiedEndToEnd(t *testing.T) {
 	// Route the synthetic public hostname to the local test listener while
 	// retaining its DNS name for real certificate/hostname verification.
 	transport := remote.client.Transport.(*http.Transport)
+	if !transport.DisableCompression || transport.Proxy != nil {
+		t.Fatal("mTLS custody transport negotiated compression or inherited an ambient proxy")
+	}
 	transport.DialContext = func(ctx context.Context, network, _ string) (net.Conn, error) {
 		return (&net.Dialer{}).DialContext(ctx, network, server.Listener.Addr().String())
 	}
