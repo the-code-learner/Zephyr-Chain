@@ -262,7 +262,19 @@ func NewServerWithConfig(config Config) (*Server, error) {
 		return nil, err
 	}
 
-	client := &http.Client{Timeout: 5 * time.Second}
+	// This client carries signed peer request proofs. Do not silently route
+	// those proofs through an ambient HTTP(S)_PROXY or follow redirects to
+	// destinations not bound to the configured peer identity. The transport
+	// helper also enforces no-redirect for independently injected clients.
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.Proxy = nil
+	client := &http.Client{
+		Timeout:   5 * time.Second,
+		Transport: transport,
+		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
 	server := &Server{
 		mux:            http.NewServeMux(),
 		ledger:         store,
