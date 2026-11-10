@@ -35,11 +35,18 @@ func TestHTTPWitnessFloorRejectsUntrustedURLAndResponses(t *testing.T) {
 		}
 	}
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Accept-Encoding") == "gzip" {
+			t.Errorf("witness GET unexpectedly negotiated gzip")
+		}
 		switch r.URL.Path {
 		case "/good":
 			_, _ = w.Write([]byte("{}"))
 		case "/identity":
 			w.Header().Set("Content-Encoding", "identity")
+			_, _ = w.Write([]byte("{}"))
+		case "/duplicate-encoding":
+			w.Header().Add("Content-Encoding", "identity")
+			w.Header().Add("Content-Encoding", "gzip")
 			_, _ = w.Write([]byte("{}"))
 		case "/compressed":
 			w.Header().Set("Content-Encoding", "gzip")
@@ -58,7 +65,7 @@ func TestHTTPWitnessFloorRejectsUntrustedURLAndResponses(t *testing.T) {
 		}
 	}))
 	defer server.Close()
-	for _, path := range []string{"/good", "/identity", "/compressed", "/brotli", "/redirect", "/oversized", "/empty", "/missing"} {
+	for _, path := range []string{"/good", "/identity", "/compressed", "/duplicate-encoding", "/brotli", "/redirect", "/oversized", "/empty", "/missing"} {
 		// The production constructor intentionally forbids loopback and
 		// IP-literal origins. This TLS test harness injects its ephemeral
 		// trusted test CA directly, without weakening production policy.
