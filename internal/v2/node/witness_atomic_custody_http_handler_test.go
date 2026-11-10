@@ -30,7 +30,7 @@ func witnessCustodyHandlerUnitRequest(cp FinalityCheckpoint, challenge [32]byte)
 	raw, _ := json.Marshal(request)
 	r := httptest.NewRequest(http.MethodPost, "https://custody.example.org"+witnessCustodyHandlerPath, bytes.NewReader(raw))
 	r.Header.Set("Content-Type", "application/json")
-	peer := &x509.Certificate{}
+	peer := &x509.Certificate{Raw: []byte{1, 2, 3, 4}}
 	r.TLS = &tls.ConnectionState{
 		PeerCertificates: []*x509.Certificate{peer},
 		VerifiedChains:   [][]*x509.Certificate{{peer}},
@@ -112,6 +112,13 @@ func TestAtomicWitnessCustodyHTTPHandlerRejectsUntrustedRequestsBeforeSigning(t 
 	}{
 		{"no mTLS", func(r *http.Request) { r.TLS = nil }},
 		{"unverified TLS client", func(r *http.Request) { r.TLS.VerifiedChains = nil }},
+		{"nil presented leaf", func(r *http.Request) { r.TLS.PeerCertificates[0] = nil }},
+		{"empty presented leaf", func(r *http.Request) { r.TLS.PeerCertificates[0].Raw = nil }},
+		{"empty verified chain", func(r *http.Request) { r.TLS.VerifiedChains[0] = nil }},
+		{"nil verified leaf", func(r *http.Request) { r.TLS.VerifiedChains[0][0] = nil }},
+		{"mismatched verified leaf", func(r *http.Request) {
+			r.TLS.VerifiedChains[0][0] = &x509.Certificate{Raw: []byte{9, 8, 7, 6}}
+		}},
 		{"wrong method", func(r *http.Request) { r.Method = http.MethodGet }},
 		{"wrong path", func(r *http.Request) { r.URL.Path = "/other" }},
 		{"query", func(r *http.Request) { r.URL.RawQuery = "x=1" }},

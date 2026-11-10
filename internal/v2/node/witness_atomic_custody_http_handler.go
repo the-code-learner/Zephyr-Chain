@@ -111,14 +111,21 @@ func (h *HTTPWitnessCustodyHandler) ServeHTTP(w http.ResponseWriter, r *http.Req
 		custodyHTTPReject(w, http.StatusForbidden)
 		return
 	}
-	// The first authenticated chain must begin with the same presented leaf.
-	// Pinning a verified SPKI constrains admission to operator-approved
-	// client identities even when the mTLS CA signs other certificates.
+	// The verified mTLS chain must authenticate the ACTUAL presented leaf,
+	// including in the CA-only constructor without an additional SPKI pin.
+	// A disconnected or empty synthetic VerifiedChains assertion may never
+	// authorize a call to the remote key-custody provider.
+	leaf := r.TLS.PeerCertificates[0]
+	if leaf == nil || len(leaf.Raw) == 0 ||
+		len(r.TLS.VerifiedChains[0]) == 0 || r.TLS.VerifiedChains[0][0] == nil ||
+		!bytes.Equal(leaf.Raw, r.TLS.VerifiedChains[0][0].Raw) {
+		custodyHTTPReject(w, http.StatusForbidden)
+		return
+	}
+	// Pinning a verified leaf SPKI optionally narrows the authenticated CA
+	// to independently provisioned client key fingerprints.
 	if len(h.clientSPKIPins) > 0 {
-		leaf := r.TLS.PeerCertificates[0]
-		if leaf == nil || len(leaf.RawSubjectPublicKeyInfo) == 0 ||
-			len(r.TLS.VerifiedChains[0]) == 0 || r.TLS.VerifiedChains[0][0] == nil ||
-			!bytes.Equal(leaf.Raw, r.TLS.VerifiedChains[0][0].Raw) {
+		if len(leaf.RawSubjectPublicKeyInfo) == 0 {
 			custodyHTTPReject(w, http.StatusForbidden)
 			return
 		}
