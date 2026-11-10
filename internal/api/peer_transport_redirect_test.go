@@ -96,9 +96,9 @@ func TestServerPeerClientIgnoresAmbientProxy(t *testing.T) {
 	t.Setenv("HTTP_PROXY", "http://unapproved-proxy.example.invalid:3128")
 	t.Setenv("HTTPS_PROXY", "http://unapproved-proxy.example.invalid:3128")
 	server := newTestServer(t, Config{
-		DataDir:       t.TempDir(),
-		BlockInterval: 0,
-		SyncInterval:  0,
+		DataDir:        t.TempDir(),
+		BlockInterval:  0,
+		SyncInterval:   0,
 		EnablePeerSync: false,
 	})
 	transport, ok := server.httpClient.Transport.(*http.Transport)
