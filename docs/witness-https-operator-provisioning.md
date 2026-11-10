@@ -17,6 +17,15 @@ It builds a non-signing, independently signature-checked read path using:
 - context-aware HTTPS requests and conservative failure on any unavailable,
   stale, conflicting or invalid signed publication.
 
+For strict provisioned HTTPS readers, a **single aggregate five-second
+request budget** bounds the full sequential read across all origins, not
+five seconds multiplied by the number of operators. A caller's earlier
+deadline takes precedence. If any origin stalls or the aggregate deadline
+expires, recovery/signing authorization fails closed; there is no partial
+quorum or cache fallback. Generic fixture adapters retain their previous
+context behavior. The budget is a defensive latency bound, **not** a
+publication-freshness, uptime or liveness guarantee.
+
 This constructor has **no private key material, signing operation or
 mechanism to assert who actually owns an operator, host or witness key**.
 An identifier and a DNS name are merely configuration labels. A quorum of
