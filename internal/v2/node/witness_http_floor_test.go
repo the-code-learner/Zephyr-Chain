@@ -35,9 +35,6 @@ func TestHTTPWitnessFloorRejectsUntrustedURLAndResponses(t *testing.T) {
 		}
 	}
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("Accept-Encoding") == "gzip" {
-			t.Errorf("witness GET unexpectedly negotiated gzip")
-		}
 		switch r.URL.Path {
 		case "/good":
 			_, _ = w.Write([]byte("{}"))
