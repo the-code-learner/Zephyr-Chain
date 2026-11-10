@@ -62,8 +62,8 @@ jobs:
         run: |
           go test ./internal/api -run '^TestConsensusAutomationAdvancesRoundAndRotatesProposerAfterTimeout$' -count=50 -timeout=5m
           go test -race ./internal/api -run '^TestConsensusAutomationAdvancesRoundAndRotatesProposerAfterTimeout$' -count=12 -timeout=4m
-      - name: Peer block evidence and snapshot must contain one JSON document
-        run: go test -race ./internal/api -run '^TestHTTPPeerTransportRejectsTrailingJSONOnRecoveryResponses$' -count=20 -timeout=3m
+      - name: Bounded-memory peer recovery JSON tail scanning regression
+        run: go test -race ./internal/api -run '^(TestHTTPPeerTransportRejectsTrailingJSONOnRecoveryResponses|TestDecodeSinglePeerJSON)' -count=20 -timeout=3m
       - name: Bounded peer block-sync iteration at uint64 maximum regression
         run: go test -race ./internal/api -run '^TestNextPeerSyncBlockHeight' -count=20 -timeout=3m
       - name: Overflow-safe peer height delta and resync direction regression

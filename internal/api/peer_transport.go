@@ -91,14 +91,26 @@ func decodeSinglePeerJSON(body io.Reader, destination any) error {
 	if err := decoder.Decode(destination); err != nil {
 		return err
 	}
-	var trailing any
-	if err := decoder.Decode(&trailing); err != io.EOF {
+	// Decoding an untrusted second value into any can allocate an arbitrarily
+	// large object before rejecting it. Scan only permitted trailing JSON
+	// whitespace, including bytes prefetched into Decoder.Buffered().
+	// Streaming fixed-size chunks also preserves legitimate large snapshots.
+	remaining := io.MultiReader(decoder.Buffered(), body)
+	var buffer [4096]byte
+	for {
+		n, err := remaining.Read(buffer[:])
+		for _, b := range buffer[:n] {
+			if b != ' ' && b != '\t' && b != '\n' && b != '\r' {
+				return fmt.Errorf("peer response contained trailing non-whitespace data")
+			}
+		}
+		if err == io.EOF {
+			return nil
+		}
 		if err != nil {
 			return err
 		}
-		return fmt.Errorf("peer response contained multiple JSON documents")
 	}
-	return nil
 }
 
 func (t *httpPeerTransport) FetchBlock(peerURL string, height uint64) (ledger.Block, error) {
