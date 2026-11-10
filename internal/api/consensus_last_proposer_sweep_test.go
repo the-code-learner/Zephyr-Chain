@@ -97,5 +97,11 @@ func TestLabSevenValidatorsLastProposerNeedsFollowingSweepForQuorum(t *testing.T
 			t.Fatalf("validator %d did not sign after next sweep", index)
 		}
 	}
+	// The signed votes are now present, but finality/QC processing may
+	// require another ordinary automation tick at some nodes after the
+	// last voter delivered its signature. Do not assume atomic network
+	// delivery and block application within a single sequential sweep.
+	// Keep the existing lab 5-second conformance deadline unchanged.
+	cluster.driveUntilHeight(cluster.allIndices(), 1, 5*time.Second)
 	cluster.assertSameTip(cluster.allIndices(), 1)
 }
