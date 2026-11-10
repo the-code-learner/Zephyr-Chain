@@ -208,6 +208,12 @@ func (s *Server) maybeAutomateVote(now time.Time) (bool, error) {
 }
 
 func (s *Server) maybeRebroadcastProposal() {
+	// No configured destination means no actual delivery attempt. Do not
+	// fsync a fictitious replay record at every automation tick while
+	// isolated; a newly configured peer still activates normal retries.
+	if len(s.peerURLsSnapshot()) == 0 {
+		return
+	}
 	consensusView := s.ledger.Consensus()
 	proposal, exists := s.ledger.LatestProposalForHeight(consensusView.NextHeight)
 	// A proposal from an earlier round cannot be applied by peers which
@@ -229,6 +235,11 @@ func (s *Server) maybeRebroadcastProposal() {
 }
 
 func (s *Server) maybeRebroadcastVote() {
+	// Preserve the durable vote, but avoid a repeated WAL write when no
+	// network peer can receive the replay.
+	if len(s.peerURLsSnapshot()) == 0 {
+		return
+	}
 	consensusView := s.ledger.Consensus()
 	vote, exists := s.ledger.LatestVoteByValidatorForHeight(consensusView.NextHeight, s.config.ValidatorAddress)
 	// Only rebroadcast a vote for the active round. A historical vote
