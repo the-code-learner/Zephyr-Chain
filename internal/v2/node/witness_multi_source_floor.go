@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"sync"
+	"time"
 
 	"github.com/zephyr-chain/zephyr-chain/internal/v2/types"
 )
@@ -20,6 +21,8 @@ type MultiSourceWitnessFloor struct {
 	mu       sync.Mutex
 	observed bool
 	last     FinalityCheckpoint
+	// Optional shared budget; zero preserves generic legacy fixture semantics.
+	readTimeout time.Duration
 }
 
 // NewMultiSourceWitnessFloor requires at least two separately configured
@@ -55,6 +58,15 @@ func (f *MultiSourceWitnessFloor) AuthenticatedWitnessFloorContext(ctx context.C
 	if f == nil || len(f.sources) < 2 || len(f.sources) > 8 ||
 		ctx == nil || ctx.Err() != nil {
 		return FinalityCheckpoint{}, ErrWitnessSigningIntent
+	}
+	// Operator-provisioned HTTPS origins are queried sequentially. Without
+	// a shared deadline, N unresponsive sources each consume their own 5s
+	// timeout, multiplying the signing/recovery latency by N. Preserve the
+	// caller\u0027s earlier deadline and fail closed when the total budget ends.
+	if f.readTimeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, f.readTimeout)
+		defer cancel()
 	}
 	var agreed FinalityCheckpoint
 	for i, source := range f.sources {
