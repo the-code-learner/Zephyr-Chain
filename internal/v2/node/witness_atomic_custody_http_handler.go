@@ -193,8 +193,20 @@ func (h *HTTPWitnessCustodyHandler) ServeHTTP(w http.ResponseWriter, r *http.Req
 		custodyHTTPReject(w, http.StatusBadRequest)
 		return
 	}
+	// A transport may cancel the request during body decoding, while the
+	// canonical payload remains valid. Never delegate a known-abandoned
+	// request to a remote private-key authority: a backend that ignores
+	// context cancellation could otherwise reserve/sign unnecessarily.
+	if r.Context().Err() != nil {
+		custodyHTTPReject(w, http.StatusServiceUnavailable)
+		return
+	}
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
+	if ctx.Err() != nil {
+		custodyHTTPReject(w, http.StatusServiceUnavailable)
+		return
+	}
 	a, err := h.backend.ReserveAndSignWitnessCheckpoint(ctx, cp, challenge)
 	if err != nil || ctx.Err() != nil || VerifyWitnessAtomicCustodyAttestation(a, cp, challenge, h.authorityKey, h.witnessKey) != nil {
 		custodyHTTPReject(w, http.StatusServiceUnavailable)
