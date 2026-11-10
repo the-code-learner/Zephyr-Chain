@@ -19,12 +19,12 @@ func TestConsensusAutomationOnlyRebroadcastsActiveRoundArtifacts(t *testing.T) {
 	roundZeroSigner := newConsensusSigner(t)
 	roundOneSigner := newConsensusSigner(t)
 	server := newTestServer(t, Config{
-		DataDir:           t.TempDir(),
-		NodeID:            "round-rebroadcast",
-		ValidatorPrivateKey: encodedPrivateKey(t, roundZeroSigner.privateKey),
-		BlockInterval:     0,
-		SyncInterval:      0,
-		EnablePeerSync:    false,
+		DataDir:                   t.TempDir(),
+		NodeID:                    "round-rebroadcast",
+		ValidatorPrivateKey:       encodedPrivateKey(t, roundZeroSigner.privateKey),
+		BlockInterval:             0,
+		SyncInterval:              0,
+		EnablePeerSync:            false,
 		EnableConsensusAutomation: false,
 	})
 	validators := []dpos.Validator{
