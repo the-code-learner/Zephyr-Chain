@@ -123,6 +123,12 @@ func TestAtomicWitnessCustodyHTTPHandlerRejectsUntrustedRequestsBeforeSigning(t 
 		{"wrong method", func(r *http.Request) { r.Method = http.MethodGet }},
 		{"wrong path", func(r *http.Request) { r.URL.Path = "/other" }},
 		{"query", func(r *http.Request) { r.URL.RawQuery = "x=1" }},
+		{"empty query delimiter", func(r *http.Request) { r.URL.ForceQuery = true }},
+		{"escaped equivalent route", func(r *http.Request) {
+			r.URL.RawPath = "/v1/%72eserve-and-sign"
+		}},
+		{"opaque target", func(r *http.Request) { r.URL.Opaque = "/v1/reserve-and-sign" }},
+		{"fragment", func(r *http.Request) { r.URL.Fragment = "other" }},
 		{"wrong media", func(r *http.Request) { r.Header.Set("Content-Type", "text/plain") }},
 		{"unknown JSON field", func(r *http.Request) {
 			raw, _ := io.ReadAll(r.Body)
