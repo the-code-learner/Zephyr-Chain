@@ -24,7 +24,13 @@ func TestPeerAdmissionRetryRecoversVerifiedPeerWithoutPeerSync(t *testing.T) {
 		EnablePeerSync:      false,
 	})
 	var online atomic.Bool
+	var holdRetry atomic.Bool
 	var statusCalls atomic.Int32
+	retryStarted := make(chan struct{})
+	releaseRetry := make(chan struct{})
+	var retryOnce sync.Once
+	var releaseOnce sync.Once
+	release := func() { releaseOnce.Do(func() { close(releaseRetry) }) }
 	remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/v1/status" {
 			statusCalls.Add(1)
@@ -32,10 +38,15 @@ func TestPeerAdmissionRetryRecoversVerifiedPeerWithoutPeerSync(t *testing.T) {
 				http.Error(w, "offline", http.StatusServiceUnavailable)
 				return
 			}
+			if holdRetry.Load() {
+				retryOnce.Do(func() { close(retryStarted) })
+				<-releaseRetry
+			}
 		}
 		peer.Handler().ServeHTTP(w, r)
 	}))
 	defer remote.Close()
+	defer release()
 	caller := newTestServer(t, Config{
 		DataDir:               t.TempDir(),
 		NodeID:                "peer-a",
@@ -58,6 +69,7 @@ func TestPeerAdmissionRetryRecoversVerifiedPeerWithoutPeerSync(t *testing.T) {
 	}
 
 	online.Store(true)
+	holdRetry.Store(true)
 	// Force eligibility by setting only the last probe timestamp. The
 	// production interval stays at two seconds; no sleeps in the test.
 	caller.peerMu.Lock()
@@ -81,13 +93,42 @@ func TestPeerAdmissionRetryRecoversVerifiedPeerWithoutPeerSync(t *testing.T) {
 		}()
 	}
 	close(begin)
-	wg.Wait()
-	if statusCalls.Load() != 2 {
-		t.Fatalf("recovering peer was stampeded: status calls=%d, want 2", statusCalls.Load())
+	callersDone := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(callersDone)
+	}()
+	select {
+	case <-callersDone:
+	case <-time.After(2 * time.Second):
+		t.Fatal("peer admission retry blocked the consensus/broadcast callers")
 	}
-	accepted := caller.admittedPeerURLs()
-	if len(accepted) != 1 || accepted[0] != remote.URL {
-		t.Fatalf("peer failed authenticated recovery: %v", accepted)
+	select {
+	case <-retryStarted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("no background admission re-probe was started")
+	}
+	// Force the time threshold again WHILE the status read is blocked:
+	// in-flight admission bookkeeping must prevent overlapping probes.
+	caller.peerMu.Lock()
+	view = caller.peerViews[remote.URL]
+	old = time.Now().UTC().Add(-2 * peerAdmissionRetryInterval)
+	view.LastAdmissionAttemptAt = &old
+	caller.peerViews[remote.URL] = view
+	caller.peerMu.Unlock()
+	for i := 0; i < parallel; i++ {
+		_ = caller.admittedPeerURLs()
+	}
+	if statusCalls.Load() != 2 {
+		t.Fatalf("concurrent calls stampeded in-flight admission: calls=%d", statusCalls.Load())
+	}
+	release()
+	waitFor(t, func() bool {
+		accepted := caller.admittedPeerURLs()
+		return len(accepted) == 1 && accepted[0] == remote.URL
+	})
+	if statusCalls.Load() != 2 {
+		t.Fatalf("recovering peer needed unexpected status reads: %d", statusCalls.Load())
 	}
 	recovered, _ := caller.peerView(remote.URL)
 	if !recovered.Reachable || !recovered.IdentityVerified || !recovered.Admitted ||
