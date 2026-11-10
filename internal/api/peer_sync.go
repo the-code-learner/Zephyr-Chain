@@ -49,6 +49,7 @@ type PeerView struct {
 	LatestIncidentAt                *time.Time                `json:"latestIncidentAt,omitempty"`
 	RecentIncidents                 []ledger.PeerSyncIncident `json:"recentIncidents,omitempty"`
 	LastSeenAt                      *time.Time                `json:"lastSeenAt,omitempty"`
+	LastAdmissionAttemptAt          *time.Time                `json:"lastAdmissionAttemptAt,omitempty"`
 	Reachable                       bool                      `json:"reachable"`
 	Error                           string                    `json:"error,omitempty"`
 }

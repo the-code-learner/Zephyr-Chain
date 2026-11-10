@@ -13,6 +13,12 @@ var (
 	errPeerValidatorNotAllowed = errors.New("peer validator is not admitted by local policy")
 )
 
+// A failed initial status request must not permanently strand a validator
+// when peer sync is disabled. Retry only transport-unreachable peers at a
+// bounded interval; a reachable peer with an invalid/pinned-wrong identity
+// stays denied until an explicit operator-driven refresh or restart.
+const peerAdmissionRetryInterval = 2 * time.Second
+
 func normalizePeerValidatorBindings(bindings map[string]string) map[string]string {
 	if len(bindings) == 0 {
 		return nil
@@ -121,21 +127,24 @@ func (s *Server) buildPeerView(peerURL string, status StatusResponse, now time.T
 }
 
 func (s *Server) fetchPeerAdmissionView(peerURL string) (PeerView, bool) {
+	attemptedAt := time.Now().UTC()
 	previous, _ := s.peerView(peerURL)
 	status, err := s.fetchPeerStatus(peerURL)
 	if err != nil {
 		view := mergePeerSyncHistory(PeerView{
-			URL:               peerURL,
-			ExpectedValidator: s.expectedPeerValidator(peerURL),
-			Reachable:         false,
-			SyncState:         "unreachable",
-			Error:             err.Error(),
+			URL:                    peerURL,
+			ExpectedValidator:      s.expectedPeerValidator(peerURL),
+			LastAdmissionAttemptAt: cloneAPITimeValue(attemptedAt),
+			Reachable:              false,
+			SyncState:              "unreachable",
+			Error:                  err.Error(),
 		}, previous)
 		s.recordPeerView(view)
 		return view, false
 	}
 
 	view := mergePeerSyncHistory(s.buildPeerView(peerURL, status, time.Now().UTC()), previous)
+	view.LastAdmissionAttemptAt = cloneAPITimeValue(attemptedAt)
 	if !view.Admitted {
 		view.SyncState = "unadmitted"
 	}
@@ -153,17 +162,67 @@ func (s *Server) admittedPeerURLs() []string {
 		}
 
 		if view, ok := s.peerView(peerURL); ok {
-			if view.Admitted {
+			// An old admitted=true flag does not authorize a peer which
+			// has since become unreachable. A fresh signed status proof
+			// is mandatory before that peer can rejoin broadcasts.
+			if view.Reachable && view.Admitted {
 				peers = append(peers, peerURL)
+			} else if !view.Reachable && !s.config.EnablePeerSync &&
+				s.reservePeerAdmissionRetry(peerURL, time.Now().UTC()) {
+				// Never block the consensus tick or a transaction handler
+				// on a second 5s status timeout. One tracked retry per peer
+				// runs outside the caller under the existing Close barrier.
+				s.runAsync(func() {
+					defer s.finishPeerAdmissionRetry(peerURL)
+					_, _ = s.fetchPeerAdmissionView(peerURL)
+				})
 			}
 			continue
 		}
 
-		if _, admitted := s.fetchPeerAdmissionView(peerURL); admitted {
+		if view, admitted := s.fetchPeerAdmissionView(peerURL); admitted && view.Reachable {
 			peers = append(peers, peerURL)
 		}
 	}
 	return peers
+}
+
+// reservePeerAdmissionRetry atomically throttles failed transport probes so
+// concurrent consensus/transaction broadcasters cannot stampede a peer that
+// is offline. Only a previously unreachable (not a reachable unadmitted)
+// peer can be probed again; identity and validator pins are revalidated
+// from a NEW signed status response, never borrowed from stale history.
+func (s *Server) reservePeerAdmissionRetry(peerURL string, now time.Time) bool {
+	s.peerMu.Lock()
+	defer s.peerMu.Unlock()
+	view, ok := s.peerViews[peerURL]
+	if !ok || view.Reachable || (view.LastAdmissionAttemptAt != nil &&
+		now.Before(view.LastAdmissionAttemptAt.Add(peerAdmissionRetryInterval))) {
+		return false
+	}
+	if _, inFlight := s.peerAdmissionRetrying[peerURL]; inFlight {
+		return false
+	}
+	if s.peerAdmissionRetrying == nil {
+		s.peerAdmissionRetrying = make(map[string]struct{})
+	}
+	s.peerAdmissionRetrying[peerURL] = struct{}{}
+	view.LastAdmissionAttemptAt = cloneAPITimeValue(now)
+	s.peerViews[peerURL] = view
+	return true
+}
+
+// finishPeerAdmissionRetry releases the per-peer slot even after failed
+// transport, and starts the backoff AFTER the request has finished. Repeated
+// long HTTP timeouts therefore cannot spawn overlapping recovery requests.
+func (s *Server) finishPeerAdmissionRetry(peerURL string) {
+	s.peerMu.Lock()
+	defer s.peerMu.Unlock()
+	delete(s.peerAdmissionRetrying, peerURL)
+	if view, ok := s.peerViews[peerURL]; ok {
+		view.LastAdmissionAttemptAt = cloneAPITimeValue(time.Now().UTC())
+		s.peerViews[peerURL] = view
+	}
 }
 
 func (s *Server) validatePeerRequest(r *http.Request) error {
