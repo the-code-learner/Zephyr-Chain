@@ -165,7 +165,8 @@ func (s *Server) maybeAutomateProposal(now time.Time) (bool, error) {
 		return false, err
 	}
 
-	s.broadcastProposal(signedProposal)
+	// Never hold the round timer on peer HTTP transport timeouts.
+	s.scheduleConsensusProposalBroadcast(signedProposal)
 	return true, nil
 }
 
@@ -203,7 +204,8 @@ func (s *Server) maybeAutomateVote(now time.Time) (bool, error) {
 		return false, err
 	}
 
-	s.broadcastVote(vote)
+	// A slow vote recipient must not stall subsequent proposer rotation.
+	s.scheduleConsensusVoteBroadcast(vote)
 	return true, nil
 }
 
@@ -228,7 +230,11 @@ func (s *Server) maybeRebroadcastProposal() {
 		return
 	}
 
-	s.broadcastProposal(*proposal)
+	// An already active delivery must not spawn another worker or fsync
+	// a fictitious replay attempt. The next tick retries after completion.
+	if !s.scheduleConsensusProposalBroadcast(*proposal) {
+		return
+	}
 	if err := s.ledger.MarkConsensusActionReplayed(ledger.ConsensusActionProposal, proposal.Height, proposal.Round, proposal.BlockHash, proposal.Proposer, time.Now().UTC()); err != nil {
 		recordPeerLog("consensus-wal-replay-proposal", err)
 	}
@@ -252,7 +258,9 @@ func (s *Server) maybeRebroadcastVote() {
 		return
 	}
 
-	s.broadcastVote(*vote)
+	if !s.scheduleConsensusVoteBroadcast(*vote) {
+		return
+	}
 	if err := s.ledger.MarkConsensusActionReplayed(ledger.ConsensusActionVote, vote.Height, vote.Round, vote.BlockHash, vote.Voter, time.Now().UTC()); err != nil {
 		recordPeerLog("consensus-wal-replay-vote", err)
 	}
