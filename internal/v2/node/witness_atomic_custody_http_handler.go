@@ -157,7 +157,12 @@ func (h *HTTPWitnessCustodyHandler) ServeHTTP(w http.ResponseWriter, r *http.Req
 		custodyHTTPReject(w, http.StatusUnsupportedMediaType)
 		return
 	}
-	mediaType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
+	contentTypes := r.Header.Values("Content-Type")
+	if len(contentTypes) != 1 {
+		custodyHTTPReject(w, http.StatusUnsupportedMediaType)
+		return
+	}
+	mediaType, _, err := mime.ParseMediaType(contentTypes[0])
 	if err != nil || mediaType != "application/json" || r.Body == nil {
 		custodyHTTPReject(w, http.StatusUnsupportedMediaType)
 		return
