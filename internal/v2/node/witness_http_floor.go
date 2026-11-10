@@ -40,6 +40,10 @@ func NewHTTPWitnessFloorSource(endpoint string) (*HTTPWitnessFloorSource, error)
 	// authority or a second, unreviewed network control plane.
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.Proxy = nil
+	// Signed checkpoint bundles must use one uncompressed wire format.
+	// Automatic gzip negotiation/decompression can make the effective
+	// received payload much larger than its declared transfer size.
+	transport.DisableCompression = true
 	return &HTTPWitnessFloorSource{
 		endpoint: u.String(),
 		client: &http.Client{
@@ -81,6 +85,12 @@ func (s *HTTPWitnessFloorSource) SignedWitnessFloorContext(ctx context.Context) 
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("%w: unexpected HTTP status %d", ErrWitnessSigningIntent, response.StatusCode)
+	}
+	// Do not let an HTTP intermediary change the representation passed to
+	// canonical Ed25519 witness checkpoint verification. Encoding must be
+	// absent or explicit identity; compressed bodies are never accepted.
+	if encoding := response.Header.Get("Content-Encoding"); encoding != "" && !strings.EqualFold(encoding, "identity") {
+		return nil, fmt.Errorf("%w: unsupported witness content encoding", ErrWitnessSigningIntent)
 	}
 	payload, err := io.ReadAll(io.LimitReader(response.Body, maxWitnessBundleBytes+1))
 	if err != nil || len(payload) == 0 || len(payload) > maxWitnessBundleBytes || ctx.Err() != nil {
