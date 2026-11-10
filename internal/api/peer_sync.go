@@ -118,7 +118,7 @@ func (s *Server) syncPeers() {
 						view.SyncState = "aligned"
 					}
 					localAfter := s.ledger.Status()
-					view.HeightDelta = int64(status.Status.Height) - int64(localAfter.Height)
+					view.HeightDelta = peerHeightDelta(status.Status.Height, localAfter.Height)
 					if view.HeightDelta < 0 {
 						view.SyncState = "peer_behind"
 					} else if view.HeightDelta > 0 {
