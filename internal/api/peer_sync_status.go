@@ -83,6 +83,9 @@ func mergePeerSyncHistory(current PeerView, previous PeerView) PeerView {
 			current.LastSeenAt = cloneAPITimePointer(previous.LastSeenAt)
 		}
 	}
+	if current.LastAdmissionAttemptAt == nil {
+		current.LastAdmissionAttemptAt = cloneAPITimePointer(previous.LastAdmissionAttemptAt)
+	}
 	if current.SyncState == "" {
 		current.SyncState = previous.SyncState
 	}
