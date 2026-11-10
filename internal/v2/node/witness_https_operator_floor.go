@@ -2,6 +2,7 @@ package node
 
 import (
 	"net/url"
+	"time"
 
 	"github.com/zephyr-chain/zephyr-chain/internal/v2/types"
 )
@@ -74,7 +75,14 @@ func NewProvisionedMultiOperatorHTTPSWitnessFloor(
 		seenHosts[host] = struct{}{}
 		sources = append(sources, verified)
 	}
-	return NewMultiSourceWitnessFloor(sources...)
+	floor, err := NewMultiSourceWitnessFloor(sources...)
+	if err != nil {
+		return nil, err
+	}
+	// A single five-second budget covers the entire multi-origin read, not
+	// five seconds per origin. Do not relax fail-closed all-origin agreement.
+	floor.readTimeout = 5 * time.Second
+	return floor, nil
 }
 
 func validWitnessPublicationOperatorID(id string) bool {
