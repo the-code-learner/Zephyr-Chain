@@ -95,7 +95,7 @@ func TestConsensusAutomationOnlyRebroadcastsActiveRoundArtifacts(t *testing.T) {
 		t.Fatal("new peer did not schedule current-round proposal/vote replay")
 	}
 	waitFor(t, func() bool {
-		return !server.consensusOutbound.proposal.Load() && !server.consensusOutbound.vote.Load()
+		return server.consensusOutbound.idle()
 	})
 
 	// Removing peers again pauses replay bookkeeping without affecting
