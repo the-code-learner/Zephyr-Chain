@@ -34,7 +34,19 @@ type httpPeerTransport struct {
 }
 
 func newHTTPPeerTransport(client *http.Client, sourceNode string, identitySigner *transportIdentitySigner) peerTransport {
-	return &httpPeerTransport{client: client, sourceNode: sourceNode, identitySigner: identitySigner}
+	if client == nil {
+		client = &http.Client{Timeout: 5 * time.Second}
+	}
+	// Signed transport identity and request proofs are bound to the
+	// provisioned peer endpoint. Following an HTTP redirect could forward
+	// those proof headers to an unrelated host, or incorrectly interpret a
+	// moved endpoint as successful consensus delivery. Clone the client to
+	// enforce this policy without mutating its caller-owned configuration.
+	direct := *client
+	direct.CheckRedirect = func(_ *http.Request, _ []*http.Request) error {
+		return http.ErrUseLastResponse
+	}
+	return &httpPeerTransport{client: &direct, sourceNode: sourceNode, identitySigner: identitySigner}
 }
 
 func (t *httpPeerTransport) FetchStatus(peerURL string) (StatusResponse, error) {
@@ -172,7 +184,10 @@ func (t *httpPeerTransport) postJSONWithConflictPolicy(target string, payload an
 	if response.StatusCode == http.StatusConflict && allowConflict {
 		return nil
 	}
-	if response.StatusCode >= http.StatusBadRequest {
+	// Only final 2xx acknowledgements (or the explicitly permitted legacy
+	// idempotent conflict) count as delivery. In particular, 3xx redirects
+	// must never be treated as successful peer consensus/replication.
+	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
 		return fmt.Errorf("peer returned status %d", response.StatusCode)
 	}
 	return nil

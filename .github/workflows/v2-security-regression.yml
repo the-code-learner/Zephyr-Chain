@@ -56,6 +56,8 @@ jobs:
         run: |
           go test ./internal/api -run '^TestConsensusAutomationAdvancesRoundAndRotatesProposerAfterTimeout$' -count=50 -timeout=5m
           go test -race ./internal/api -run '^TestConsensusAutomationAdvancesRoundAndRotatesProposerAfterTimeout$' -count=12 -timeout=4m
+      - name: Signed peer request redirect and ambient proxy boundary regression
+        run: go test -race ./internal/api -run '^Test(HTTPPeerTransportRejectsSignedRedirects|ServerPeerClientIgnoresAmbientProxy)$' -count=10 -timeout=3m
       - name: Consensus peer HTTP conflict reporting regression
         run: go test -race ./internal/api -run '^TestHTTPPeerTransportReportsConsensusConflicts$' -count=10 -timeout=3m
       - name: Certified self-proposed commit action WAL observation stress
