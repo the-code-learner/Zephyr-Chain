@@ -303,18 +303,24 @@ func (s *Server) broadcastFaucet(request FaucetRequest) {
 
 func (s *Server) broadcastProposal(proposal consensus.Proposal) {
 	for _, peerURL := range s.admittedPeerURLs() {
+		started := time.Now()
 		if err := s.transport.PostProposal(peerURL, proposal); err != nil {
 			s.recordReplicationIncident(peerURL, "proposal", proposal.BlockHash, err)
 			recordPeerLog(fmt.Sprintf("broadcast-proposal %s", peerURL), err)
+		} else {
+			s.recordSlowConsensusDelivery(peerURL, "proposal", proposal.BlockHash, time.Since(started))
 		}
 	}
 }
 
 func (s *Server) broadcastVote(vote consensus.Vote) {
 	for _, peerURL := range s.admittedPeerURLs() {
+		started := time.Now()
 		if err := s.transport.PostVote(peerURL, vote); err != nil {
 			s.recordReplicationIncident(peerURL, "vote", vote.BlockHash, err)
 			recordPeerLog(fmt.Sprintf("broadcast-vote %s", peerURL), err)
+		} else {
+			s.recordSlowConsensusDelivery(peerURL, "vote", vote.BlockHash, time.Since(started))
 		}
 	}
 }
