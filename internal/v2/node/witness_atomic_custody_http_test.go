@@ -65,6 +65,9 @@ func TestAtomicWitnessCustodyHTTPNoAmbientProxy(t *testing.T) {
 	if !ok || transport.Proxy != nil {
 		t.Fatal("custody client inherited an ambient proxy or lacks a dedicated transport")
 	}
+	if !transport.DisableCompression {
+		t.Fatal("custody HTTP transport must not negotiate or decompress compressed attestations")
+	}
 	if custodian.client.Timeout != 5*time.Second {
 		t.Fatalf("unexpected custody transport timeout: %v", custodian.client.Timeout)
 	}
@@ -161,6 +164,19 @@ func TestAtomicWitnessCustodyHTTPSAuthenticatedRoundTripAndBadResponses(t *testi
 		if mode == "noncanonical" {
 			raw = []byte(strings.Replace(string(raw), ",", ", ", 1))
 		}
+		if mode == "gzip" {
+			w.Header().Set("Content-Encoding", "gzip")
+		}
+		if mode == "brotli" {
+			w.Header().Set("Content-Encoding", "br")
+		}
+		if mode == "duplicate-encoding" {
+			w.Header().Add("Content-Encoding", "identity")
+			w.Header().Add("Content-Encoding", "identity")
+		}
+		if mode == "identity" {
+			w.Header().Set("Content-Encoding", "identity")
+		}
 		if mode == "wrong-media" {
 			w.Header().Set("Content-Type", "text/plain")
 		} else {
@@ -179,7 +195,11 @@ func TestAtomicWitnessCustodyHTTPSAuthenticatedRoundTripAndBadResponses(t *testi
 	if a, err := ReserveAndVerifyAtomicWitnessCheckpoint(context.Background(), j, cp, remote, keyA, keyW); err != nil || a.Revision != 1 {
 		t.Fatalf("valid authenticated custody HTTPS result rejected: %+v %v", a, err)
 	}
-	for _, bad := range []string{"foreign-checkpoint", "wrong-challenge", "bad-signature", "duplicate-member", "unknown-member", "noncanonical", "wrong-media", "non-200", "redirect", "oversized"} {
+	mode = "identity"
+	if a, err := ReserveAndVerifyAtomicWitnessCheckpoint(context.Background(), j, cp, remote, keyA, keyW); err != nil || a.Revision == 0 {
+		t.Fatalf("explicit identity custody representation was rejected: %+v %v", a, err)
+	}
+	for _, bad := range []string{"gzip", "brotli", "duplicate-encoding", "foreign-checkpoint", "wrong-challenge", "bad-signature", "duplicate-member", "unknown-member", "noncanonical", "wrong-media", "non-200", "redirect", "oversized"} {
 		t.Run(bad, func(t *testing.T) {
 			mode = bad
 			before := requests
