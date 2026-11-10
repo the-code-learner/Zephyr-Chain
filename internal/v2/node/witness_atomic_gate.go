@@ -1,7 +1,9 @@
 package node
 
 import (
+	"context"
 	"errors"
+	"time"
 
 	"github.com/zephyr-chain/zephyr-chain/internal/v2/types"
 )
@@ -18,15 +20,40 @@ import (
 // production signing custodian still needs a globally linearizable remote
 // reservation/fencing protocol. No private key is accessed here.
 func ReserveAndReconcileWitnessIntent(j *WitnessSigningIntentJournal, cp FinalityCheckpoint, remote WitnessExternalFloorVerifier) error {
-	if j == nil || remote == nil {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	return ReserveAndReconcileWitnessIntentContext(ctx, j, cp, remote)
+}
+
+// ReserveAndReconcileWitnessIntentContext bounds context-aware remote reads
+// under the SAME journal lock that fsyncs the pre-sign intent. The durable
+// reservation is intentionally NOT rolled back when remote publication is
+// unavailable or the request is cancelled. A successful return grants no
+// signing capability and does not establish remote HSM antirollback.
+//
+// Legacy synchronous floor implementations and QC verifiers that do not
+// honor context may still block: they are not production-safe adapters.
+func ReserveAndReconcileWitnessIntentContext(ctx context.Context, j *WitnessSigningIntentJournal, cp FinalityCheckpoint, remote WitnessExternalFloorVerifier) error {
+	if ctx == nil || j == nil || remote == nil {
 		return ErrWitnessSigningIntent
+	}
+	if err := ctx.Err(); err != nil {
+		return errors.Join(ErrWitnessSigningIntent, err)
 	}
 	j.mu.Lock()
 	defer j.mu.Unlock()
 	if j.closed || j.store == nil || j.verifier == nil {
 		return ErrWitnessSigningIntent
 	}
+	if err := ctx.Err(); err != nil {
+		return errors.Join(ErrWitnessSigningIntent, err)
+	}
 	if err := j.verifier.VerifyFinalizedCheckpoint(cp); err != nil {
+		return errors.Join(ErrWitnessSigningIntent, err)
+	}
+	// A slow QC verifier can cancel the caller while returning nil.
+	// Never create a new signing intent after a known cancellation.
+	if err := ctx.Err(); err != nil {
 		return errors.Join(ErrWitnessSigningIntent, err)
 	}
 	if err := j.store.advance(cp); err != nil {
@@ -36,14 +63,20 @@ func ReserveAndReconcileWitnessIntent(j *WitnessSigningIntentJournal, cp Finalit
 	if err != nil || current != cp {
 		return ErrWitnessSigningIntent
 	}
-	floor, err := remote.AuthenticatedWitnessFloor()
-	if err != nil || floor.Validate(cp.Network, cp.ValidatorRoot) != nil ||
+	if err := ctx.Err(); err != nil {
+		return errors.Join(ErrWitnessSigningIntent, err)
+	}
+	floor, err := authenticatedWitnessFloorWithContext(ctx, remote)
+	if err != nil || ctx.Err() != nil || floor.Validate(cp.Network, cp.ValidatorRoot) != nil ||
 		floor != cp || types.IsZero32([32]byte(cp.HeaderHash)) {
-		return ErrWitnessSigningIntent
+		return errors.Join(ErrWitnessSigningIntent, err, ctx.Err())
 	}
 	// Reverify after the remote network call, since a verifier can represent
 	// a dynamic independent QC/finality source.
 	if err := j.verifier.VerifyFinalizedCheckpoint(cp); err != nil {
+		return errors.Join(ErrWitnessSigningIntent, err)
+	}
+	if err := ctx.Err(); err != nil {
 		return errors.Join(ErrWitnessSigningIntent, err)
 	}
 	return nil
