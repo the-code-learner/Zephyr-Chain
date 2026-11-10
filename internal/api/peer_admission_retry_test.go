@@ -186,3 +186,28 @@ func TestPeerAdmissionRetryDoesNotReauthorizeWrongValidator(t *testing.T) {
 		t.Fatalf("reachable wrong-key peer was silently re-probed or admitted: peers=%v calls=%d", peers, statusCalls.Load())
 	}
 }
+
+// A cached prior admission can survive a later transport failure in the
+// diagnostic peer view. Reachability is a separate, mandatory condition:
+// stale authorized=true MUST NOT cause broadcast to a disconnected origin.
+func TestPeerAdmissionRetryStaleAdmittedDoesNotOverrideReachability(t *testing.T) {
+	const address = "http://unreachable-peer.example.invalid"
+	caller := newTestServer(t, Config{
+		DataDir:             t.TempDir(),
+		PeerURLs:            []string{address},
+		RequirePeerIdentity: true,
+		BlockInterval:       0,
+		SyncInterval:        0,
+		EnablePeerSync:      false,
+	})
+	now := time.Now().UTC()
+	caller.peerMu.Lock()
+	caller.peerViews[address] = PeerView{
+		URL: address, Reachable: false, Admitted: true,
+		SyncState: "unreachable", LastAdmissionAttemptAt: &now,
+	}
+	caller.peerMu.Unlock()
+	if peers := caller.admittedPeerURLs(); len(peers) != 0 {
+		t.Fatalf("stale previously-admitted but unreachable peer was reused: %v", peers)
+	}
+}
