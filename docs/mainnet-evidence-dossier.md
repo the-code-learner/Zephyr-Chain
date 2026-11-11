@@ -34,4 +34,4 @@ The preflight rejects missing gate categories, missing/mutated files, duplicate 
 
 **Even a successful preflight prints `MAINNET: NO-GO`.** A different organization must independently check evidence authenticity, real operator separation and legal/control independence, HSM monotonic reserve/sign across failover, attack drill reproduction, audit findings and remediations, release governance and final sign-offs under [mainnet-security-release-gates.md](mainnet-security-release-gates.md) and GitHub issues #42, #54, #55. Only that explicitly reviewed decision can authorize production launch.
 
-Run synthetic regressions with `python3 -m unittest discover -s scripts -p 'test-check-mainnet-evidence.py' -v`. Synthetic tests prove the preflight rejects malformed dossiers, **not** that production criteria have been met.
+Run synthetic regressions with `python3 -m unittest discover -s scripts -p 'test_check_mainnet_evidence.py' -v`. Synthetic tests prove the preflight rejects malformed dossiers, **not** that production criteria have been met.
