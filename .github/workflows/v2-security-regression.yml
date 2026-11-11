@@ -24,6 +24,8 @@ jobs:
         with:
           go-version-file: go.mod
           cache: false
+      - name: Fail-closed mainnet evidence dossier integrity regressions (not GO)
+        run: python3 -m unittest discover -s scripts -p 'test_check_mainnet_evidence.py' -v
       - name: Race-check genesis, transport, provider, committee and state
         run: |
           go test -race \
