@@ -128,6 +128,13 @@ jobs:
         run: go test -race ./internal/v2/node -run '^TestWitnessFence' -count=10 -timeout=3m
       - name: Atomic witness custody signature, concurrency, restart and rollback regression
         run: go test -race ./internal/v2/node -run '^TestAtomicWitnessCustody' -count=5 -timeout=4m
+      - name: Local finality anchor hard-link alias and live signer fail-closed regression
+        run: go test -race ./internal/v2/node -run '^(TestFinalityAnchorRejectsExistingHardLinkBeforeRecovery|TestLocalWitnessCustodyAnchorHardLinkPoisonsLiveSignerBeforeKeyUse)        run: go test -race ./internal/v2/node -run '^TestLocalWitnessCustody(DirectCallSharesOneDeadlineAcrossBothSignerOperations|SigningTimeoutDoesNotAdvanceIntentOrReachSigner)$' -count=10 -timeout=3m
+      - name: Local custody signer-provider fencing, crash and equivocation race regression
+        run: go test -race ./internal/v2/node -run '^TestLocalWitnessCustody' -count=5 -timeout=4m
+      - name: Protected validator signing restart regression under race detector
+        run: go test -race ./internal/v2/node -run '^TestProtectedValidatorServicePersistsSigningIntent$' -count=1 -timeout=3m
+ -count=10 -timeout=3m
       - name: Local custody direct signing shared deadline and external floor timeout regression
         run: go test -race ./internal/v2/node -run '^TestLocalWitnessCustody(DirectCallSharesOneDeadlineAcrossBothSignerOperations|SigningTimeoutDoesNotAdvanceIntentOrReachSigner)$' -count=10 -timeout=3m
       - name: Local custody signer-provider fencing, crash and equivocation race regression
