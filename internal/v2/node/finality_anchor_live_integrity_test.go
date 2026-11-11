@@ -48,7 +48,7 @@ func TestLocalWitnessCustodyRejectsInPlaceAnchorMutationBeforeSigning(t *testing
 			writeAnchorTestByte(t, path, finalityAnchorHeaderSize+8, 0xe7)
 		}},
 		{"rewrite_last_digest", func(t *testing.T, path string, raw []byte) {
-			writeAnchorTestByte(t, path, int64(len(raw)-1), 0x00)
+			writeAnchorTestByte(t, path, int64(len(raw)-1), raw[len(raw)-1]^0xff)
 		}},
 	}
 	for _, tc := range cases {
