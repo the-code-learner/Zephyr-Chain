@@ -6,6 +6,8 @@ Status: **prototype / NOT production signer / mainnet NO-GO**. Tracks #55 and #4
 
 The `WitnessSigningIntentJournal` is a non-key-bearing API. A caller must supply a `WitnessFinalityVerifier` and a separately provisioned absolute-path journal. A reservation invokes that verifier before the existing `FinalityAnchorStore` writes and fsyncs an immutable height/hash record. The store rejects same-height conflicts and decreasing heights, persists across restart, detects torn tails, binds to NetworkID and original validator root, and uses a local Linux/macOS file lock. It holds no private keys, issues no signatures, and cannot act as a signer by itself.
 
+The live local anchor now re-reads the bounded (maximum 4096-record) hash chain before each current-state read or reservation. A same-inode truncation, append, changed header, changed intermediate record, or modified tail poisons the open handle and refuses further custody signatures, even if original bytes are restored later. This detects local in-process file divergence only; privileged storage rollback, malicious kernels, cross-host signing and global nonrollbackability remain **unproven**. See `TestLocalWitnessCustodyRejectsInPlaceAnchorMutationBeforeSigning`.
+
 The verifier interface alone is **not** a proof. Passing a verifier that merely compares caller assertions to a mutable RPC response defeats the intended boundary. The test verifier is a fixture and may never be used for production signer authorization.
 
 ## Mandatory production dependencies (blocking)
