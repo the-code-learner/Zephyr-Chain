@@ -163,6 +163,16 @@ func (b *LocalWitnessCustodyBackend) ReserveAndSignWitnessCheckpoint(ctx context
 	if b == nil || ctx == nil || ctx.Err() != nil || isZeroWitnessFenceChallenge(challenge) {
 		return fail(nil)
 	}
+	// One budget covers waiting for the custody mutex, external floor
+	// reconciliation, QC checks, durable reservation, and BOTH private-key
+	// operations. A direct backend caller must not bypass the HTTPS handler's
+	// five-second request deadline by supplying context.Background().
+	// A shorter caller deadline always wins. Signers and legacy verifiers
+	// must respect cancellation; an uncooperative synchronous signer cannot
+	// be preempted and is not a production-grade custody implementation.
+	requestCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	ctx = requestCtx
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if b.closed || b.store == nil || b.verifier == nil || b.signer == nil || ctx.Err() != nil {
