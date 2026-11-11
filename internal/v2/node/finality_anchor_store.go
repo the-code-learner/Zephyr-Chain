@@ -137,6 +137,12 @@ func (s *FinalityAnchorStore) Current() (FinalityCheckpoint, error) {
 	if s.closed || s.poisoned {
 		return FinalityCheckpoint{}, ErrFinalityAnchor
 	}
+	if stat, err := s.file.Stat(); err != nil || !singleLinkFinalityAnchor(stat) {
+		// Do not trust an anchor whose inode acquired a second pathname.
+		// Remain poisoned even if the hard link is subsequently removed.
+		s.poisoned = true
+		return FinalityCheckpoint{}, ErrFinalityAnchor
+	}
 	return FinalityCheckpoint{Network: s.network, ValidatorRoot: s.validatorRoot, Height: s.height, HeaderHash: s.hash}, nil
 }
 
@@ -150,6 +156,12 @@ func (s *FinalityAnchorStore) advance(checkpoint FinalityCheckpoint) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.closed || s.poisoned || checkpoint.Validate(s.network, s.validatorRoot) != nil {
+		return ErrFinalityAnchor
+	}
+	if stat, err := s.file.Stat(); err != nil || !singleLinkFinalityAnchor(stat) {
+		// A newly added hard link invalidates both fresh and idempotent
+		// reservations; poisoning prevents a remove-and-retry bypass.
+		s.poisoned = true
 		return ErrFinalityAnchor
 	}
 	if checkpoint.Height < s.height || (checkpoint.Height == s.height && checkpoint.HeaderHash != s.hash) {
