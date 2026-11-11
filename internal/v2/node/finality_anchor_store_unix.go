@@ -56,6 +56,13 @@ func openLockedFinalityAnchor(path string, create bool) (*os.File, error) {
 		_ = file.Close()
 		return nil, errors.Join(ErrFinalityAnchor, err)
 	}
+	// The canonical path must still identify this locked inode after
+	// obtaining the lock. A concurrent rename/replace cannot silently
+	// redirect subsequent recovery to a different anchor file.
+	if !validFinalityAnchorFile(file) {
+		_ = file.Close()
+		return nil, ErrFinalityAnchor
+	}
 	return file, nil
 }
 
@@ -64,4 +71,22 @@ func openLockedFinalityAnchor(path string, create bool) (*os.File, error) {
 func singleLinkFinalityAnchor(info os.FileInfo) bool {
 	stat, ok := info.Sys().(*syscall.Stat_t)
 	return ok && stat.Nlink == 1
+}
+
+// validFinalityAnchorFile binds the held descriptor to its canonical path.
+// An unlinked, renamed, replaced, hard-linked or symlink-replaced journal is
+// unsafe for further high-water reads or signing. The check is best-effort
+// local filesystem protection, NOT a remote nonrollbackable authority.
+func validFinalityAnchorFile(file *os.File) bool {
+	if file == nil {
+		return false
+	}
+	opened, err := file.Stat()
+	if err != nil || !opened.Mode().IsRegular() || opened.Mode().Perm() != 0600 || !singleLinkFinalityAnchor(opened) {
+		return false
+	}
+	canonical, err := os.Lstat(file.Name())
+	return err == nil && canonical.Mode().IsRegular() &&
+		canonical.Mode().Perm() == 0600 && singleLinkFinalityAnchor(canonical) &&
+		os.SameFile(opened, canonical)
 }
