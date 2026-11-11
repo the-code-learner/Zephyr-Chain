@@ -1,6 +1,7 @@
 package node
 
 import (
+	"bufio"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -126,6 +127,55 @@ func anchorRecordDigest(network types.NetworkID, validatorRoot types.Hash, heigh
 	return types.Hash(codec.DomainHash("zephyr/monotonic-finalized-anchor/v2", w.BytesCopy()))
 }
 
+// intactOnDiskLocked replays the entire bounded on-disk hash chain and compares
+// it with this live handle's last fsynced checkpoint. A process holding a
+// separate descriptor to the same inode can truncate, append or rewrite it
+// without respecting flock; pathname/inode checks alone cannot detect that.
+// The replay uses ReadAt via a section reader, so it never moves the O_APPEND
+// writer offset. A mismatch poisons the handle permanently at the call site.
+//
+// This is local integrity detection, NOT protection from a coherent rollback
+// of both the local file and process, a hostile kernel or remote key reuse.
+func (s *FinalityAnchorStore) intactOnDiskLocked() bool {
+	if s.file == nil || s.count > maxFinalityAnchorRecords || !validFinalityAnchorFile(s.file) {
+		return false
+	}
+	expectedSize := int64(finalityAnchorHeaderSize) + int64(s.count)*finalityAnchorRecordSize
+	info, err := s.file.Stat()
+	if err != nil || info.Size() != expectedSize {
+		return false
+	}
+	reader := bufio.NewReaderSize(io.NewSectionReader(s.file, 0, expectedSize), 8192)
+	var header, expectedHeader [finalityAnchorHeaderSize]byte
+	copy(expectedHeader[:], finalityAnchorMagic)
+	copy(expectedHeader[4:36], s.network[:])
+	copy(expectedHeader[36:], s.validatorRoot[:])
+	if _, err := io.ReadFull(reader, header[:]); err != nil || header != expectedHeader {
+		return false
+	}
+	var previous, lastHash types.Hash
+	var lastHeight uint64
+	for i := uint32(0); i < s.count; i++ {
+		var raw [finalityAnchorRecordSize]byte
+		if _, err := io.ReadFull(reader, raw[:]); err != nil {
+			return false
+		}
+		height := binary.BigEndian.Uint64(raw[:8])
+		var hash, oldDigest, digest types.Hash
+		copy(hash[:], raw[8:40])
+		copy(oldDigest[:], raw[40:72])
+		copy(digest[:], raw[72:104])
+		if height == 0 || height <= lastHeight || types.IsZero32([32]byte(hash)) ||
+			oldDigest != previous || digest != anchorRecordDigest(s.network, s.validatorRoot, height, hash, oldDigest) {
+			return false
+		}
+		lastHeight, lastHash, previous = height, hash, digest
+	}
+	info, err = s.file.Stat()
+	return err == nil && info.Size() == expectedSize && validFinalityAnchorFile(s.file) &&
+		lastHeight == s.height && lastHash == s.hash && previous == s.lastDigest
+}
+
 // Current returns the durable minimum finalized checkpoint. The zero height
 // indicates a newly provisioned store with no finalized blocks yet.
 func (s *FinalityAnchorStore) Current() (FinalityCheckpoint, error) {
@@ -137,7 +187,7 @@ func (s *FinalityAnchorStore) Current() (FinalityCheckpoint, error) {
 	if s.closed || s.poisoned {
 		return FinalityCheckpoint{}, ErrFinalityAnchor
 	}
-	if !validFinalityAnchorFile(s.file) {
+	if !s.intactOnDiskLocked() {
 		// The locked descriptor must still map to its one canonical path.
 		// A moved/replaced anchor remains poisoned even if restored later.
 		s.poisoned = true
@@ -158,7 +208,7 @@ func (s *FinalityAnchorStore) advance(checkpoint FinalityCheckpoint) error {
 	if s.closed || s.poisoned || checkpoint.Validate(s.network, s.validatorRoot) != nil {
 		return ErrFinalityAnchor
 	}
-	if !validFinalityAnchorFile(s.file) {
+	if !s.intactOnDiskLocked() {
 		// A renamed, replaced, deleted or multiply linked anchor invalidates
 		// both fresh and idempotent reservations; never unpoison it.
 		s.poisoned = true
