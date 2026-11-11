@@ -41,6 +41,13 @@ func openLockedFinalityAnchor(path string, create bool) (*os.File, error) {
 		_ = file.Close()
 		return nil, fmt.Errorf("%w: anchor descriptor stat: %v", ErrFinalityAnchor, err)
 	}
+	// A second hard-link name bypasses the intended single canonical anchor
+	// pathname and can expose the local journal to unreviewed backup/restore
+	// paths. O_NOFOLLOW only denies symlinks, not hard links.
+	if !singleLinkFinalityAnchor(stat) {
+		_ = file.Close()
+		return nil, ErrFinalityAnchor
+	}
 	if !stat.Mode().IsRegular() || stat.Mode().Perm() != 0600 {
 		_ = file.Close()
 		return nil, fmt.Errorf("%w: anchor file must be regular mode 0600 (mode %v)", ErrFinalityAnchor, stat.Mode())
@@ -50,4 +57,11 @@ func openLockedFinalityAnchor(path string, create bool) (*os.File, error) {
 		return nil, errors.Join(ErrFinalityAnchor, err)
 	}
 	return file, nil
+}
+
+// singleLinkFinalityAnchor is a local inode invariant, NOT a global
+// monotonic HSM counter or a guarantee against full-file rollback.
+func singleLinkFinalityAnchor(info os.FileInfo) bool {
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	return ok && stat.Nlink == 1
 }
