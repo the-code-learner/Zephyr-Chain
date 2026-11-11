@@ -137,9 +137,9 @@ func (s *FinalityAnchorStore) Current() (FinalityCheckpoint, error) {
 	if s.closed || s.poisoned {
 		return FinalityCheckpoint{}, ErrFinalityAnchor
 	}
-	if stat, err := s.file.Stat(); err != nil || !singleLinkFinalityAnchor(stat) {
-		// Do not trust an anchor whose inode acquired a second pathname.
-		// Remain poisoned even if the hard link is subsequently removed.
+	if !validFinalityAnchorFile(s.file) {
+		// The locked descriptor must still map to its one canonical path.
+		// A moved/replaced anchor remains poisoned even if restored later.
 		s.poisoned = true
 		return FinalityCheckpoint{}, ErrFinalityAnchor
 	}
@@ -158,9 +158,9 @@ func (s *FinalityAnchorStore) advance(checkpoint FinalityCheckpoint) error {
 	if s.closed || s.poisoned || checkpoint.Validate(s.network, s.validatorRoot) != nil {
 		return ErrFinalityAnchor
 	}
-	if stat, err := s.file.Stat(); err != nil || !singleLinkFinalityAnchor(stat) {
-		// A newly added hard link invalidates both fresh and idempotent
-		// reservations; poisoning prevents a remove-and-retry bypass.
+	if !validFinalityAnchorFile(s.file) {
+		// A renamed, replaced, deleted or multiply linked anchor invalidates
+		// both fresh and idempotent reservations; never unpoison it.
 		s.poisoned = true
 		return ErrFinalityAnchor
 	}
