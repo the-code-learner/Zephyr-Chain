@@ -34,7 +34,7 @@ def inspect(manifest_path: pathlib.Path, root: pathlib.Path) -> list[str]:
         doc = json.loads(manifest_path.read_text(encoding="utf-8"))
     except (OSError, UnicodeError, json.JSONDecodeError) as exc:
         return [f"manifest unreadable: {exc}"]
-    if not isinstance(doc, dict) or set(doc) != {"schemaVersion", "gates"} or doc["schemaVersion"] != 1:
+    if not isinstance(doc, dict) or set(doc) != {"schemaVersion", "gates"} or type(doc["schemaVersion"]) is not int or doc["schemaVersion"] != 1:
         return ["manifest must contain exactly schemaVersion=1 and gates"]
     gates = doc["gates"]
     if not isinstance(gates, dict):
