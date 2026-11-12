@@ -65,9 +65,27 @@ jobs:
       - name: Seven-validator last-proposer sweep and QC liveness regression
         run: go test -race ./internal/api -run '^TestLabSevenValidatorsLastProposerNeedsFollowingSweepForQuorum$' -count=5 -timeout=4m
       - name: Scheduled proposer rotation across later odd rounds
+        shell: bash
         run: |
-          go test ./internal/api -run '^TestConsensusAutomationAdvancesRoundAndRotatesProposerAfterTimeout$' -count=50 -timeout=5m
-          go test -race ./internal/api -run '^TestConsensusAutomationAdvancesRoundAndRotatesProposerAfterTimeout$' -count=12 -timeout=4m
+          set -euo pipefail
+          mkdir -p proposer-rotation-diagnostics
+          {
+            echo "head_sha=${GITHUB_SHA}"
+            echo "runner_os=${RUNNER_OS}"
+            echo "cpu_count=$(nproc)"
+            echo "go_version=$(go version)"
+            echo "started_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          } > proposer-rotation-diagnostics/environment.txt
+          go test -json ./internal/api -run '^TestConsensusAutomationAdvancesRoundAndRotatesProposerAfterTimeout$' -count=50 -timeout=5m | tee proposer-rotation-diagnostics/stress.jsonl
+          go test -race -json ./internal/api -run '^TestConsensusAutomationAdvancesRoundAndRotatesProposerAfterTimeout$' -count=12 -timeout=4m | tee proposer-rotation-diagnostics/race.jsonl
+      - name: Preserve proposer rotation failure evidence
+        if: ${{ failure() && hashFiles('proposer-rotation-diagnostics/**') != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: proposer-rotation-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}
+          path: proposer-rotation-diagnostics/
+          if-no-files-found: error
+          retention-days: 30
       - name: Bounded-memory peer recovery JSON tail scanning regression
         run: go test -race ./internal/api -run '^(TestHTTPPeerTransportRejectsTrailingJSONOnRecoveryResponses|TestDecodeSinglePeerJSON)' -count=20 -timeout=3m
       - name: Bounded peer block-sync iteration at uint64 maximum regression
