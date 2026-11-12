@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"sync"
 
 	"github.com/zephyr-chain/zephyr-chain/internal/v2/codec"
@@ -32,6 +33,7 @@ var ErrFinalityAnchor = errors.New("invalid, missing, non-monotonic or unavailab
 type FinalityAnchorStore struct {
 	mu            sync.Mutex
 	file          *os.File
+	anchorParent  os.FileInfo
 	network       types.NetworkID
 	validatorRoot types.Hash
 	height        uint64
@@ -46,6 +48,16 @@ func OpenFinalityAnchorStore(path string, network types.NetworkID, validatorRoot
 	if path == "" || types.IsZero32([32]byte(network)) || types.IsZero32([32]byte(validatorRoot)) {
 		return nil, ErrFinalityAnchor
 	}
+	// The containing directory is part of the custody identity. A file may
+	// be moved out and back under the same pathname/inode after a directory
+	// replacement; checking only file.Name() cannot detect that operation.
+	if !filepath.IsAbs(path) || filepath.Clean(path) != path {
+		return nil, ErrFinalityAnchor
+	}
+	parent, err := os.Lstat(filepath.Dir(path))
+	if err != nil || !parent.IsDir() || parent.Mode().Perm()&0077 != 0 {
+		return nil, ErrFinalityAnchor
+	}
 	file, err := openLockedFinalityAnchor(path, create)
 	if err != nil {
 		return nil, err
@@ -56,7 +68,12 @@ func OpenFinalityAnchorStore(path string, network types.NetworkID, validatorRoot
 			_ = file.Close()
 		}
 	}()
-	store := &FinalityAnchorStore{file: file, network: network, validatorRoot: validatorRoot}
+	// A parent swap between initial validation and acquiring the file lock
+	// must fail before writing any new header/record.
+	if !validFinalityAnchorParent(path, parent) {
+		return nil, ErrFinalityAnchor
+	}
+	store := &FinalityAnchorStore{file: file, anchorParent: parent, network: network, validatorRoot: validatorRoot}
 	header := make([]byte, finalityAnchorHeaderSize)
 	copy(header, finalityAnchorMagic)
 	copy(header[4:36], network[:])
@@ -113,6 +130,9 @@ func OpenFinalityAnchorStore(path string, network types.NetworkID, validatorRoot
 	if _, err := file.Seek(0, io.SeekEnd); err != nil {
 		return nil, err
 	}
+	if !validFinalityAnchorParent(path, parent) || !validFinalityAnchorFile(file) {
+		return nil, ErrFinalityAnchor
+	}
 	success = true
 	return store, nil
 }
@@ -127,6 +147,20 @@ func anchorRecordDigest(network types.NetworkID, validatorRoot types.Hash, heigh
 	return types.Hash(codec.DomainHash("zephyr/monotonic-finalized-anchor/v2", w.BytesCopy()))
 }
 
+// validFinalityAnchorParent pins the original private directory inode as well
+// as its mode. A replaced or symlinked containing directory must not silently
+// authorize more local signing merely because the anchor file itself has been
+// moved back to the same pathname. This is best-effort LOCAL hardening, not
+// protection from host-root filesystem remounts or global storage rollback.
+func validFinalityAnchorParent(path string, original os.FileInfo) bool {
+	if original == nil || !original.IsDir() || original.Mode().Perm()&0077 != 0 {
+		return false
+	}
+	current, err := os.Lstat(filepath.Dir(path))
+	return err == nil && current.IsDir() && current.Mode() == original.Mode() &&
+		os.SameFile(current, original)
+}
+
 // intactOnDiskLocked replays the entire bounded on-disk hash chain and compares
 // it with this live handle's last fsynced checkpoint. A process holding a
 // separate descriptor to the same inode can truncate, append or rewrite it
@@ -137,7 +171,8 @@ func anchorRecordDigest(network types.NetworkID, validatorRoot types.Hash, heigh
 // This is local integrity detection, NOT protection from a coherent rollback
 // of both the local file and process, a hostile kernel or remote key reuse.
 func (s *FinalityAnchorStore) intactOnDiskLocked() bool {
-	if s.file == nil || s.count > maxFinalityAnchorRecords || !validFinalityAnchorFile(s.file) {
+	if s.file == nil || s.count > maxFinalityAnchorRecords ||
+		!validFinalityAnchorParent(s.file.Name(), s.anchorParent) || !validFinalityAnchorFile(s.file) {
 		return false
 	}
 	expectedSize := int64(finalityAnchorHeaderSize) + int64(s.count)*finalityAnchorRecordSize
@@ -172,7 +207,8 @@ func (s *FinalityAnchorStore) intactOnDiskLocked() bool {
 		lastHeight, lastHash, previous = height, hash, digest
 	}
 	info, err = s.file.Stat()
-	return err == nil && info.Size() == expectedSize && validFinalityAnchorFile(s.file) &&
+	return err == nil && info.Size() == expectedSize &&
+		validFinalityAnchorParent(s.file.Name(), s.anchorParent) && validFinalityAnchorFile(s.file) &&
 		lastHeight == s.height && lastHash == s.hash && previous == s.lastDigest
 }
 
