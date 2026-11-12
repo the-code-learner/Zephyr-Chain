@@ -122,11 +122,39 @@ class EvidenceIntegrityTest(unittest.TestCase):
         self.assertTrue(any("SHA-256" in e for e in errors), errors)
         self.assertTrue(any("unknown gate" in e for e in errors), errors)
 
-    def test_symlink_within_root_is_a_duplicate_artifact(self):
+    def test_symlink_to_existing_in_root_file_is_rejected(self):
         (self.root / "alias.log").symlink_to(self.root / "genesis_and_supply.log")
-        self.gates["consensus_byzantine_multihost"] = [{"path": "alias.log", "sha256": self.gates["genesis_and_supply"][0]["sha256"]}]
+        self.gates["consensus_byzantine_multihost"] = [{
+            "path": "alias.log",
+            "sha256": self.gates["genesis_and_supply"][0]["sha256"],
+        }]
         self.write_manifest()
-        self.assertTrue(any("reused" in e for e in checker.inspect(self.manifest, self.root)))
+        errors = checker.inspect(self.manifest, self.root)
+        self.assertTrue(any("symlink evidence path component" in e for e in errors), errors)
+
+    def test_symlinked_intermediate_directory_is_rejected(self):
+        (self.root / "actual").mkdir()
+        data = b"independent synthetic fixture"
+        (self.root / "actual" / "witness.txt").write_bytes(data)
+        (self.root / "alias-dir").symlink_to(self.root / "actual", target_is_directory=True)
+        self.gates["witness_independent_operators"] = [{
+            "path": "alias-dir/witness.txt",
+            "sha256": hashlib.sha256(data).hexdigest(),
+        }]
+        self.write_manifest()
+        errors = checker.inspect(self.manifest, self.root)
+        self.assertTrue(any("symlink evidence path component" in e for e in errors), errors)
+
+    def test_real_nested_regular_file_is_accepted(self):
+        (self.root / "reports").mkdir()
+        data = b"nested synthetic evidence"
+        (self.root / "reports" / "report.txt").write_bytes(data)
+        self.gates["witness_independent_operators"] = [{
+            "path": "reports/report.txt",
+            "sha256": hashlib.sha256(data).hexdigest(),
+        }]
+        self.write_manifest()
+        self.assertEqual(checker.inspect(self.manifest, self.root), [])
 
 
 if __name__ == "__main__":
