@@ -22,14 +22,14 @@ func TestCertifiedBlockDeliveryRepairsReplicaMissingQuorum(t *testing.T) {
 	voter := newConsensusSigner(t)
 	producer := newTestServer(t, Config{
 		DataDir: t.TempDir(), NodeID: "cert-producer",
-		ValidatorPrivateKey: encodedPrivateKey(t, proposer.privateKey),
+		ValidatorPrivateKey:   encodedPrivateKey(t, proposer.privateKey),
 		EnableBlockProduction: true, EnablePeerSync: false,
 		BlockInterval: 0, SyncInterval: 0, MaxTransactionsPerBlock: 10,
 		RequireConsensusCertificates: true,
 	})
 	replica := newTestServer(t, Config{
 		DataDir: t.TempDir(), NodeID: "cert-replica",
-		ValidatorPrivateKey: encodedPrivateKey(t, voter.privateKey),
+		ValidatorPrivateKey:   encodedPrivateKey(t, voter.privateKey),
 		EnableBlockProduction: false, EnablePeerSync: false,
 		BlockInterval: 0, SyncInterval: 0, MaxTransactionsPerBlock: 10,
 		RequireConsensusCertificates: true,
