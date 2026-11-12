@@ -8,6 +8,8 @@ The `WitnessSigningIntentJournal` is a non-key-bearing API. A caller must supply
 
 The live local anchor now re-reads the bounded (maximum 4096-record) hash chain before each current-state read or reservation. A same-inode truncation, append, changed header, changed intermediate record, or modified tail poisons the open handle and refuses further custody signatures, even if original bytes are restored later. This detects local in-process file divergence only; privileged storage rollback, malicious kernels, cross-host signing and global nonrollbackability remain **unproven**. See `TestLocalWitnessCustodyRejectsInPlaceAnchorMutationBeforeSigning`.
 
+The custody anchor also pins the original containing directory's inode and private mode at startup. Before any live high-water read or intent reservation it rejects a renamed/replaced parent directory—even if the exact same anchor file is moved back to the same pathname—and rejects permission changes. Any detection permanently poisons the live handle. See `TestLocalWitnessCustodyRejectsReplacedParentDirectoryBeforeSigning` and `TestFinalityAnchorStoreRejectsParentModeDrift`. This does **not** make the directory or filesystem tamper-proof against privileged host control, instantaneous TOCTOU, host snapshot restore or cross-host signing; a globally nonrollbackable independent HSM custody authority remains required.
+
 The verifier interface alone is **not** a proof. Passing a verifier that merely compares caller assertions to a mutable RPC response defeats the intended boundary. The test verifier is a fixture and may never be used for production signer authorization.
 
 ## Mandatory production dependencies (blocking)
