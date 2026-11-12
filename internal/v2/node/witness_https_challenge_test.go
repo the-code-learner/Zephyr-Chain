@@ -24,12 +24,36 @@ func TestChallengeAuthenticatedMultiOperatorHTTPSWitnessFloorRejectsReplayAndFor
 	keys, witnessPrivates := witnessTestKeys()
 	valid := signedWitnessTestBundle(t, cp, keys, witnessPrivates, 3)
 	const revision uint64 = 11
-	attested, operatorKeys, operatorPrivates := signedWitnessOperatorInventoryTestFixture(t, network, root, revision)
+	attested, operatorKeys, _ := signedWitnessOperatorInventoryTestFixture(t, network, root, revision)
+	publicationKeys := make([][]byte, len(attested))
+	publicationPrivates := make([]ed25519.PrivateKey, len(attested))
+	for i := range attested {
+		seed := make([]byte, ed25519.SeedSize)
+		seed[0] = byte(180 + i)
+		publicationPrivates[i] = ed25519.NewKeyFromSeed(seed)
+		publicationKeys[i] = append([]byte(nil), publicationPrivates[i].Public().(ed25519.PublicKey)...)
+	}
 	floor, err := NewChallengeAuthenticatedMultiOperatorHTTPSWitnessFloor(
-		attested, operatorKeys, keys, network, root, revision,
+		attested, operatorKeys, keys, publicationKeys, network, root, revision,
 	)
 	if err != nil {
 		t.Fatal(err)
+	}
+	// Misconfiguration must be rejected before any HTTPS read, not after
+	// receiving an apparently valid self-asserted publication signature.
+	for _, malformed := range [][][]byte{
+		nil,
+		publicationKeys[:2],
+		{publicationKeys[0], publicationKeys[0], publicationKeys[2]},
+		{operatorKeys[0], publicationKeys[1], publicationKeys[2]},
+		{keys[0], publicationKeys[1], publicationKeys[2]},
+		{[]byte("short"), publicationKeys[1], publicationKeys[2]},
+	} {
+		if _, err := NewChallengeAuthenticatedMultiOperatorHTTPSWitnessFloor(
+			attested, operatorKeys, keys, malformed, network, root, revision,
+		); !errors.Is(err, ErrWitnessSigningIntent) {
+			t.Fatalf("accepted unsafe publication key policy: %v", err)
+		}
 	}
 	var mu sync.Mutex
 	mode := "valid"
@@ -92,9 +116,9 @@ func TestChallengeAuthenticatedMultiOperatorHTTPSWitnessFloorRejectsReplayAndFor
 				w.WriteHeader(http.StatusInternalServerError)
 				return
 			}
-			private := operatorPrivates[i]
+			private := publicationPrivates[i]
 			if currentMode == "foreign-key" && i == 1 {
-				private = operatorPrivates[0]
+				private = publicationPrivates[0]
 			}
 			sig := ed25519.Sign(private, digest[:])
 			if currentMode == "replay-signature" && i == 1 {
