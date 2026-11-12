@@ -35,6 +35,8 @@ type DurableSigningGuard struct {
 	mu             sync.Mutex
 	file           *os.File
 	parentIdentity os.FileInfo
+	hostRootPath   string
+	hostRootIdentity os.FileInfo
 	recordCount    uint64
 	network        types.NetworkID
 	validator      types.ValidatorID
@@ -196,7 +198,9 @@ func validSigningGuardParent(path string, pinned os.FileInfo) bool {
 // host tampering threat and require external nonrollbackable key custody.
 func (g *DurableSigningGuard) verifyLiveLocked() error {
 	if g.file == nil || !validSigningGuardParent(g.file.Name(), g.parentIdentity) ||
-		!validSigningJournalFile(g.file) {
+		!validSigningJournalFile(g.file) ||
+		(g.hostRootPath != "" && !validSigningGuardParent(
+			filepath.Join(g.hostRootPath, "_host_custody_root"), g.hostRootIdentity)) {
 		return ErrSigningGuard
 	}
 	info, err := g.file.Stat()
@@ -248,7 +252,9 @@ func (g *DurableSigningGuard) verifyLiveLocked() error {
 		}
 	}
 	if !validSigningGuardParent(g.file.Name(), g.parentIdentity) ||
-		!validSigningJournalFile(g.file) {
+		!validSigningJournalFile(g.file) ||
+		(g.hostRootPath != "" && !validSigningGuardParent(
+			filepath.Join(g.hostRootPath, "_host_custody_root"), g.hostRootIdentity)) {
 		return ErrSigningGuard
 	}
 	return nil
