@@ -32,21 +32,21 @@ var (
 // MUST be shared by every process holding this validator key. It is not
 // safe to use independent copies of the same key with separate journals.
 type DurableSigningGuard struct {
-	mu             sync.Mutex
-	file           *os.File
-	parentIdentity os.FileInfo
-	hostRootPath   string
+	mu               sync.Mutex
+	file             *os.File
+	parentIdentity   os.FileInfo
+	hostRootPath     string
 	hostRootIdentity os.FileInfo
-	recordCount    uint64
-	network        types.NetworkID
-	validator      types.ValidatorID
-	height         uint64
-	round          uint64
-	target         types.Hash
-	lastRecordHash types.Hash
-	hasRecord      bool
-	closed         bool
-	poisoned       bool
+	recordCount      uint64
+	network          types.NetworkID
+	validator        types.ValidatorID
+	height           uint64
+	round            uint64
+	target           types.Hash
+	lastRecordHash   types.Hash
+	hasRecord        bool
+	closed           bool
+	poisoned         bool
 }
 
 // OpenDurableSigningGuard verifies the journal's network, validator and
