@@ -19,10 +19,10 @@ const (
 // Its signing key is a dedicated, independently pinned ONLINE publication key,
 // never the OFFLINE operator inventory issuer or witness checkpoint key.
 type witnessHTTPSChallengePolicy struct {
-	network       types.NetworkID
-	validatorRoot types.Hash
-	operatorID    string
-	revision      uint64
+	network        types.NetworkID
+	validatorRoot  types.Hash
+	operatorID     string
+	revision       uint64
 	publicationKey ed25519.PublicKey
 }
 
