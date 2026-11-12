@@ -30,7 +30,7 @@ Run:
 python3 scripts/check-mainnet-evidence.py /secure/dossier/manifest.json --root /secure/dossier
 ```
 
-The preflight rejects missing gate categories, missing/mutated files, duplicate file references, unsafe/escaping paths, invalid SHA-256 and empty entries. It streams file hashes and never silently treats a synthetic fixture, GitHub Actions green check or self-declared operator ID as externally verified safety.
+The preflight rejects missing gate categories, missing/mutated files, duplicate file references, unsafe/escaping paths, invalid SHA-256 and empty entries. It also rejects multiply hard-linked artifact inodes, including aliases outside the dossier: two filenames do not constitute two independent pieces of evidence. Store each reviewed artifact as a separate, single-linked regular file within the evidence root. This check is a local preflight, not a defense against a privileged operator mutating files concurrently or replacing the entire directory during inspection. It streams file hashes and never silently treats a synthetic fixture, GitHub Actions green check or self-declared operator ID as externally verified safety.
 
 **Even a successful preflight prints `MAINNET: NO-GO`.** A different organization must independently check evidence authenticity, real operator separation and legal/control independence, HSM monotonic reserve/sign across failover, attack drill reproduction, audit findings and remediations, release governance and final sign-offs under [mainnet-security-release-gates.md](mainnet-security-release-gates.md) and GitHub issues #42, #54, #55. Only that explicitly reviewed decision can authorize production launch.
 
