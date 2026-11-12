@@ -40,6 +40,8 @@ jobs:
             ./cmd/zephyr-genesis-audit \
             ./cmd/v2-observer \
             -count=1 -timeout=8m
+      - name: Host-fenced validator journal real cross-process double-sign and custody root regression
+        run: go test -race ./internal/v2/consensus -run '^TestHostFencedSigningGuard' -count=10 -timeout=4m
       - name: Durable validator consensus signing journal live custody integrity and poisoning
         run: go test -race ./internal/v2/consensus -run '^TestDurableSigningGuard' -count=10 -timeout=4m
       - name: Certified multi-height finality history and QC forgery regression

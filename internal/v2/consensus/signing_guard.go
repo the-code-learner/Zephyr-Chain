@@ -32,19 +32,21 @@ var (
 // MUST be shared by every process holding this validator key. It is not
 // safe to use independent copies of the same key with separate journals.
 type DurableSigningGuard struct {
-	mu             sync.Mutex
-	file           *os.File
-	parentIdentity os.FileInfo
-	recordCount    uint64
-	network        types.NetworkID
-	validator      types.ValidatorID
-	height         uint64
-	round          uint64
-	target         types.Hash
-	lastRecordHash types.Hash
-	hasRecord      bool
-	closed         bool
-	poisoned       bool
+	mu               sync.Mutex
+	file             *os.File
+	parentIdentity   os.FileInfo
+	hostRootPath     string
+	hostRootIdentity os.FileInfo
+	recordCount      uint64
+	network          types.NetworkID
+	validator        types.ValidatorID
+	height           uint64
+	round            uint64
+	target           types.Hash
+	lastRecordHash   types.Hash
+	hasRecord        bool
+	closed           bool
+	poisoned         bool
 }
 
 // OpenDurableSigningGuard verifies the journal's network, validator and
@@ -196,7 +198,9 @@ func validSigningGuardParent(path string, pinned os.FileInfo) bool {
 // host tampering threat and require external nonrollbackable key custody.
 func (g *DurableSigningGuard) verifyLiveLocked() error {
 	if g.file == nil || !validSigningGuardParent(g.file.Name(), g.parentIdentity) ||
-		!validSigningJournalFile(g.file) {
+		!validSigningJournalFile(g.file) ||
+		(g.hostRootPath != "" && !validSigningGuardParent(
+			filepath.Join(g.hostRootPath, "_host_custody_root"), g.hostRootIdentity)) {
 		return ErrSigningGuard
 	}
 	info, err := g.file.Stat()
@@ -248,7 +252,9 @@ func (g *DurableSigningGuard) verifyLiveLocked() error {
 		}
 	}
 	if !validSigningGuardParent(g.file.Name(), g.parentIdentity) ||
-		!validSigningJournalFile(g.file) {
+		!validSigningJournalFile(g.file) ||
+		(g.hostRootPath != "" && !validSigningGuardParent(
+			filepath.Join(g.hostRootPath, "_host_custody_root"), g.hostRootIdentity)) {
 		return ErrSigningGuard
 	}
 	return nil
