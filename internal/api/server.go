@@ -375,6 +375,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/v1/dev/block-template", s.handleBlockTemplate)
 	s.mux.HandleFunc("/v1/dev/produce-block", s.handleProduceBlock)
 	s.mux.HandleFunc("/v1/internal/blocks", s.handleImportBlock)
+	s.mux.HandleFunc("/v1/internal/certified-blocks", s.handleImportCertifiedBlock)
 	s.mux.HandleFunc("/v1/internal/block-evidence/", s.handleBlockEvidence)
 	s.mux.HandleFunc("/v1/internal/snapshot", s.handleSnapshot)
 }
@@ -927,7 +928,8 @@ func statusForError(err error) int {
 		errors.Is(err, ledger.ErrInvalidSnapshot),
 		errors.Is(err, ledger.ErrSnapshotChainMismatch),
 		errors.Is(err, ledger.ErrSnapshotProofInvalid),
-		errors.Is(err, ledger.ErrInvalidStateRoot):
+		errors.Is(err, ledger.ErrInvalidStateRoot),
+		errors.Is(err, ledger.ErrCertifiedEvidenceInvalid):
 		return http.StatusBadRequest
 	case errors.Is(err, errPeerIdentityRequired),
 		errors.Is(err, errMissingRequestProof),
@@ -952,6 +954,7 @@ func statusForError(err error) int {
 		errors.Is(err, ledger.ErrConsensusProposalRequired),
 		errors.Is(err, ledger.ErrConsensusTemplateMismatch),
 		errors.Is(err, ledger.ErrConsensusCertificateRequired),
+		errors.Is(err, ledger.ErrCertifiedEvidenceQuorum),
 		errors.Is(err, ledger.ErrConflictingProposal),
 		errors.Is(err, ledger.ErrUnknownProposal),
 		errors.Is(err, ledger.ErrConflictingVote),
