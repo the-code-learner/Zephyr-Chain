@@ -7,3 +7,7 @@ import "os"
 func openLockedSigningJournal(string) (*os.File, bool, error) {
 	return nil, false, ErrSigningGuardUnsupported
 }
+
+func validSigningJournalFile(*os.File) bool {
+	return false
+}
