@@ -9,7 +9,7 @@ import (
 )
 
 const (
-	witnessHTTPSChallengeHeader = "X-Zephyr-Witness-Challenge"
+	witnessHTTPSChallengeHeader         = "X-Zephyr-Witness-Challenge"
 	witnessHTTPSOperatorSignatureHeader = "X-Zephyr-Witness-Operator-Signature"
 )
 
