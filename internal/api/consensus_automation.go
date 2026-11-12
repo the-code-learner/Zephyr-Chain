@@ -61,6 +61,10 @@ func (s *Server) runConsensusAutomation() error {
 	if err := s.maybeAutomateCommit(); err != nil {
 		return err
 	}
+	// A peer can miss the first broadcast even after the proposer commits.
+	// Keep consensus tick nonblocking while replaying durable signed quorum
+	// evidence with a bounded per-peer retry schedule.
+	s.maybeRebroadcastLatestCertifiedBlock()
 	return nil
 }
 

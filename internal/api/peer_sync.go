@@ -321,6 +321,13 @@ func (s *Server) broadcastBlock(block ledger.Block) {
 		} else {
 			err = s.transport.PostBlock(peerURL, block)
 		}
+		if certified != nil {
+			// Persist in-memory delivery acknowledgement for the same
+			// block hash so the consensus ticker retries failures only.
+			if _, supportsCertified := s.transport.(certifiedBlockDeliveryTransport); supportsCertified {
+				s.recordCertifiedDelivery(peerURL, block.Hash, err)
+			}
+		}
 		if err != nil {
 			s.recordReplicationIncident(peerURL, "block", block.Hash, err)
 			recordPeerLog(fmt.Sprintf("broadcast-block %s", peerURL), err)
