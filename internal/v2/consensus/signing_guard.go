@@ -34,6 +34,8 @@ var (
 type DurableSigningGuard struct {
 	mu             sync.Mutex
 	file           *os.File
+	parentIdentity os.FileInfo
+	recordCount    uint64
 	network        types.NetworkID
 	validator      types.ValidatorID
 	height         uint64
@@ -52,6 +54,13 @@ func OpenDurableSigningGuard(dir string, network types.NetworkID, validator type
 	if dir == "" || types.IsZero32([32]byte(network)) || types.IsZero32([32]byte(validator)) {
 		return nil, ErrSigningGuard
 	}
+	// Bind the live journal to a stable absolute pathname even if an
+	// embedding process later changes its working directory.
+	canonicalDir, err := filepath.Abs(dir)
+	if err != nil {
+		return nil, ErrSigningGuard
+	}
+	dir = filepath.Clean(canonicalDir)
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return nil, err
 	}
@@ -69,7 +78,10 @@ func OpenDurableSigningGuard(dir string, network types.NetworkID, validator type
 			_ = file.Close()
 		}
 	}()
-	guard = &DurableSigningGuard{file: file, network: network, validator: validator}
+	if !validSigningJournalFile(file) || !validSigningGuardParent(path, info) {
+		return nil, ErrSigningGuard
+	}
+	guard = &DurableSigningGuard{file: file, parentIdentity: info, network: network, validator: validator}
 	if created {
 		var w codec.Writer
 		w.Fixed([]byte(signingJournalMagic))
@@ -96,6 +108,9 @@ func OpenDurableSigningGuard(dir string, network types.NetworkID, validator type
 		}
 	}
 	if err = guard.replay(); err != nil {
+		return nil, err
+	}
+	if err = guard.verifyLiveLocked(); err != nil {
 		return nil, err
 	}
 	return guard, nil
@@ -151,10 +166,92 @@ func (g *DurableSigningGuard) replay() error {
 			return ErrSigningJournal
 		}
 		g.height, g.round, g.target, g.lastRecordHash, g.hasRecord = height, round, target, hash, true
+		g.recordCount++
 		previous = hash
 	}
 	_, err := g.file.Seek(0, io.SeekEnd)
 	return err
+}
+
+// validSigningGuardParent rechecks the containing directory inode and mode.
+// The same locked journal inode can be moved back into a *different* private
+// directory under the original pathname. The original parent is therefore
+// part of the local signer custody boundary.
+func validSigningGuardParent(path string, pinned os.FileInfo) bool {
+	if pinned == nil || !pinned.IsDir() || pinned.Mode().Perm()&0077 != 0 {
+		return false
+	}
+	current, err := os.Lstat(filepath.Dir(path))
+	return err == nil && current.IsDir() && current.Mode() == pinned.Mode() &&
+		os.SameFile(current, pinned)
+}
+
+// verifyLiveLocked checks the current locked inode is still the *only*
+// canonical link under the original owner-only directory, and that its
+// header, exact append length and latest record match our cached state.
+// Run even for idempotent retries. This is intentionally O(1) per signature
+// rather than replaying an unbounded multi-year journal on every vote.
+// Startup still replays/verifies the COMPLETE hash chain. In-place edits to
+// historic records without changing the last record/size remain a privileged
+// host tampering threat and require external nonrollbackable key custody.
+func (g *DurableSigningGuard) verifyLiveLocked() error {
+	if g.file == nil || !validSigningGuardParent(g.file.Name(), g.parentIdentity) ||
+		!validSigningJournalFile(g.file) {
+		return ErrSigningGuard
+	}
+	info, err := g.file.Stat()
+	if err != nil || info.Size() < signingJournalHeaderBytes ||
+		(info.Size()-signingJournalHeaderBytes)%signingJournalRecordBytes != 0 ||
+		uint64((info.Size()-signingJournalHeaderBytes)/signingJournalRecordBytes) != g.recordCount {
+		return ErrSigningJournal
+	}
+	var header [signingJournalHeaderBytes]byte
+	if _, err := g.file.ReadAt(header[:], 0); err != nil ||
+		string(header[:4]) != signingJournalMagic || header[4] != signingJournalVersion {
+		return ErrSigningJournal
+	}
+	var network types.NetworkID
+	var validator types.ValidatorID
+	copy(network[:], header[5:37])
+	copy(validator[:], header[37:69])
+	if network != g.network || validator != g.validator {
+		return ErrSigningGuard
+	}
+	if g.recordCount == 0 {
+		if g.hasRecord {
+			return ErrSigningJournal
+		}
+	} else {
+		if !g.hasRecord {
+			return ErrSigningJournal
+		}
+		var last [signingJournalRecordBytes]byte
+		if _, err := g.file.ReadAt(last[:], info.Size()-signingJournalRecordBytes); err != nil {
+			return ErrSigningJournal
+		}
+		r := codec.NewReader(last[:])
+		height, e1 := r.U64()
+		round, e2 := r.U64()
+		targetRaw, e3 := r.Fixed(32)
+		_, e4 := r.Fixed(32)
+		hashRaw, e5 := r.Fixed(32)
+		if e1 != nil || e2 != nil || e3 != nil || e4 != nil || e5 != nil ||
+			r.Done() != nil || height != g.height || round != g.round {
+			return ErrSigningJournal
+		}
+		var target, digest types.Hash
+		copy(target[:], targetRaw)
+		copy(digest[:], hashRaw)
+		if target != g.target || digest != g.lastRecordHash ||
+			digest != types.Hash(codec.DomainHash("zephyr/consensus/signing-intent/v1", last[:80])) {
+			return ErrSigningJournal
+		}
+	}
+	if !validSigningGuardParent(g.file.Name(), g.parentIdentity) ||
+		!validSigningJournalFile(g.file) {
+		return ErrSigningGuard
+	}
+	return nil
 }
 
 func (g *DurableSigningGuard) Matches(network types.NetworkID, validator types.ValidatorID) bool {
@@ -163,7 +260,14 @@ func (g *DurableSigningGuard) Matches(network types.NetworkID, validator types.V
 	}
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	return !g.closed && !g.poisoned && g.network == network && g.validator == validator
+	if g.closed || g.poisoned || g.network != network || g.validator != validator {
+		return false
+	}
+	if err := g.verifyLiveLocked(); err != nil {
+		g.poisoned = true
+		return false
+	}
+	return true
 }
 
 // Authorize persists one monotonic signing intent to stable storage before
@@ -179,6 +283,12 @@ func (g *DurableSigningGuard) Authorize(network types.NetworkID, validator types
 	if g.closed || g.poisoned || g.network != network || g.validator != validator ||
 		height == 0 || types.IsZero32([32]byte(target)) {
 		return ErrSigningGuard
+	}
+	// Check path and live inode integrity BEFORE idempotent replay; a stale
+	// locked descriptor must never authorize another signature.
+	if err := g.verifyLiveLocked(); err != nil {
+		g.poisoned = true
+		return err
 	}
 	if g.hasRecord {
 		if height < g.height || (height == g.height && round < g.round) {
@@ -214,6 +324,11 @@ func (g *DurableSigningGuard) Authorize(network types.NetworkID, validator types
 		return ErrSigningJournal
 	}
 	g.height, g.round, g.target, g.lastRecordHash, g.hasRecord = height, round, target, digest, true
+	g.recordCount++
+	if err := g.verifyLiveLocked(); err != nil {
+		g.poisoned = true
+		return err
+	}
 	return nil
 }
 
