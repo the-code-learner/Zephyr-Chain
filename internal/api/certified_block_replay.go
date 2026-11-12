@@ -1,8 +1,6 @@
 package api
 
-import (
-	"time"
-)
+import "time"
 
 // A successful delivery needs no further replay for this peer and block.
 // Failed requests are retried at a bounded rate; the state is deliberately
@@ -11,10 +9,10 @@ import (
 const certifiedReplayInterval = 2 * time.Second
 
 type certifiedReplayState struct {
-	blockHash    string
-	lastAttempt time.Time
-	inFlight    bool
-	acknowledged bool
+	blockHash     string
+	lastAttempt   time.Time
+	inFlight      bool
+	acknowledged  bool
 }
 
 func (s *Server) recordCertifiedDelivery(peerURL, hash string, err error) {
@@ -83,7 +81,6 @@ func (s *Server) maybeRebroadcastLatestCertifiedBlock() {
 		if !s.reserveCertifiedReplay(peerURL, block.Hash, time.Now()) {
 			continue
 		}
-		peerURL := peerURL
 		s.runAsync(func() {
 			err := transport.PostCertifiedBlock(peerURL, delivery)
 			s.recordCertifiedDelivery(peerURL, block.Hash, err)
