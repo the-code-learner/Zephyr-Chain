@@ -230,6 +230,8 @@ type Server struct {
 	peerMu                sync.RWMutex
 	peerViews             map[string]PeerView
 	peerAdmissionRetrying map[string]struct{}
+	certifiedReplayMu     sync.Mutex
+	certifiedReplay       map[string]certifiedReplayState
 	consensusLatency      consensusLatencyRecorder
 	peerURLsMu            sync.RWMutex
 	peerURLs              []string
