@@ -33,6 +33,11 @@ type certifiedBlockEvidenceTransport interface {
 	FetchBlockEvidence(peerURL string, height uint64) ([]ledger.CertifiedBlockEvidence, error)
 }
 
+type certifiedBlockDeliveryTransport interface {
+	PostCertifiedBlock(peerURL string, delivery certifiedBlockDelivery) error
+}
+
+
 type httpPeerTransport struct {
 	client         *http.Client
 	sourceNode     string
@@ -186,6 +191,13 @@ func (t *httpPeerTransport) PostTransaction(peerURL string, envelope tx.Envelope
 
 func (t *httpPeerTransport) PostBlock(peerURL string, block ledger.Block) error {
 	return t.postJSON(peerURL+"/v1/internal/blocks", block)
+}
+
+// A certified block includes signed proposal/vote evidence. Unlike plain
+// PostBlock, this lets a lagging replica independently verify quorum when
+// it never received one of the validator votes before proposer finality.
+func (t *httpPeerTransport) PostCertifiedBlock(peerURL string, delivery certifiedBlockDelivery) error {
+	return t.postJSONWithConflictPolicy(peerURL+"/v1/internal/certified-blocks", delivery, false)
 }
 
 func (t *httpPeerTransport) PostFaucet(peerURL string, request FaucetRequest) error {
