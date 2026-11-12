@@ -104,6 +104,8 @@ jobs:
         run: go test -race ./internal/v2/node -run '^TestCertifiedWitnessFloorMinimum(PropagatesCancellation|RejectsLateLegacyResponse)$' -count=10 -timeout=3m
       - name: Stale quorum external floor regression
         run: go test -race ./internal/v2/node -run '^TestCertifiedWitnessFloorMinimum' -count=10 -timeout=3m
+      - name: Offline-signed online witness publication delegation anti-replay regression
+        run: go test -race ./internal/v2/node -run '^Test(DelegatedChallengeAuthenticatedMultiOperatorHTTPSWitnessFloorRequiresOfflineAuthorization|WitnessHTTPSPublicationDelegationDigestBindsKeyAndChain)$' -count=10 -timeout=4m
       - name: HTTPS witness challenged publisher must QC-verify before signing
         run: go test -race ./internal/v2/node -run '^TestWitnessHTTPSChallengePublicationHandler' -count=10 -timeout=4m
       - name: Challenged live witness HTTPS operator publication replay and forgery regression
