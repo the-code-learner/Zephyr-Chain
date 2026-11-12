@@ -128,6 +128,8 @@ jobs:
         run: go test -race ./internal/v2/node -run '^TestWitnessFence' -count=10 -timeout=3m
       - name: Atomic witness custody signature, concurrency, restart and rollback regression
         run: go test -race ./internal/v2/node -run '^TestAtomicWitnessCustody' -count=5 -timeout=4m
+      - name: Custody anchor original parent inode and permission drift regression
+        run: go test -race ./internal/v2/node -run '^Test(LocalWitnessCustodyRejectsReplacedParentDirectoryBeforeSigning|FinalityAnchorStoreRejectsParentModeDrift)$' -count=10 -timeout=3m
       - name: Canonical witness anchor path identity and replacement fail-closed regression
         run: go test -race ./internal/v2/node -run '^Test(FinalityAnchorStoreRejectsRenamedCanonicalPath|LocalWitnessCustodyRejectsReplacedCanonicalPathBeforeSigning)$' -count=10 -timeout=3m
       - name: Live same-inode custody hash-chain tamper must block private signing
