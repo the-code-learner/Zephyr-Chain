@@ -91,7 +91,7 @@ func TestWitnessHTTPSChallengePublicationHandlerChecksQCBeforeSigning(t *testing
 	}
 	remote := &HTTPWitnessFloorSource{
 		endpoint: ts.URL + witnessHTTPSChallengePublicationPath,
-		client: client,
+		client:   client,
 		challengePolicy: &witnessHTTPSChallengePolicy{
 			network: n, validatorRoot: root, operatorID: "operator-one", revision: 5,
 			publicationKey: online.Public().(ed25519.PublicKey),
@@ -193,12 +193,12 @@ func TestWitnessHTTPSChallengePublicationHandlerRejectsUnsafeKeyRoles(t *testing
 	inventoryKey := offline.Public().(ed25519.PublicKey)
 	pubKey := online.Public().(ed25519.PublicKey)
 	for _, test := range []struct {
-		name   string
-		id     string
-		rev    uint64
+		name    string
+		id      string
+		rev     uint64
 		offline []byte
-		online []byte
-		keys   [][]byte
+		online  []byte
+		keys    [][]byte
 	}{
 		{"same key", "operator-one", 1, pubKey, pubKey, witnessKeys},
 		{"witness key reused", "operator-one", 1, inventoryKey, witnessKeys[0], witnessKeys},
