@@ -9,10 +9,10 @@ import "time"
 const certifiedReplayInterval = 2 * time.Second
 
 type certifiedReplayState struct {
-	blockHash     string
-	lastAttempt   time.Time
-	inFlight      bool
-	acknowledged  bool
+	blockHash    string
+	lastAttempt  time.Time
+	inFlight     bool
+	acknowledged bool
 }
 
 func (s *Server) recordCertifiedDelivery(peerURL, hash string, err error) {
