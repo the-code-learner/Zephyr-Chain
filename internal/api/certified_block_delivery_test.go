@@ -97,14 +97,18 @@ func TestCertifiedBlockDeliveryRepairsReplicaMissingQuorum(t *testing.T) {
 	if got := replica.ledger.Status().Height; got != 0 {
 		t.Fatalf("forged evidence advanced replica height to %d", got)
 	}
-	if err := transport.PostCertifiedBlock(receiver.URL, delivery); err != nil {
-		t.Fatalf("deliver independently verified quorum: %v", err)
-	}
+	// Exercise the real post-commit broadcaster, not merely the optional
+	// transport method. The replica has peer sync disabled and no QC yet.
+	producer.setPeerURLs([]string{receiver.URL})
+	producer.broadcastBlock(block)
 	if got := replica.ledger.Status().Height; got != 1 {
 		t.Fatalf("certified replica failed to advance, height=%d", got)
 	}
 	if _, ok := replica.ledger.Certificate(1, 0, block.Hash); !ok {
 		t.Fatal("replica missing independently reconstructed QC")
+	}
+	if err := transport.PostCertifiedBlock(receiver.URL, delivery); err != nil {
+		t.Fatalf("repeated certified delivery should be idempotent: %v", err)
 	}
 	// The authenticated endpoint does not permit a client to assert
 	// finality without the signed peer identity proof.
