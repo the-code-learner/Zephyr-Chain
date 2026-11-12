@@ -5,7 +5,6 @@ package node
 import (
 	"context"
 	"crypto/ed25519"
-	"encoding/hex"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -217,9 +216,5 @@ func TestWitnessHTTPSChallengePublicationHandlerRejectsUnsafeKeyRoles(t *testing
 				t.Fatalf("unsafe publisher key policy accepted: %v", err)
 			}
 		})
-	}
-	nonce, _ := hex.DecodeString(strings.Repeat("a", 64))
-	if len(nonce) != 32 {
-		t.Fatal("invalid fixture challenge")
 	}
 }
