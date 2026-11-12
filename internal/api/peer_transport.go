@@ -37,7 +37,6 @@ type certifiedBlockDeliveryTransport interface {
 	PostCertifiedBlock(peerURL string, delivery certifiedBlockDelivery) error
 }
 
-
 type httpPeerTransport struct {
 	client         *http.Client
 	sourceNode     string
