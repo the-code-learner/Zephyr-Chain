@@ -28,11 +28,24 @@ REQUIRED_GATES = (
 )
 
 
+def reject_duplicate_json_members(pairs: list[tuple[str, object]]) -> dict:
+    """Reject ambiguous duplicate JSON keys at every object nesting level."""
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError(f"duplicate JSON key: {key}")
+        result[key] = value
+    return result
+
+
 def inspect(manifest_path: pathlib.Path, root: pathlib.Path) -> list[str]:
     errors = []
     try:
-        doc = json.loads(manifest_path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        doc = json.loads(
+            manifest_path.read_text(encoding="utf-8"),
+            object_pairs_hook=reject_duplicate_json_members,
+        )
+    except (OSError, UnicodeError, ValueError) as exc:
         return [f"manifest unreadable: {exc}"]
     if not isinstance(doc, dict) or set(doc) != {"schemaVersion", "gates"} or type(doc["schemaVersion"]) is not int or doc["schemaVersion"] != 1:
         return ["manifest must contain exactly schemaVersion=1 and gates"]

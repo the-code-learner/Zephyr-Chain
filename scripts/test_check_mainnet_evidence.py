@@ -33,6 +33,34 @@ class EvidenceIntegrityTest(unittest.TestCase):
     def test_synthetic_complete_manifest_checks_file_integrity_but_not_launch_approval(self):
         self.assertEqual(checker.inspect(self.manifest, self.root), [])
 
+    def test_duplicate_json_top_level_key_fails_closed(self):
+        raw = self.manifest.read_text(encoding="utf-8")
+        self.manifest.write_text(
+            raw.replace('"schemaVersion": 1,', '"schemaVersion": 1, "schemaVersion": 1,', 1),
+            encoding="utf-8",
+        )
+        errors = checker.inspect(self.manifest, self.root)
+        self.assertTrue(any("duplicate JSON key: schemaVersion" in e for e in errors), errors)
+
+    def test_duplicate_json_gate_key_fails_closed(self):
+        raw = self.manifest.read_text(encoding="utf-8")
+        self.manifest.write_text(
+            raw.replace('"genesis_and_supply":', '"genesis_and_supply": [], "genesis_and_supply":', 1),
+            encoding="utf-8",
+        )
+        errors = checker.inspect(self.manifest, self.root)
+        self.assertTrue(any("duplicate JSON key: genesis_and_supply" in e for e in errors), errors)
+
+    def test_duplicate_json_artifact_key_fails_closed(self):
+        raw = self.manifest.read_text(encoding="utf-8")
+        self.manifest.write_text(
+            raw.replace('"path": "genesis_and_supply.log"',
+                        '"path": "shadow.log", "path": "genesis_and_supply.log"', 1),
+            encoding="utf-8",
+        )
+        errors = checker.inspect(self.manifest, self.root)
+        self.assertTrue(any("duplicate JSON key: path" in e for e in errors), errors)
+
     def test_missing_and_empty_gate_fail_closed(self):
         del self.gates["witness_global_monotonicity_and_freshness"]
         self.gates["wasm_runtime_and_contract_audit"] = []
