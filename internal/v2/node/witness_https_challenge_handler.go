@@ -44,9 +44,9 @@ type WitnessHTTPSChallengePublicationHandler struct {
 	witnessKeys    [][]byte
 	// A per-handler admission semaphore serializes high-water checks and
 	// online signatures. Its token is acquired within the request deadline.
-	serial chan struct{}
+	serial   chan struct{}
 	observed bool
-	last FinalityCheckpoint
+	last     FinalityCheckpoint
 	// A production caller can require a separate authenticated external
 	// floor for every publication. Its own trust must be independently
 	// provisioned, not derived from this handler's candidate response.
