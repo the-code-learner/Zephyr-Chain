@@ -1,6 +1,7 @@
 package api
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/zephyr-chain/zephyr-chain/internal/ledger"
@@ -108,7 +109,7 @@ func (s *Server) maybeRebroadcastLatestCertifiedBlock() {
 	delivery := certifiedBlockDelivery{Block: block, Evidence: evidence}
 	for _, peerURL := range eligible {
 		s.runAsync(func() {
-			err := transport.PostCertifiedBlock(peerURL, delivery)
+			err := s.deliverCertifiedReplay(peerURL, delivery, transport)
 			s.recordCertifiedDelivery(peerURL, block.Hash, err)
 			if err != nil {
 				s.recordReplicationIncident(peerURL, "certified_replay", block.Hash, err)
@@ -116,4 +117,47 @@ func (s *Server) maybeRebroadcastLatestCertifiedBlock() {
 			}
 		})
 	}
+}
+
+// maxCertifiedCatchupBlocks bounds the signed data a single failed latest
+// block delivery may cause the proposer to retransmit. Large gaps require
+// multiple retry intervals; there is no unbounded block history loop.
+const maxCertifiedCatchupBlocks uint64 = 8
+
+// deliverCertifiedReplay repairs sequential missing heights only when a
+// certified latest-block POST was explicitly refused with HTTP 409.
+// A newly fetched peer status is checked through the normal authenticated
+// admission path and used only to choose *which locally signed blocks* to
+// resend; the recipient still independently validates each QC and state root.
+func (s *Server) deliverCertifiedReplay(peerURL string, latest certifiedBlockDelivery, transport certifiedBlockDeliveryTransport) error {
+	err := transport.PostCertifiedBlock(peerURL, latest)
+	if err == nil || err.Error() != "peer returned status 409" {
+		return err
+	}
+	view, admitted := s.fetchPeerAdmissionView(peerURL)
+	if !admitted || !view.Reachable || view.Height >= latest.Block.Height {
+		return err
+	}
+	start := view.Height + 1
+	end := latest.Block.Height
+	if end-start >= maxCertifiedCatchupBlocks {
+		end = start + maxCertifiedCatchupBlocks - 1
+	}
+	for height := start; height <= end; height++ {
+		block, ok := s.ledger.BlockAtHeight(height)
+		if !ok || block.Height != height {
+			return fmt.Errorf("certified catchup missing locally committed block at height %d", height)
+		}
+		evidence, ok := s.ledger.CertifiedBlockEvidenceAt(height)
+		if !ok {
+			return fmt.Errorf("certified catchup missing signed quorum at height %d", height)
+		}
+		if sendErr := transport.PostCertifiedBlock(peerURL, certifiedBlockDelivery{Block: block, Evidence: evidence}); sendErr != nil {
+			return sendErr
+		}
+	}
+	if end < latest.Block.Height {
+		return fmt.Errorf("certified catchup bounded at height %d; next retry required", end)
+	}
+	return nil
 }
