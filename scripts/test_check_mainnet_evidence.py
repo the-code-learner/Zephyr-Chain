@@ -66,6 +66,26 @@ class EvidenceIntegrityTest(unittest.TestCase):
         self.write_manifest()
         self.assertTrue(any("reused" in e for e in checker.inspect(self.manifest, self.root)))
 
+    def test_hard_link_alias_cannot_fulfill_separate_gate(self):
+        original = self.root / "genesis_and_supply.log"
+        alias = self.root / "independent-witness.log"
+        alias.hardlink_to(original)
+        self.gates["witness_independent_operators"] = [{
+            "path": alias.name,
+            "sha256": self.gates["genesis_and_supply"][0]["sha256"],
+        }]
+        self.write_manifest()
+        errors = checker.inspect(self.manifest, self.root)
+        self.assertTrue(any("hard-linked evidence" in e for e in errors), errors)
+
+    def test_hard_link_outside_dossier_is_rejected(self):
+        original = self.root / "genesis_and_supply.log"
+        outside = tempfile.TemporaryDirectory()
+        self.addCleanup(outside.cleanup)
+        (pathlib.Path(outside.name) / "shared-evidence.log").hardlink_to(original)
+        errors = checker.inspect(self.manifest, self.root)
+        self.assertTrue(any("hard-linked evidence" in e for e in errors), errors)
+
     def test_invalid_digest_and_unexpected_gate_fail(self):
         self.gates["genesis_and_supply"][0]["sha256"] = "A" * 64
         self.gates["unapproved_waiver"] = []

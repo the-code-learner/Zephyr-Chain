@@ -69,9 +69,16 @@ def inspect(manifest_path: pathlib.Path, root: pathlib.Path) -> list[str]:
                 resolved = target.resolve(strict=True)
                 if not resolved.is_relative_to(root) or not resolved.is_file():
                     raise ValueError("file outside evidence root or not regular")
-                if resolved in used:
-                    raise ValueError("one artifact reused across evidence requirements")
-                used.add(resolved)
+                # Distinct pathnames can be hard links to the same file.
+                # Refuse multiply linked evidence even when the aliases are
+                # listed under different gate categories.
+                identity = resolved.stat()
+                if identity.st_nlink != 1:
+                    raise ValueError("hard-linked evidence is not independently immutable")
+                inode = (identity.st_dev, identity.st_ino)
+                if inode in used:
+                    raise ValueError("one artifact inode reused across evidence requirements")
+                used.add(inode)
                 hasher = hashlib.sha256()
                 with resolved.open("rb") as stream:
                     for chunk in iter(lambda: stream.read(1024 * 1024), b""):
