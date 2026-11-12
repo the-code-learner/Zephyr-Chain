@@ -1987,26 +1987,33 @@ func TestConsensusAutomationAdvancesRoundAndRotatesProposerAfterTimeout(t *testi
 			roundZeroServer.ledger.ConsensusArtifacts(), roundOneServer.ledger.ConsensusArtifacts())
 	}
 
+	// Finality must be anchored to the COMMITTED block's certificate,
+	// not LatestProposal. Under a stressed scheduler a higher-round
+	// reproposal can be recorded after an earlier round has certified and
+	// finalized the same block; LatestProposal is not a finality pointer.
+	committed, ok := roundOneServer.ledger.BlockAtHeight(1)
+	if !ok {
+		t.Fatal("rotated proposer has no committed block at height 1")
+	}
 	roundOneArtifacts := roundOneServer.ledger.ConsensusArtifacts()
-	proposal := roundOneArtifacts.LatestProposal
-	// The configured second proposer is scheduled on odd rounds. Under
-	// scheduler/load variance a valid commit may occur at round 3 or 5,
-	// not necessarily the first eligible round 1. Still reject an even
-	// round, foreign proposer, wrong height or mismatched certificates.
-	if proposal == nil || proposal.Height != 1 || proposal.Round == 0 ||
-		proposal.Round%2 == 0 || proposal.Proposer != roundOneProposer.address {
-		t.Fatalf("expected certified odd-round scheduled proposer, got %+v", proposal)
-	}
 	certificate := roundOneArtifacts.LatestCertificate
-	if certificate == nil || certificate.Height != proposal.Height ||
-		certificate.Round != proposal.Round || certificate.BlockHash != proposal.BlockHash {
-		t.Fatalf("expected matching finalized QC for rotated proposer: proposal=%+v certificate=%+v", proposal, certificate)
+	if certificate == nil || certificate.Height != committed.Height ||
+		certificate.BlockHash != committed.Hash || certificate.QuorumVotingPower == 0 ||
+		certificate.VotingPower < certificate.QuorumVotingPower {
+		t.Fatalf("expected quorum-certified committed block: block=%+v certificate=%+v", committed, certificate)
 	}
-	roundZeroArtifacts := roundZeroServer.ledger.ConsensusArtifacts()
-	replicaCertificate := roundZeroArtifacts.LatestCertificate
-	if replicaCertificate == nil || replicaCertificate.Height != proposal.Height ||
-		replicaCertificate.Round != proposal.Round || replicaCertificate.BlockHash != proposal.BlockHash {
-		t.Fatalf("replica missed QC for rotated proposer: proposal=%+v replica=%+v", proposal, replicaCertificate)
+	proposal, ok := roundOneServer.ledger.ProposalAt(certificate.Height, certificate.Round)
+	// Keep the strict rotated-proposer schedule invariant. A late unsigned
+	// or uncommitted proposal cannot substitute for the certified round.
+	if !ok || proposal.Height != 1 || proposal.Round == 0 ||
+		proposal.Round%2 == 0 || proposal.Proposer != roundOneProposer.address ||
+		proposal.BlockHash != committed.Hash || proposal.Round != certificate.Round {
+		t.Fatalf("expected matching odd-round proposal for committed QC: proposal=%+v certificate=%+v", proposal, certificate)
+	}
+	replicaCertificate, ok := roundZeroServer.ledger.Certificate(certificate.Height, certificate.Round, certificate.BlockHash)
+	if !ok || replicaCertificate.VotingPower < replicaCertificate.QuorumVotingPower ||
+		replicaCertificate.QuorumVotingPower == 0 {
+		t.Fatalf("replica missed certified committed block: block=%+v proposal=%+v replica=%+v", committed, proposal, replicaCertificate)
 	}
 	if sender := roundZeroServer.ledger.View(envelope.From); sender.Balance != 75 || sender.Nonce != 1 {
 		t.Fatalf("unexpected round-zero sender state after timeout rotation: %+v", sender)
