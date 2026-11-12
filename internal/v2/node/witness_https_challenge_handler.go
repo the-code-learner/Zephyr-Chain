@@ -31,7 +31,7 @@ type WitnessHTTPSPublicationSigner interface {
 // Its HTTP server must be configured with genuine TLS, not a fake proxy
 // TLS assertion. No public mainnet launch authorization is implied.
 type WitnessHTTPSChallengePublicationHandler struct {
-	source         interface {
+	source interface {
 		SignedWitnessFloorContext(context.Context) ([]byte, error)
 	}
 	verifier       WitnessFinalityVerifier
