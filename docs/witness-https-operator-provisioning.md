@@ -137,6 +137,39 @@ hardware isolation, or production HSM-backed key custody. An independent
 auditor must review issuance, operator key history, revocation/overlap and
 recovery before mainnet authorization. **PUBLIC MAINNET NO-GO.**
 
+## Independent online-key pinning against same-revision issuer equivocation
+
+A valid offline issuer signature is **not** a guarantee that an operator
+signed only one online publication key at a roster revision. The issuer
+could sign two different but individually valid delegations for the
+same OperatorID, NetworkID, validator root and revision. A consumer
+that learns its authorized online key *only* from the operator-provided
+delegation cannot detect this equivocation from signatures alone.
+
+`node.NewPinnedDelegatedChallengeAuthenticatedMultiOperatorHTTPSWitnessFloor`
+is the stricter opt-in construction path: in addition to verifying the
+full signed inventory and every signed delegation, callers supply a
+**separately authenticated exact online public-key pin for EACH operator**,
+in signed roster order. The constructor checks the independently
+provided pin against the delegated key before initializing any HTTPS
+source, then reuses all prior 3+ origin, key-role isolation, challenged
+response, and witness-quorum checks. It rejects substituted, missing,
+duplicate, swapped or wrongly signed online keys, including when a
+malicious but valid offline issuer signs a different key for the same
+revision. A test recreates both *validly signed* delegations and shows
+that only the one matching the independently provisioned pin can pass
+strict construction.
+
+The expected pins and expected roster revision must come from an
+authenticated, independently operated and **rollback-protected**
+provisioning channel; obtaining both from a single compromised issuer
+is circular. This is a cryptographic anti-substitution check at
+configuration time, not proof of non-equivocation over the whole
+history or automatic revocation. A compromised pinning authority,
+coordinated rollback of pins and signer policy, or use of one online
+key on multiple machines still requires operational/HSM fencing,
+transparency and independent audit. **Public mainnet stays NO-GO**.
+
 ## Challenge-bound HTTPS publisher adapter (P0 reference server)
 
 The `node.NewWitnessHTTPSChallengePublicationHandler` provides the **server**
