@@ -80,8 +80,9 @@ OS-random challenge for each HTTPS GET:
 - Response: canonical quorum-signed JSON checkpoint bundle,
   `Content-Type: application/json` and exactly one
   `X-Zephyr-Witness-Operator-Signature: <128 lowercase hexadecimal characters>`.
-- The operator signs `WitnessHTTPSPublicationChallengeDigest` using its
-  **pinned operator inventory Ed25519 key**, never a quorum witness key.
+- The operator signs `WitnessHTTPSPublicationChallengeDigest` using a
+  **separately pinned online publication Ed25519 key**, distinct from
+  both offline inventory issuer and quorum witness signer keys.
   The domain-separated digest commits to NetworkID, genesis validator root,
   operator ID, externally pinned roster revision, request challenge, and
   SHA-256 of the **exact** JSON response bytes.
@@ -91,7 +92,7 @@ OS-random challenge for each HTTPS GET:
   strict all-origin equality checks. The aggregate 5-second budget remains.
 
 **Important security boundary:** This is proof that the independently pinned
-operator identity signed the exact response to a fresh nonce, not proof that
+operator-specific publication key signed the exact response to a fresh nonce, not proof that
 the operator checked new QC finality, that the signed checkpoint is at the
 current chain tip, or that its private key is guarded by nonrollbackable HSM.
 A dishonest operator can sign an older still-valid checkpoint in response to
@@ -99,8 +100,13 @@ a new nonce. The independently authenticated monotonic high-water policy,
 true freshness SLA, QC ancestry, 3+ real operators, key-role isolation,
 cross-host crash/recovery drills and external audit are still mandatory.
 An intermediary must not be treated as an operator merely because it can
-relay the challenge; the signing endpoint and inventory key custody need
-independent operational attestation. Synthetic HTTPS regression tests are
+relay the challenge; the signing endpoint and publication key custody need
+independent operational attestation. Publication keys must be pinned **out of
+band in the exact signed roster order**; the constructor rejects missing,
+duplicate, inventory-issuer or witness-signing key reuse. The inventory
+signing keys should remain offline and MUST NOT be exposed to the live HTTPS
+publisher. A separate signed publication-key delegation/rotation ceremony
+and independent verification are needed before production key rotation. Synthetic HTTPS regression tests are
 not launch evidence. **PUBLIC MAINNET NO-GO.**
 
 ## Operator evidence to collect outside CI
