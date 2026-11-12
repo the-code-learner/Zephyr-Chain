@@ -23,8 +23,8 @@ func TestDelegatedChallengeAuthenticatedMultiOperatorHTTPSWitnessFloorRequiresOf
 		seed[0] = byte(191 + i)
 		publicationPrivate := ed25519.NewKeyFromSeed(seed)
 		delegations[i] = WitnessHTTPSPublicationDelegation{
-			OperatorID: attestation.OperatorID,
-			Revision: revision,
+			OperatorID:           attestation.OperatorID,
+			Revision:             revision,
 			PublicationPublicKey: append([]byte(nil), publicationPrivate.Public().(ed25519.PublicKey)...),
 		}
 		digest, err := WitnessHTTPSPublicationDelegationDigest(delegations[i], network, root)
@@ -68,7 +68,7 @@ func TestDelegatedChallengeAuthenticatedMultiOperatorHTTPSWitnessFloorRequiresOf
 		return out
 	}
 	cases := []struct {
-		name string
+		name   string
 		mutate func([]WitnessHTTPSPublicationDelegation)
 	}{
 		{"modified online key", func(d []WitnessHTTPSPublicationDelegation) { d[0].PublicationPublicKey[0] ^= 1 }},
@@ -108,8 +108,8 @@ func TestDelegatedChallengeAuthenticatedMultiOperatorHTTPSWitnessFloorRequiresOf
 	otherRoot := root
 	otherRoot[0] ^= 1
 	for _, change := range []struct {
-		network types.NetworkID
-		root types.Hash
+		network  types.NetworkID
+		root     types.Hash
 		revision uint64
 	}{
 		{otherNetwork, root, revision},
