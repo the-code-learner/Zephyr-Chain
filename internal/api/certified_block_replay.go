@@ -1,6 +1,10 @@
 package api
 
-import "time"
+import (
+	"time"
+
+	"github.com/zephyr-chain/zephyr-chain/internal/ledger"
+)
 
 // A successful delivery needs no further replay for this peer and block.
 // Failed requests are retried at a bounded rate; the state is deliberately
@@ -72,15 +76,26 @@ func (s *Server) maybeRebroadcastLatestCertifiedBlock() {
 	if !ok {
 		return
 	}
+	// Avoid repeatedly copying the ledger's full consensus state at every
+	// short automation tick once all current peers have acknowledged.
+	eligible := make([]string, 0)
+	for _, peerURL := range s.admittedPeerURLs() {
+		if s.reserveCertifiedReplay(peerURL, block.Hash, time.Now()) {
+			eligible = append(eligible, peerURL)
+		}
+	}
+	if len(eligible) == 0 {
+		return
+	}
 	evidence, ok := s.ledger.CertifiedBlockEvidenceAt(height)
 	if !ok {
+		for _, peerURL := range eligible {
+			s.recordCertifiedDelivery(peerURL, block.Hash, ledger.ErrConsensusCertificateRequired)
+		}
 		return
 	}
 	delivery := certifiedBlockDelivery{Block: block, Evidence: evidence}
-	for _, peerURL := range s.admittedPeerURLs() {
-		if !s.reserveCertifiedReplay(peerURL, block.Hash, time.Now()) {
-			continue
-		}
+	for _, peerURL := range eligible {
 		s.runAsync(func() {
 			err := transport.PostCertifiedBlock(peerURL, delivery)
 			s.recordCertifiedDelivery(peerURL, block.Hash, err)
