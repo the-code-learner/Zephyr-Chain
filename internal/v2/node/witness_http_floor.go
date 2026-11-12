@@ -132,7 +132,7 @@ func (s *HTTPWitnessFloorSource) SignedWitnessFloorContext(ctx context.Context) 
 			policy.network, policy.validatorRoot, policy.operatorID,
 			policy.revision, challenge, payload,
 		)
-		if err != nil || ctx.Err() != nil || !ed25519.Verify(policy.operatorKey, digest[:], sig) {
+		if err != nil || ctx.Err() != nil || !ed25519.Verify(policy.publicationKey, digest[:], sig) {
 			return nil, errors.Join(ErrWitnessSigningIntent, err, ctx.Err())
 		}
 	}
