@@ -109,6 +109,34 @@ publisher. A separate signed publication-key delegation/rotation ceremony
 and independent verification are needed before production key rotation. Synthetic HTTPS regression tests are
 not launch evidence. **PUBLIC MAINNET NO-GO.**
 
+## Offline-signed online publication key delegation (P0)
+
+`node.NewDelegatedChallengeAuthenticatedMultiOperatorHTTPSWitnessFloor`
+accepts one `WitnessHTTPSPublicationDelegation` per signed operator roster
+entry. The delegated **online** publication public key and exact
+OperatorID/revision are signed with that operator's separately pinned
+**offline inventory issuer Ed25519 key** using the canonical
+`WitnessHTTPSPublicationDelegationDigest` over NetworkID, original
+validator root, OperatorID, expected inventory revision and online key.
+Delegations must match the signed roster **in exact order**, verify under
+the issuer corresponding to that entry, and have the externally pinned
+revision. Role separation still forbids using the online publication key
+as a witness checkpoint key, a second operator's publication key, or an
+offline inventory issuer key. Every failure denies constructing a live
+reader; no cached unsigned fallback.
+
+The offline issuer signs delegation bytes in a controlled ceremony, never
+by running on a live HTTPS publisher. A delegation is an authorization
+for an online **response signature**, not a capability to mint finality or
+sign validator votes. A properly signed but **older** delegation can be
+replayed if an operator restores the independently pinned expected roster
+revision, and an offline issuer can equivocate by signing two different
+keys at the same revision. This mechanism alone is **NOT** authenticated
+revocation, freshness SLA, a monotonically updated key registry, real
+hardware isolation, or production HSM-backed key custody. An independent
+auditor must review issuance, operator key history, revocation/overlap and
+recovery before mainnet authorization. **PUBLIC MAINNET NO-GO.**
+
 ## Challenge-bound HTTPS publisher adapter (P0 reference server)
 
 The `node.NewWitnessHTTPSChallengePublicationHandler` provides the **server**
