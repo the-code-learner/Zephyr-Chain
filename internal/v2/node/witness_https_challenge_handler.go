@@ -42,6 +42,17 @@ type WitnessHTTPSChallengePublicationHandler struct {
 	revision       uint64
 	publicationKey ed25519.PublicKey
 	witnessKeys    [][]byte
+	// A per-handler admission semaphore serializes high-water checks and
+	// online signatures. Its token is acquired within the request deadline.
+	serial   chan struct{}
+	observed bool
+	last     FinalityCheckpoint
+	// A production caller can require a separate authenticated external
+	// floor for every publication. Its own trust must be independently
+	// provisioned, not derived from this handler's candidate response.
+	externalFloor interface {
+		AuthenticatedWitnessFloorContext(context.Context) (FinalityCheckpoint, error)
+	}
 }
 
 // NewWitnessHTTPSChallengePublicationHandler pins source, signing and
@@ -87,7 +98,7 @@ func NewWitnessHTTPSChallengePublicationHandler(
 		source: contextual, verifier: verifier, signer: signer,
 		network: network, validatorRoot: validatorRoot, operatorID: operatorID,
 		revision: revision, publicationKey: append(ed25519.PublicKey(nil), publicationKey...),
-		witnessKeys: copied,
+		witnessKeys: copied, serial: make(chan struct{}, 1),
 	}, nil
 }
 
@@ -103,7 +114,8 @@ func rejectWitnessPublication(w http.ResponseWriter, status int) {
 func (h *WitnessHTTPSChallengePublicationHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Pragma", "no-cache")
-	if h == nil || h.source == nil || h.verifier == nil || h.signer == nil || r == nil {
+	if h == nil || h.source == nil || h.verifier == nil || h.signer == nil ||
+		h.serial == nil || r == nil {
 		rejectWitnessPublication(w, http.StatusServiceUnavailable)
 		return
 	}
@@ -142,6 +154,20 @@ func (h *WitnessHTTPSChallengePublicationHandler) ServeHTTP(w http.ResponseWrite
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
+	// Multiple overlapping GETs must not sign an old checkpoint after a
+	// concurrent request already observed and reserved a newer checkpoint.
+	// Waiting for this lock is part of the same bounded request budget.
+	select {
+	case h.serial <- struct{}{}:
+		defer func() { <-h.serial }()
+	case <-ctx.Done():
+		rejectWitnessPublication(w, http.StatusServiceUnavailable)
+		return
+	}
+	if ctx.Err() != nil {
+		rejectWitnessPublication(w, http.StatusServiceUnavailable)
+		return
+	}
 	payload, err := h.source.SignedWitnessFloorContext(ctx)
 	if err != nil || ctx.Err() != nil {
 		rejectWitnessPublication(w, http.StatusServiceUnavailable)
@@ -156,6 +182,33 @@ func (h *WitnessHTTPSChallengePublicationHandler) ServeHTTP(w http.ResponseWrite
 		rejectWitnessPublication(w, http.StatusServiceUnavailable)
 		return
 	}
+	// A strict deployment checks a second AUTHENTICATED source, whose
+	// independent custody/infrastructure must be audited separately.
+	// Comparing equality (not only height >=) prevents signing a stale
+	// but still QC-valid checkpoint when the external floor is ahead.
+	if h.externalFloor != nil {
+		floor, err := h.externalFloor.AuthenticatedWitnessFloorContext(ctx)
+		if err != nil || ctx.Err() != nil || floor != *checkpoint {
+			rejectWitnessPublication(w, http.StatusServiceUnavailable)
+			return
+		}
+	}
+	// Check and reserve the in-process high water BEFORE accessing the
+	// online signer. A signature failure must not permit equivocation
+	// or rollback on subsequent requests through this process.
+	if h.observed && (checkpoint.Network != h.last.Network ||
+		checkpoint.ValidatorRoot != h.last.ValidatorRoot ||
+		checkpoint.Height < h.last.Height ||
+		(checkpoint.Height == h.last.Height && checkpoint.HeaderHash != h.last.HeaderHash)) {
+		rejectWitnessPublication(w, http.StatusServiceUnavailable)
+		return
+	}
+	if ctx.Err() != nil {
+		rejectWitnessPublication(w, http.StatusServiceUnavailable)
+		return
+	}
+	h.last = *checkpoint
+	h.observed = true
 	digest, err := WitnessHTTPSPublicationChallengeDigest(
 		h.network, h.validatorRoot, h.operatorID, h.revision, challenge, payload,
 	)

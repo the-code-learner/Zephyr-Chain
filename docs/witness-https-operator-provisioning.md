@@ -170,6 +170,43 @@ test stubs or unverified RPC assertions cannot be production inputs.
 Signing a fresh nonce still cannot certify publication freshness if an
 operator deliberately re-signs an old valid checkpoint. **Mainnet NO-GO**.
 
+## Strict publisher external high-water reconciliation (P0 opt-in)
+
+`node.NewReconciledWitnessHTTPSChallengePublicationHandler` extends the
+reference server with a **mandatory context-aware, independently
+authenticated external witness floor**. Before asking the isolated online
+publication key to sign an exact quorum-signed, genesis/QC-certified bundle,
+the handler reads the external floor within the same five-second deadline
+and requires **exact** network, root, height and hash agreement. Missing,
+stalled, lower, higher or contradictory floors deny publication; no
+stale-signed bundle or cached replay is silently substituted.
+
+Every publisher handler (including the baseline constructor) also
+serializes GET admission, local certificate verification and online
+signing with a request-deadline-aware semaphore and reserves a
+**process-local monotonic high-water checkpoint BEFORE signing**. A later
+request to re-sign an older QC-valid height or equivocate at equal height
+fails closed, even if the original signature attempt failed. Negative
+regressions cover external lag/advance/outage/conflict, rollback of
+both fixture sources, failed sign followed by rollback, and concurrent
+GETs with an older but still QC-valid ancestor. CI repeats tests under
+the race detector.
+
+These changes address local **live-process** safety and consistency.
+They do **not** demonstrate freshness against a dishonest live operator
+which controls the supposed remote floor, since that operator may sign
+old QC-valid checkpoints. They do not persist a nonrollbackable
+high-water across process restarts, protect against a compromised host,
+give rollback-safe key revocation, atomically fence multiple machines
+sharing the same signing key, or prove external operator independence.
+A source that merely echoes the publisher's own response is not
+independent. The strict external floor must have a separately provisioned,
+cryptographically pinned quorum and audited physical/operational
+failure domains; `WitnessExternalFloorVerifier` is an injection point,
+not proof of these operational properties. Before real asset custody,
+require HSM-enforced globally serialized reserve/sign and independently
+audited multi-host fault/restore tests. **Mainnet NO-GO.**
+
 ## Operator evidence to collect outside CI
 
 Before a production release, an independently reviewed operator roster must
