@@ -125,10 +125,10 @@ func NewChallengeAuthenticatedMultiOperatorHTTPSWitnessFloor(
 			return nil, ErrWitnessSigningIntent
 		}
 		source.challengePolicy = &witnessHTTPSChallengePolicy{
-			network:       network,
-			validatorRoot: validatorRoot,
-			operatorID:    attestation.OperatorID,
-			revision:      expectedRevision,
+			network:        network,
+			validatorRoot:  validatorRoot,
+			operatorID:     attestation.OperatorID,
+			revision:       expectedRevision,
 			publicationKey: append(ed25519.PublicKey(nil), publicationKey...),
 		}
 	}
