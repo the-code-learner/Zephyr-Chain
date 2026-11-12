@@ -295,8 +295,33 @@ func (s *Server) broadcastTransaction(envelope tx.Envelope) {
 }
 
 func (s *Server) broadcastBlock(block ledger.Block) {
+	var certified *certifiedBlockDelivery
+	if s.config.RequireConsensusCertificates {
+		// The proposer may have obtained the quorum before every replica
+		// received all votes. Ordinary PostBlock requires an existing LOCAL
+		// QC on the recipient and can leave those replicas stranded forever
+		// when periodic peer sync is intentionally disabled.
+		evidence, ok := s.ledger.CertifiedBlockEvidenceAt(block.Height)
+		if !ok {
+			recordPeerLog("broadcast-certified-block", ledger.ErrConsensusCertificateRequired)
+			return
+		}
+		certified = &certifiedBlockDelivery{Block: block, Evidence: evidence}
+	}
 	for _, peerURL := range s.admittedPeerURLs() {
-		if err := s.transport.PostBlock(peerURL, block); err != nil {
+		var err error
+		if certified != nil {
+			if transport, ok := s.transport.(certifiedBlockDeliveryTransport); ok {
+				err = transport.PostCertifiedBlock(peerURL, *certified)
+			} else {
+				// Compatibility for legacy injected transports. The receiving
+				// ledger still refuses ordinary blocks without a local QC.
+				err = s.transport.PostBlock(peerURL, block)
+			}
+		} else {
+			err = s.transport.PostBlock(peerURL, block)
+		}
+		if err != nil {
 			s.recordReplicationIncident(peerURL, "block", block.Hash, err)
 			recordPeerLog(fmt.Sprintf("broadcast-block %s", peerURL), err)
 		}
