@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -34,7 +35,18 @@ func TestCertifiedBlockDeliveryRepairsReplicaMissingQuorum(t *testing.T) {
 		BlockInterval: 0, SyncInterval: 0, MaxTransactionsPerBlock: 10,
 		RequireConsensusCertificates: true,
 	})
-	receiver := httptest.NewServer(replica.Handler())
+	// Drop one authenticated certified POST to model a transient partition
+	// after the proposer has durably committed. No peer sync is available.
+	var dropFirstCertified atomic.Bool
+	var dropped atomic.Int32
+	receiver := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v1/internal/certified-blocks" && dropFirstCertified.CompareAndSwap(true, false) {
+			dropped.Add(1)
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		replica.Handler().ServeHTTP(w, r)
+	}))
 	defer receiver.Close()
 
 	validators := []dpos.Validator{
@@ -100,9 +112,33 @@ func TestCertifiedBlockDeliveryRepairsReplicaMissingQuorum(t *testing.T) {
 	// Exercise the real post-commit broadcaster, not merely the optional
 	// transport method. The replica has peer sync disabled and no QC yet.
 	producer.setPeerURLs([]string{receiver.URL})
+	dropFirstCertified.Store(true)
 	producer.broadcastBlock(block)
-	if got := replica.ledger.Status().Height; got != 1 {
-		t.Fatalf("certified replica failed to advance, height=%d", got)
+	if got := replica.ledger.Status().Height; got != 0 || dropped.Load() != 1 {
+		t.Fatalf("lost first delivery must not finalize replica: height=%d, dropped=%d", got, dropped.Load())
+	}
+	producer.maybeRebroadcastLatestCertifiedBlock()
+	if got := replica.ledger.Status().Height; got != 0 {
+		t.Fatalf("retry before backoff advanced replica to height=%d", got)
+	}
+	// Force the retry deadline to expire without a nondeterministic sleep.
+	producer.certifiedReplayMu.Lock()
+	replay := producer.certifiedReplay[receiver.URL]
+	if replay.acknowledged || replay.blockHash != block.Hash {
+		producer.certifiedReplayMu.Unlock()
+		t.Fatalf("failed first delivery incorrectly acknowledged: %+v", replay)
+	}
+	replay.lastAttempt = time.Now().Add(-certifiedReplayInterval)
+	producer.certifiedReplay[receiver.URL] = replay
+	producer.certifiedReplayMu.Unlock()
+
+	producer.maybeRebroadcastLatestCertifiedBlock()
+	waitFor(t, func() bool { return replica.ledger.Status().Height == 1 })
+	producer.certifiedReplayMu.Lock()
+	replay = producer.certifiedReplay[receiver.URL]
+	producer.certifiedReplayMu.Unlock()
+	if !replay.acknowledged || replay.inFlight {
+		t.Fatalf("successful signed retry must settle delivery state: %+v", replay)
 	}
 	if _, ok := replica.ledger.Certificate(1, 0, block.Hash); !ok {
 		t.Fatal("replica missing independently reconstructed QC")
