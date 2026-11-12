@@ -66,6 +66,49 @@ remote monotonic signing or freshness of published checkpoints. An
 independent auditor must verify who actually possesses each attestation
 key and controls each witness key and deployment failure domain.
 
+## Challenge-authenticated live HTTPS publication (opt-in P0)
+
+`node.NewChallengeAuthenticatedMultiOperatorHTTPSWitnessFloor` first verifies
+the exact signed inventory as above, then requires a **fresh per-GET
+challenge response from every pinned operator**. This adds a cryptographic
+reachability/key-possession check missing from a static, quorum-signed
+checkpoint bundle. The non-signing observer generates an independent 32-byte
+OS-random challenge for each HTTPS GET:
+
+- Request: `X-Zephyr-Witness-Challenge: <64 lowercase hexadecimal characters>`;
+  `Cache-Control: no-store` and `Pragma: no-cache`.
+- Response: canonical quorum-signed JSON checkpoint bundle,
+  `Content-Type: application/json` and exactly one
+  `X-Zephyr-Witness-Operator-Signature: <128 lowercase hexadecimal characters>`.
+- The operator signs `WitnessHTTPSPublicationChallengeDigest` using a
+  **separately pinned online publication Ed25519 key**, distinct from
+  both offline inventory issuer and quorum witness signer keys.
+  The domain-separated digest commits to NetworkID, genesis validator root,
+  operator ID, externally pinned roster revision, request challenge, and
+  SHA-256 of the **exact** JSON response bytes.
+- The reader rejects missing/duplicated/malformed/foreign/replayed
+  signatures, changed content, noncanonical media, absent operators and
+  cancelled requests before the existing >2/3 checkpoint signature and
+  strict all-origin equality checks. The aggregate 5-second budget remains.
+
+**Important security boundary:** This is proof that the independently pinned
+operator-specific publication key signed the exact response to a fresh nonce, not proof that
+the operator checked new QC finality, that the signed checkpoint is at the
+current chain tip, or that its private key is guarded by nonrollbackable HSM.
+A dishonest operator can sign an older still-valid checkpoint in response to
+a new nonce. The independently authenticated monotonic high-water policy,
+true freshness SLA, QC ancestry, 3+ real operators, key-role isolation,
+cross-host crash/recovery drills and external audit are still mandatory.
+An intermediary must not be treated as an operator merely because it can
+relay the challenge; the signing endpoint and publication key custody need
+independent operational attestation. Publication keys must be pinned **out of
+band in the exact signed roster order**; the constructor rejects missing,
+duplicate, inventory-issuer or witness-signing key reuse. The inventory
+signing keys should remain offline and MUST NOT be exposed to the live HTTPS
+publisher. A separate signed publication-key delegation/rotation ceremony
+and independent verification are needed before production key rotation. Synthetic HTTPS regression tests are
+not launch evidence. **PUBLIC MAINNET NO-GO.**
+
 ## Operator evidence to collect outside CI
 
 Before a production release, an independently reviewed operator roster must

@@ -2,6 +2,9 @@ package node
 
 import (
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -17,8 +20,9 @@ import (
 // HTTPS is mandatory to reduce accidental transport disclosure/misdirection;
 // deployment must still pin trusted signer keys through a separate channel.
 type HTTPWitnessFloorSource struct {
-	endpoint string
-	client   *http.Client
+	endpoint        string
+	client          *http.Client
+	challengePolicy *witnessHTTPSChallengePolicy
 }
 
 func NewHTTPWitnessFloorSource(endpoint string) (*HTTPWitnessFloorSource, error) {
@@ -78,6 +82,17 @@ func (s *HTTPWitnessFloorSource) SignedWitnessFloorContext(ctx context.Context) 
 		return nil, errors.Join(ErrWitnessSigningIntent, err)
 	}
 	req.Header.Set("Accept", "application/json")
+	var challenge [32]byte
+	if s.challengePolicy != nil {
+		if _, err := rand.Read(challenge[:]); err != nil || ctx.Err() != nil {
+			return nil, errors.Join(ErrWitnessSigningIntent, err, ctx.Err())
+		}
+		req.Header.Set(witnessHTTPSChallengeHeader, hex.EncodeToString(challenge[:]))
+		// A cache must not substitute an old response for this unpredictable
+		// challenge. More importantly, it cannot forge the pinned signature.
+		req.Header.Set("Cache-Control", "no-store")
+		req.Header.Set("Pragma", "no-cache")
+	}
 	response, err := s.client.Do(req)
 	if err != nil {
 		return nil, errors.Join(ErrWitnessSigningIntent, err)
@@ -96,6 +111,33 @@ func (s *HTTPWitnessFloorSource) SignedWitnessFloorContext(ctx context.Context) 
 	payload, err := io.ReadAll(io.LimitReader(response.Body, maxWitnessBundleBytes+1))
 	if err != nil || len(payload) == 0 || len(payload) > maxWitnessBundleBytes || ctx.Err() != nil {
 		return nil, errors.Join(ErrWitnessSigningIntent, err, ctx.Err())
+	}
+	if policy := s.challengePolicy; policy != nil {
+		// Reject a cache replay, intermediary substitution or a DNS/TLS
+		// origin lacking the independently pinned operator inventory key.
+		// Both the challenge and the exact payload bytes are signed.
+		contentTypes := response.Header.Values("Content-Type")
+		if len(contentTypes) != 1 || contentTypes[0] != "application/json" {
+			return nil, ErrWitnessSigningIntent
+		}
+		signatures := response.Header.Values(witnessHTTPSOperatorSignatureHeader)
+		if len(signatures) != 1 || len(signatures[0]) != 2*ed25519.SignatureSize {
+			return nil, ErrWitnessSigningIntent
+		}
+		sig, err := hex.DecodeString(signatures[0])
+		if err != nil || len(sig) != ed25519.SignatureSize || hex.EncodeToString(sig) != signatures[0] {
+			return nil, ErrWitnessSigningIntent
+		}
+		digest, err := WitnessHTTPSPublicationChallengeDigest(
+			policy.network, policy.validatorRoot, policy.operatorID,
+			policy.revision, challenge, payload,
+		)
+		if err != nil || ctx.Err() != nil || !ed25519.Verify(policy.publicationKey, digest[:], sig) {
+			return nil, errors.Join(ErrWitnessSigningIntent, err, ctx.Err())
+		}
+	}
+	if ctx.Err() != nil {
+		return nil, errors.Join(ErrWitnessSigningIntent, ctx.Err())
 	}
 	return payload, nil
 }
