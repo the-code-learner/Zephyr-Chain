@@ -63,6 +63,53 @@ backup while reusing the key. State rollback does not imply signer
 rollback. Invalid/torn journal recovery requires a separately audited
 procedure or retiring the affected validator key, **not truncation**.
 
+## Strict same-host custody across separate node data directories (opt-in)
+
+`consensus.OpenHostFencedSigningGuard(custodyRoot, networkID, validatorID)`
+is the recommended stricter local constructor when running different node
+instances, migrating state directories, or testing independent validator
+processes on the **SAME host**. All processes holding the same consensus
+key MUST receive the **same pre-provisioned owner-only host custody root**,
+separate from chain state; it is never created implicitly by the validator
+code. The path under this root is derived solely from full 32-byte NetworkID
+and full 32-byte ValidatorID, rather than a caller-selected node data dir.
+As a result, two local processes starting from unrelated node state dirs
+use the exact same journal and inode flock; simultaneous access by the
+second process fails closed and later restarts reuse the durable intent
+history. The constructor also fsyncs the root directory after creating
+the per-key subdirectory, and pins the original root directory inode/mode.
+Replacing that root, even after moving the same key journal inode and
+subdirectory back under its original pathname, invalidates the active
+guard permanently.
+
+For example:
+
+```go
+// custodyRoot is an existing, private, independently protected path.
+// nodeDataDir may change across restarts and is NOT used for key custody.
+guard, err := consensus.OpenHostFencedSigningGuard(custodyRoot, networkID, validatorID)
+if err != nil { return err }
+defer guard.Close()
+service, err := node.NewProtectedService(runtime, validators, validatorKey, transport, guard)
+if err != nil { return err }
+```
+
+The security regression launches the actual test executable in a *separate
+OS process* with a different state/working directory while the first
+process holds the same key. It verifies denial of concurrent custody,
+recovery of the exact signed intent and refusal to double-sign after
+the original process closes. It also injects root replacement with the
+exact same journal inode and verifies permanent poisoning.
+
+This is a **same-host conditional invariant**, not globally enforced.
+A deployment choosing a second custody root, an attacker cloning a key
+onto another host or restoring the host root and journal from an older
+backup can bypass this local-only lock. A single real consensus signing
+key still needs independent globally fenced HSM/remote custody and
+audited multi-host migration, crash and cold-restore evidence for mainnet.
+Synthetic independent *processes* are not evidence of independent *hosts*.
+**Public mainnet remains NO-GO.**
+
 ## Production safety limitations
 
 The journal does **not** solve the case where copies of the validator
