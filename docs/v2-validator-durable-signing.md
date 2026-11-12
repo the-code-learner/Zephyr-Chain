@@ -25,6 +25,20 @@ The guard:
 - refuses to sign after any journal write/sync failure until reviewed
   recovery (fail-closed);
 - releases the OS lock at close/crash, but **never unlinks** the journal.
+- pins the canonical absolute journal pathname, original owner-only
+  containing directory inode and the **single-link** locked journal inode;
+  validates file/directory identity, private modes, exact on-disk record count,
+  header and latest record hash before every signing intent (including
+  idempotent retries) and after every durable write; a mismatch permanently
+  poisons the live signer instead of allowing the next vote;
+- refuses live unlink, rename/replacement, extra hardlink, parent directory
+  replacement (even when the exact same journal inode moves back), truncated
+  or appended records and last record/header corruption. A reopened guard
+  still verifies the complete hash-chained history. Live per-signing checks
+  intentionally avoid O(chain-height) replay costs, so earlier in-place
+  changes preserving journal size and last record need full startup verification
+  and independently protected storage to detect.
+
 
 Linux and macOS have OS locking; unsupported systems fail closed.
 
