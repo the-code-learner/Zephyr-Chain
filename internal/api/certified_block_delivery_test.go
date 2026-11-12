@@ -133,13 +133,12 @@ func TestCertifiedBlockDeliveryRepairsReplicaMissingQuorum(t *testing.T) {
 	producer.certifiedReplayMu.Unlock()
 
 	producer.maybeRebroadcastLatestCertifiedBlock()
-	waitFor(t, func() bool { return replica.ledger.Status().Height == 1 })
-	producer.certifiedReplayMu.Lock()
-	replay = producer.certifiedReplay[receiver.URL]
-	producer.certifiedReplayMu.Unlock()
-	if !replay.acknowledged || replay.inFlight {
-		t.Fatalf("successful signed retry must settle delivery state: %+v", replay)
-	}
+	waitFor(t, func() bool {
+		producer.certifiedReplayMu.Lock()
+		settled := producer.certifiedReplay[receiver.URL]
+		producer.certifiedReplayMu.Unlock()
+		return replica.ledger.Status().Height == 1 && settled.acknowledged && !settled.inFlight
+	})
 	if _, ok := replica.ledger.Certificate(1, 0, block.Hash); !ok {
 		t.Fatal("replica missing independently reconstructed QC")
 	}
