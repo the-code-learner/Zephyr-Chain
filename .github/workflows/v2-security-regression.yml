@@ -78,6 +78,16 @@ jobs:
           } > proposer-rotation-diagnostics/environment.txt
           go test -json ./internal/api -run '^TestConsensusAutomationAdvancesRoundAndRotatesProposerAfterTimeout$' -count=50 -timeout=5m | tee proposer-rotation-diagnostics/stress.jsonl
           go test -race -json ./internal/api -run '^TestConsensusAutomationAdvancesRoundAndRotatesProposerAfterTimeout$' -count=12 -timeout=4m | tee proposer-rotation-diagnostics/race.jsonl
+      - name: Proposer rotation under bounded single-P scheduler contention
+        shell: bash
+        env:
+          GOMAXPROCS: "1"
+        run: |
+          set -euo pipefail
+          mkdir -p proposer-rotation-diagnostics
+          echo "contention_gomaxprocs=${GOMAXPROCS}" >> proposer-rotation-diagnostics/environment.txt
+          go test -json ./internal/api -run '^TestConsensusAutomationAdvancesRoundAndRotatesProposerAfterTimeout$' -count=10 -timeout=4m | tee proposer-rotation-diagnostics/single-p-stress.jsonl
+          go test -race -json ./internal/api -run '^TestConsensusAutomationAdvancesRoundAndRotatesProposerAfterTimeout$' -count=3 -timeout=4m | tee proposer-rotation-diagnostics/single-p-race.jsonl
       - name: Preserve proposer rotation failure evidence
         if: ${{ failure() && hashFiles('proposer-rotation-diagnostics/**') != '' }}
         uses: actions/upload-artifact@v4
