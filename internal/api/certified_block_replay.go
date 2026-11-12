@@ -26,8 +26,14 @@ func (s *Server) recordCertifiedDelivery(peerURL, hash string, err error) {
 		s.certifiedReplay = make(map[string]certifiedReplayState)
 	}
 	current := s.certifiedReplay[peerURL]
-	if current.blockHash != hash {
-		current = certifiedReplayState{blockHash: hash}
+	// An earlier asynchronous HTTP POST can finish after a newer height was
+	// reserved for this peer. Its late ACK (or failure) must never roll the
+	// replay cursor back to the old block hash and suppress newer finality.
+	if current.blockHash != "" && current.blockHash != hash {
+		return
+	}
+	if current.blockHash == "" {
+		current.blockHash = hash
 	}
 	current.lastAttempt = time.Now()
 	current.inFlight = false
