@@ -68,26 +68,31 @@ func (s *Server) maybeRebroadcastLatestCertifiedBlock() {
 	if !ok {
 		return
 	}
-	height := s.ledger.Status().Height
-	if height == 0 {
+	status := s.ledger.Status()
+	if status.Height == 0 || status.LatestBlockHash == "" {
 		return
 	}
-	block, ok := s.ledger.BlockAtHeight(height)
-	if !ok {
-		return
-	}
-	// Avoid repeatedly copying the ledger's full consensus state at every
-	// short automation tick once all current peers have acknowledged.
+	// Read height/hash atomically from the cheap status view before reserving
+	// retries; avoid copying a potentially transaction-heavy committed block
+	// at every short tick after peers have acknowledged this hash.
 	eligible := make([]string, 0)
+	now := time.Now()
 	for _, peerURL := range s.admittedPeerURLs() {
-		if s.reserveCertifiedReplay(peerURL, block.Hash, time.Now()) {
+		if s.reserveCertifiedReplay(peerURL, status.LatestBlockHash, now) {
 			eligible = append(eligible, peerURL)
 		}
 	}
 	if len(eligible) == 0 {
 		return
 	}
-	evidence, ok := s.ledger.CertifiedBlockEvidenceAt(height)
+	block, ok := s.ledger.BlockAtHeight(status.Height)
+	if !ok || block.Hash != status.LatestBlockHash {
+		for _, peerURL := range eligible {
+			s.recordCertifiedDelivery(peerURL, status.LatestBlockHash, ledger.ErrConsensusCertificateRequired)
+		}
+		return
+	}
+	evidence, ok := s.ledger.CertifiedBlockEvidenceAt(status.Height)
 	if !ok {
 		for _, peerURL := range eligible {
 			s.recordCertifiedDelivery(peerURL, block.Hash, ledger.ErrConsensusCertificateRequired)
