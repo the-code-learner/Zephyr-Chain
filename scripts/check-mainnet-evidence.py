@@ -79,6 +79,15 @@ def inspect(manifest_path: pathlib.Path, root: pathlib.Path) -> list[str]:
                 continue
             target = root / value
             try:
+                # A canonical textual path is not sufficient: a symlink in
+                # any intermediate component can silently redirect the
+                # reviewed bytes after manifest creation. Reject even
+                # in-root aliases; do not follow attacker-chosen links.
+                component = root
+                for part in relative.parts:
+                    component = component / part
+                    if component.is_symlink():
+                        raise ValueError("symlink evidence path component")
                 resolved = target.resolve(strict=True)
                 if not resolved.is_relative_to(root) or not resolved.is_file():
                     raise ValueError("file outside evidence root or not regular")
