@@ -109,6 +109,39 @@ publisher. A separate signed publication-key delegation/rotation ceremony
 and independent verification are needed before production key rotation. Synthetic HTTPS regression tests are
 not launch evidence. **PUBLIC MAINNET NO-GO.**
 
+## Challenge-bound HTTPS publisher adapter (P0 reference server)
+
+The `node.NewWitnessHTTPSChallengePublicationHandler` provides the **server**
+side of the opt-in client protocol above. It is a narrow, non-key-owning
+`http.Handler` for `GET /v1/checkpoint` on a genuine TLS listener:
+
+1. Require exactly one canonical 256-bit lower-hex challenge request header,
+   no query/escaped target/body or plaintext request.
+2. Obtain an independently configured canonical quorum-signed checkpoint
+   bundle through a context-aware source (no arbitrary caller-supplied
+   checkpoint or sign-height API), within a shared five-second deadline.
+3. Verify every signer and the >2/3 threshold against **separately pinned
+   witness public keys**, then use a distinct, genesis-anchored
+   `WitnessFinalityVerifier` to validate the checkpoint's native QC ancestry.
+4. Only after these checks delegate the domain-separated response digest
+   to a provider implementing `WitnessHTTPSPublicationSigner`. The server
+   receives a signature, checks it against its pinned **online publication
+   public key** and responds with the exact original bundle bytes and the
+   single canonical signature header. The offline inventory issuer key and
+   witness checkpoint private keys never enter the HTTP handler.
+
+The handler checks pinned key-role separation, refusing witness keys reused
+as publication or inventory keys and refusing inventory/publication reuse.
+Malformed headers, invalid QC/signature or signer errors fail closed before
+any authenticated publication. The handler does **not** create or configure
+the listener: production needs separately audited DNS/TLS certificates,
+correct process isolation, rate limiting, operator custody, independent
+on-host QC validation and genuine remote nonrollbackable key protection.
+The injected `WitnessFinalityVerifier` is a *critical trust dependency*;
+test stubs or unverified RPC assertions cannot be production inputs.
+Signing a fresh nonce still cannot certify publication freshness if an
+operator deliberately re-signs an old valid checkpoint. **Mainnet NO-GO**.
+
 ## Operator evidence to collect outside CI
 
 Before a production release, an independently reviewed operator roster must
