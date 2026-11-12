@@ -40,6 +40,8 @@ jobs:
             ./cmd/zephyr-genesis-audit \
             ./cmd/v2-observer \
             -count=1 -timeout=8m
+      - name: Durable validator consensus signing journal live custody integrity and poisoning
+        run: go test -race ./internal/v2/consensus -run '^TestDurableSigningGuard' -count=10 -timeout=4m
       - name: Certified multi-height finality history and QC forgery regression
         run: go test -race ./internal/v2/node -run '^TestCertifiedHistory' -count=1 -timeout=3m
       - name: External QC-finalized checkpoint rollback regressions
