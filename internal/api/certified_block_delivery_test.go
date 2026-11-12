@@ -153,4 +153,53 @@ func TestCertifiedBlockDeliveryRepairsReplicaMissingQuorum(t *testing.T) {
 	if recorder.Code != http.StatusForbidden {
 		t.Fatalf("unsigned certified delivery status=%d, want 403", recorder.Code)
 	}
+
+	// A restarted producer has no process-local delivery acknowledgements.
+	// A separate replica that never received the first finality certificate
+	// must still recover from the original durable signed quorum evidence.
+	lateReplica := newTestServer(t, Config{
+		DataDir: t.TempDir(), NodeID: "late-replica",
+		ValidatorPrivateKey:   encodedPrivateKey(t, voter.privateKey),
+		EnableBlockProduction: false, EnablePeerSync: false,
+		BlockInterval: 0, SyncInterval: 0, MaxTransactionsPerBlock: 10,
+		RequireConsensusCertificates: true,
+	})
+	if _, err := lateReplica.ledger.SetValidators(validators, dpos.ElectionConfig{MaxValidators: 2}); err != nil {
+		t.Fatalf("late replica validator set: %v", err)
+	}
+	if _, err := lateReplica.ledger.Credit(envelope.From, 100); err != nil {
+		t.Fatalf("late replica account state: %v", err)
+	}
+	if err := lateReplica.ledger.RecordProposal(proposal); err != nil {
+		t.Fatalf("late replica proposal: %v", err)
+	}
+	if _, _, err := lateReplica.ledger.RecordVote(voteA); err != nil {
+		t.Fatalf("late replica partial vote: %v", err)
+	}
+	lateHTTP := httptest.NewServer(lateReplica.Handler())
+	defer lateHTTP.Close()
+
+	durableDir := producer.config.DataDir
+	producer.Close()
+	restarted := newTestServer(t, Config{
+		DataDir: durableDir, NodeID: "cert-producer-restarted",
+		ValidatorPrivateKey:   encodedPrivateKey(t, proposer.privateKey),
+		EnableBlockProduction: true, EnablePeerSync: false,
+		BlockInterval: 0, SyncInterval: 0, MaxTransactionsPerBlock: 10,
+		RequireConsensusCertificates: true,
+	})
+	if got := restarted.ledger.Status().Height; got != 1 {
+		t.Fatalf("producer lost durable finalized block on restart, height=%d", got)
+	}
+	restarted.setPeerURLs([]string{lateHTTP.URL})
+	restarted.maybeRebroadcastLatestCertifiedBlock()
+	waitFor(t, func() bool {
+		restarted.certifiedReplayMu.Lock()
+		deliveryState := restarted.certifiedReplay[lateHTTP.URL]
+		restarted.certifiedReplayMu.Unlock()
+		return lateReplica.ledger.Status().Height == 1 && deliveryState.acknowledged
+	})
+	if _, ok := lateReplica.ledger.Certificate(1, 0, block.Hash); !ok {
+		t.Fatal("restarted producer did not deliver independently verifiable durable QC")
+	}
 }
