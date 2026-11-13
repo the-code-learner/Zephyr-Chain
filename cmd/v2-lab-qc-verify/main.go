@@ -17,7 +17,7 @@ import (
 
 const maxSnapshotJSON = 8 << 20
 
-func verify(genesisPath, snapshotPath, network, root, headerHash string) error {
+func verify(genesisPath, snapshotPath, network, root, headerHash string, height uint64) error {
 	g, err := genesis.LoadJSON(genesisPath)
 	if err != nil {
 		return err
@@ -45,7 +45,7 @@ func verify(genesisPath, snapshotPath, network, root, headerHash string) error {
 	}
 	if snapshot.Header.Network != anchor.Network ||
 		snapshot.Header.ValidatorRoot != anchor.ValidatorRoot ||
-		snapshot.Header.Height != 1 ||
+		snapshot.Header.Height != height ||
 		v2consensus.HeaderConsensusHash(snapshot.Header).String() != headerHash ||
 		len(snapshot.Certificate.Votes) < 2*len(g.Validators)/3+1 {
 		return errors.New("QC proof does not match expected lab height, pins and quorum")
@@ -71,14 +71,15 @@ func main() {
 	n := flag.String("network-id", "", "independently pinned network ID")
 	r := flag.String("validator-root", "", "independently pinned validator root")
 	h := flag.String("header-hash", "", "independently expected finalized consensus header hash")
+	height := flag.Uint64("expected-height", 1, "independently expected finalized height")
 	flag.Parse()
-	if flag.NArg() != 0 || *g == "" || *s == "" || *n == "" || *r == "" || *h == "" {
+	if flag.NArg() != 0 || *g == "" || *s == "" || *n == "" || *r == "" || *h == "" || *height == 0 {
 		fmt.Fprintln(os.Stderr, "all independent lab verifier pins required")
 		os.Exit(2)
 	}
-	if err := verify(*g, *s, *n, *r, *h); err != nil {
+	if err := verify(*g, *s, *n, *r, *h, *height); err != nil {
 		fmt.Fprintln(os.Stderr, "signed QC proof REJECTED:", err)
 		os.Exit(1)
 	}
-	fmt.Println("PASS: independently verified signed V2 QC, genesis pins and height-one header")
+	fmt.Println("PASS: independently verified signed V2 QC, genesis pins and expected finalized height/header")
 }
