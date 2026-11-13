@@ -22,3 +22,9 @@ The project's assistant-led review is an **internal engineering assessment, not 
 ## Cost and escalation policy
 
 Prefer repository-provided GitHub Actions resources and bounded test workloads. No paid deployment, additional secrets, provider sign-up or upgrade may be performed without explicit user authorization. The first request for an external connection must name the exact unmet proof requirement, the failed GitHub-only attempt and an eligible free-tier MCP option.
+
+## Real Docker process boundary (second tranche)
+
+`.github/workflows/docker-node-process-restart.yml` builds the **legacy** `cmd/node` binary, starts **three distinct OS processes**, one per Docker container with separate Docker volumes and node identities, tests each HTTP status response, restarts the second container, checks its host PID changed, compares the idle persistent state-file hash and rechecks all three responses. Artifacts include Docker logs, inspect metadata, binary and image digests, status checks, and the exact commit. Network exposure is bound to loopback on the CI host.
+
+**Strict limitation:** `cmd/node` is not the Protocol V2 validator implementation. Three containers sharing one runner kernel, identity and storage provider cannot validate Byzantine multi-host consensus, distinct operator custody or rollback-resistant remote signer semantics. This smoke does not make consensus progress, submit transactions, verify QC or measure finalized TPS. Any claim of true V2 multiprocess finality still requires a dedicated V2 validator-process fixture and signed QC evidence.
