@@ -84,9 +84,9 @@ func createFixture(dir string, count int) (manifest, error) {
 		}
 		result.Validators = append(result.Validators, manifestValidator{
 			Index: i, KeyFile: keyPath,
-			DataDir: filepath.Join(dir, fmt.Sprintf("node-%02d", i)),
+			DataDir:    filepath.Join(dir, fmt.Sprintf("node-%02d", i)),
 			JournalDir: filepath.Join(dir, fmt.Sprintf("journal-%02d", i)),
-			Listen: fmt.Sprintf("/ip4/127.0.0.1/udp/%d/quic-v1", 19000+i),
+			Listen:     fmt.Sprintf("/ip4/127.0.0.1/udp/%d/quic-v1", 19000+i),
 		})
 	}
 	anchor, err := g.TrustAnchor()
