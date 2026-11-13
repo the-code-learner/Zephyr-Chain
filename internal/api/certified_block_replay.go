@@ -138,6 +138,20 @@ func (s *Server) deliverCertifiedReplay(peerURL string, latest certifiedBlockDel
 	if !admitted || !view.Reachable || view.Height >= latest.Block.Height {
 		return err
 	}
+	// A peer status is useful for choosing a replay range, but its reported
+	// height/hash are NOT authenticated finality evidence. Never stream a
+	// locally certified history onto a conflicting peer tip or trust a
+	// fabricated nonzero height to skip a missing predecessor.
+	if view.Height == 0 {
+		if view.LatestBlockHash != "" {
+			return fmt.Errorf("certified catchup peer claims nonempty genesis tip")
+		}
+	} else {
+		ancestor, ok := s.ledger.BlockAtHeight(view.Height)
+		if !ok || view.LatestBlockHash == "" || ancestor.Hash != view.LatestBlockHash {
+			return fmt.Errorf("certified catchup peer tip does not match local finalized ancestry at height %d", view.Height)
+		}
+	}
 	start := view.Height + 1
 	end := latest.Block.Height
 	if end-start >= maxCertifiedCatchupBlocks {

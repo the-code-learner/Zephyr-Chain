@@ -1,7 +1,10 @@
 package api
 
 import (
+	"encoding/json"
+	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -97,6 +100,44 @@ func TestCertifiedReplayRecoversTwoMissingHeightsWithoutPeerSync(t *testing.T) {
 	if !ok {
 		t.Fatal("missing durable latest signed QC evidence")
 	}
+	// An untrusted status source can claim height 1 and a conflicting
+	// header while the replica is actually at height 0. Even if the
+	// transport identity itself is valid, the status tip is not signed
+	// finality; a conflicting ancestor must stop the replay before any
+	// signed block history is streamed based on that claim.
+	forgedStatus := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/status" {
+			replica.Handler().ServeHTTP(w, r)
+			return
+		}
+		recorder := httptest.NewRecorder()
+		replica.Handler().ServeHTTP(recorder, r)
+		if recorder.Code != http.StatusOK {
+			t.Errorf("status request failed: %d", recorder.Code)
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		var advertised StatusResponse
+		if err := json.Unmarshal(recorder.Body.Bytes(), &advertised); err != nil {
+			t.Errorf("parse peer status: %v", err)
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		advertised.Status.Height = 1
+		advertised.Status.LatestBlockHash = strings.Repeat("f", 64)
+		writeJSON(w, http.StatusOK, advertised)
+	}))
+	defer forgedStatus.Close()
+	err := producer.deliverCertifiedReplay(
+		forgedStatus.URL, certifiedBlockDelivery{Block: blocks[1], Evidence: evidence}, transport,
+	)
+	if err == nil || !strings.Contains(err.Error(), "tip does not match") {
+		t.Fatalf("expected fail-closed rejection of conflicting peer tip, got %v", err)
+	}
+	if got := replica.ledger.Status().Height; got != 0 {
+		t.Fatalf("forged status caused unsafe replay, replica height=%d", got)
+	}
+
 	if err := producer.deliverCertifiedReplay(receiver.URL, certifiedBlockDelivery{Block: blocks[1], Evidence: evidence}, transport); err != nil {
 		t.Fatalf("bounded certified multiheight catchup failed: %v", err)
 	}
