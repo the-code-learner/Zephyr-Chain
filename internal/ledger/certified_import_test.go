@@ -203,6 +203,35 @@ func TestImportBlockWithEvidenceRequiresSignedQuorum(t *testing.T) {
 	if latest, ok := valid.LatestBlock(); !ok || latest.Hash != block.Hash {
 		t.Fatalf("expected imported block %s, got %+v", block.Hash, latest)
 	}
+
+	// Simulate restored in-memory evidence that retains its old quorum
+	// certificate but has lost one of five signed votes. A certificate
+	// summary alone cannot be transmitted as independently verifiable QC.
+	source.mu.Lock()
+	recoveredState := source.snapshotLocked()
+	if len(recoveredState.Votes) != 5 || len(recoveredState.CommitCertificates) == 0 {
+		source.mu.Unlock()
+		t.Fatalf("expected complete producer votes and stored QC before fixture loss")
+	}
+	recoveredState.Votes = recoveredState.Votes[:4]
+	source.applyStateLocked(recoveredState)
+	source.mu.Unlock()
+	if _, ok := source.CertifiedBlockEvidenceAt(block.Height); ok {
+		t.Fatal("must not advertise certificate without sufficient retained signed votes")
+	}
+	// The receiver remains fail closed even if the old partial fragment
+	// is sent directly instead of through the corrected selector.
+	fragments := source.CertifiedBlockEvidenceFragments(block.Height)
+	if len(fragments) != 1 || len(fragments[0].Votes) != 4 {
+		t.Fatalf("expected four retained signed votes, got %+v", fragments)
+	}
+	partialReceiver := newTarget()
+	if err := partialReceiver.ImportBlockWithEvidence(block, fragments[0]); !errors.Is(err, ErrCertifiedEvidenceQuorum) {
+		t.Fatalf("partial votes cannot establish remote finality, got %v", err)
+	}
+	if got := partialReceiver.Status().Height; got != 0 {
+		t.Fatalf("partial signatures advanced receiver to height %d", got)
+	}
 }
 
 func newCertifiedImportSigner(t *testing.T) certifiedImportSigner {

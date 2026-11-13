@@ -62,6 +62,28 @@ func (s *Store) CertifiedBlockEvidenceAt(height uint64) (CertifiedBlockEvidence,
 			certificate.VotingPower < certificate.QuorumVotingPower {
 			continue
 		}
+		// The persisted certificate can outlive the individual vote records
+		// (for example after partial state corruption or failed restoration).
+		// A valid local QC is not itself a transferable signature: only
+		// export a fragment whose currently retained, independently valid
+		// signed votes actually meet the threshold. The receiver checks
+		// these signatures again against its own pinned validator set.
+		var exportedPower uint64
+		for _, vote := range fragment.Votes {
+			votingPower, ok := validatorVotingPower(state.ValidatorSnapshot, vote.Voter)
+			if !ok {
+				continue
+			}
+			remaining := certificate.QuorumVotingPower - exportedPower
+			if votingPower >= remaining {
+				exportedPower = certificate.QuorumVotingPower
+				break
+			}
+			exportedPower += votingPower
+		}
+		if exportedPower < certificate.QuorumVotingPower {
+			continue
+		}
 		return fragment, true
 	}
 	return CertifiedBlockEvidence{}, false
