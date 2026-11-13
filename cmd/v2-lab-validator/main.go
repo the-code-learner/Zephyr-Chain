@@ -178,13 +178,13 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 		addresses = append(addresses, fmt.Sprintf("%s/p2p/%s", addr, validator.Transport.ID()))
 	}
 	info := struct {
-		Mode string `json:"mode"`
-		Network string `json:"networkId"`
-		ValidatorRoot string `json:"validatorRoot"`
-		PeerID string `json:"peerId"`
-		Addresses []string `json:"addresses"`
-		Height uint64 `json:"finalizedHeight"`
-	}{Mode:"lab-validator-not-mainnet", Network: netHash.String(), ValidatorRoot: rootHash.String(),
+		Mode          string   `json:"mode"`
+		Network       string   `json:"networkId"`
+		ValidatorRoot string   `json:"validatorRoot"`
+		PeerID        string   `json:"peerId"`
+		Addresses     []string `json:"addresses"`
+		Height        uint64   `json:"finalizedHeight"`
+	}{Mode: "lab-validator-not-mainnet", Network: netHash.String(), ValidatorRoot: rootHash.String(),
 		PeerID: validator.Transport.ID().String(), Addresses: addresses, Height: validator.Runtime.Height}
 	if err := json.NewEncoder(out).Encode(info); err != nil {
 		return err
