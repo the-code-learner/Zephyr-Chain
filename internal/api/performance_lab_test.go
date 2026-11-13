@@ -617,6 +617,28 @@ func (t *labFaultTransport) PostBlock(peerURL string, block ledger.Block) error 
 	return nil
 }
 
+// The production broadcaster transmits independently signed QC evidence,
+// not a bare block. A lab fault adapter must forward this optional transport
+// interface or its tests accidentally exercise the legacy no-QC fallback,
+// stranding replicas that miss a vote when peer sync is disabled.
+func (t *labFaultTransport) PostCertifiedBlock(peerURL string, delivery certifiedBlockDelivery) error {
+	if err := t.before(peerURL); err != nil {
+		return err
+	}
+	transport, ok := t.base.(certifiedBlockDeliveryTransport)
+	if !ok {
+		return fmt.Errorf("lab base transport does not support certified block delivery")
+	}
+	t.recordPayload(delivery)
+	if err := transport.PostCertifiedBlock(peerURL, delivery); err != nil {
+		return err
+	}
+	if t.duplicateEnabled() {
+		_ = transport.PostCertifiedBlock(peerURL, delivery)
+	}
+	return nil
+}
+
 func (t *labFaultTransport) PostFaucet(peerURL string, request FaucetRequest) error {
 	if err := t.before(peerURL); err != nil {
 		return err
