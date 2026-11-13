@@ -30,12 +30,18 @@ var (
 	ErrTransactionMismatch        = errors.New("proposal transactions do not match transaction IDs")
 	ErrHashMismatch               = errors.New("block hash does not match proposal fields")
 	ErrTooManyTransactions        = errors.New("consensus block exceeds transaction count limit")
+	ErrSignedVoteTooLarge         = errors.New("signed consensus vote exceeds wire byte limit")
 )
 
 // MaxConsensusBlockTransactions caps both proposed and imported blocks.
 // Together with tx.MaxEnvelopeJSONBytes this bounds the transaction portion
 // of signed certified delivery well below the endpoint's HTTP body limit.
 const MaxConsensusBlockTransactions = 512
+
+// MaxSignedVoteJSONBytes reserves a deterministic conservative per-validator
+// allowance in prospective certified block delivery. Applies to encoded JSON,
+// including escape expansion, before any peer signature verification.
+const MaxSignedVoteJSONBytes int64 = 4 << 10
 
 type Proposal struct {
 	ChainID        string        `json:"chainId"`
@@ -228,6 +234,19 @@ func (v Vote) CanonicalPayload() string {
 }
 
 func (v Vote) ValidateStatic() error {
+	// Reject unexpectedly large signed vote payloads before cryptographic
+	// verification; the same cap is used by ledger pre-quorum budgeting.
+	var rawSize int64
+	for _, part := range []string{v.ChainID, v.Domain, v.BlockHash, v.Voter, v.Payload, v.PublicKey, v.Signature} {
+		if int64(len(part)) > MaxSignedVoteJSONBytes-rawSize {
+			return ErrSignedVoteTooLarge
+		}
+		rawSize += int64(len(part))
+	}
+	encoded, err := json.Marshal(v)
+	if err != nil || int64(len(encoded)) > MaxSignedVoteJSONBytes {
+		return ErrSignedVoteTooLarge
+	}
 	chainID := strings.TrimSpace(v.ChainID)
 	domain := strings.TrimSpace(v.Domain)
 	if chainID == "" || domain == "" || v.BlockHash == "" || v.Voter == "" || v.Payload == "" || v.PublicKey == "" || v.Signature == "" {
