@@ -72,10 +72,10 @@ func startLabControl(path, stateDir string, validator *bootstrap.LabValidator) (
 			return
 		}
 		writeLabJSON(w, http.StatusOK, map[string]any{
-			"height": snapshot.Header.Height,
+			"height":     snapshot.Header.Height,
 			"headerHash": v2consensus.HeaderConsensusHash(snapshot.Header).String(),
 			"qcVerified": true,
-			"voteCount": len(snapshot.Certificate.Votes),
+			"voteCount":  len(snapshot.Certificate.Votes),
 		})
 	})
 	mux.HandleFunc("/connect", func(w http.ResponseWriter, r *http.Request) {
@@ -142,11 +142,11 @@ func startLabControl(path, stateDir string, validator *bootstrap.LabValidator) (
 			return
 		}
 		writeLabJSON(w, http.StatusOK, map[string]any{
-			"height": snapshot.Header.Height,
+			"height":     snapshot.Header.Height,
 			"headerHash": v2consensus.HeaderConsensusHash(snapshot.Header).String(),
 			"qcVerified": true,
-			"voteCount": len(snapshot.Certificate.Votes),
-			"snapshot": snapshot,
+			"voteCount":  len(snapshot.Certificate.Votes),
+			"snapshot":   snapshot,
 		})
 	})
 	server := &http.Server{Handler: mux, ReadHeaderTimeout: 5 * time.Second}
