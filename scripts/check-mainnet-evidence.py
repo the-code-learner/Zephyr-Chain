@@ -42,6 +42,44 @@ def reject_duplicate_json_members(pairs: list[tuple[str, object]]) -> dict:
 
 
 
+# A manifest is not proof of an audit, but it is still untrusted input.
+# Prevent an oversized/cycling/symlinked manifest from exhausting or redirecting
+# the offline reviewer before artifact hashes can be independently checked.
+MAX_MANIFEST_BYTES = 4 * 1024 * 1024
+
+
+def read_manifest_document(path: pathlib.Path) -> object:
+    """Read a bounded, regular, single-link manifest from one pinned inode."""
+    if not hasattr(os, "O_NOFOLLOW") or not hasattr(os, "O_NONBLOCK"):
+        raise ValueError("secure manifest descriptor reads unavailable")
+    with contextlib.ExitStack() as stack:
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+        stack.callback(os.close, fd)
+        before = os.fstat(fd)
+        if not stat.S_ISREG(before.st_mode):
+            raise ValueError("manifest is not a regular file")
+        if before.st_nlink != 1:
+            raise ValueError("hard-linked manifest is not independently immutable")
+        if before.st_size > MAX_MANIFEST_BYTES:
+            raise ValueError("manifest exceeds byte limit")
+        chunks = []
+        total = 0
+        while True:
+            chunk = os.read(fd, min(64 * 1024, MAX_MANIFEST_BYTES + 1 - total))
+            if not chunk:
+                break
+            total += len(chunk)
+            if total > MAX_MANIFEST_BYTES:
+                raise ValueError("manifest exceeds byte limit")
+            chunks.append(chunk)
+        after = os.fstat(fd)
+        if (before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns, before.st_ctime_ns) != (
+            after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns, after.st_ctime_ns
+        ) or after.st_nlink != 1:
+            raise ValueError("manifest modified during validation")
+        return json.loads(b"".join(chunks).decode("utf-8"), object_pairs_hook=reject_duplicate_json_members)
+
+
 def hash_open_evidence(root: pathlib.Path, relative: pathlib.PurePosixPath) -> tuple[str, tuple[int, int]]:
     """Read the same regular inode that was validated, without following links.
 
@@ -94,10 +132,7 @@ def hash_open_evidence(root: pathlib.Path, relative: pathlib.PurePosixPath) -> t
 def inspect(manifest_path: pathlib.Path, root: pathlib.Path) -> list[str]:
     errors = []
     try:
-        doc = json.loads(
-            manifest_path.read_text(encoding="utf-8"),
-            object_pairs_hook=reject_duplicate_json_members,
-        )
+        doc = read_manifest_document(manifest_path)
     except (OSError, UnicodeError, ValueError) as exc:
         return [f"manifest unreadable: {exc}"]
     if not isinstance(doc, dict) or set(doc) != {"schemaVersion", "gates"} or type(doc["schemaVersion"]) is not int or doc["schemaVersion"] != 1:
