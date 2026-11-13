@@ -13,6 +13,17 @@ import (
 	"github.com/zephyr-chain/zephyr-chain/internal/tx"
 )
 
+// peerHTTPStatusError preserves the HTTP response code as structured
+// transport evidence. Message-matching cannot safely distinguish an actual
+// 409 from a synthetic error with identical wording or a wrapped error.
+type peerHTTPStatusError struct {
+	statusCode int
+}
+
+func (e peerHTTPStatusError) Error() string {
+	return fmt.Sprintf("peer returned status %d", e.statusCode)
+}
+
 // Bound untrusted peer status metadata even when the remote HTTP server is
 // admitted; oversized responses can otherwise monopolize JSON decoding in
 // the consensus admission/liveness path.
@@ -246,7 +257,7 @@ func (t *httpPeerTransport) postJSONWithConflictPolicy(target string, payload an
 	// idempotent conflict) count as delivery. In particular, 3xx redirects
 	// must never be treated as successful peer consensus/replication.
 	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
-		return fmt.Errorf("peer returned status %d", response.StatusCode)
+		return peerHTTPStatusError{statusCode: response.StatusCode}
 	}
 	return nil
 }
