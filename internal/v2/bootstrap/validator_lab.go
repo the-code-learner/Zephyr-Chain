@@ -48,6 +48,7 @@ func OpenLabValidator(cfg LabValidatorConfig) (*LabValidator, error) {
 	if cfg.Key == nil || cfg.Key.Curve != elliptic.P256() ||
 		cfg.Key.D == nil || cfg.Key.D.Sign() <= 0 ||
 		cfg.Key.D.Cmp(elliptic.P256().Params().N) >= 0 ||
+		cfg.Key.PublicKey.X == nil || cfg.Key.PublicKey.Y == nil ||
 		!elliptic.P256().IsOnCurve(cfg.Key.PublicKey.X, cfg.Key.PublicKey.Y) {
 		return nil, ErrLabValidatorConfig
 	}
