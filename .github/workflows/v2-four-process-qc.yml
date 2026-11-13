@@ -9,6 +9,7 @@ on:
       - 'cmd/v2-lab-fixture/**'
       - 'cmd/v2-lab-qc-verify/**'
       - 'scripts/v2-lab-qc-smoke.py'
+      - 'scripts/v2-observer-recovery-smoke.py'
       - 'internal/v2/node/**'
       - 'internal/v2/consensus/**'
       - 'internal/v2/bootstrap/**'
@@ -102,6 +103,11 @@ jobs:
             exit 1
           fi
           echo "PASS: mutated signed certificate correctly rejected" | tee -a evidence/tampered-proof-check.txt
+          python3 scripts/v2-observer-recovery-smoke.py \
+            --observer-binary "$RUNNER_TEMP/v2-observer" \
+            --manifest "$PRIVATE_ROOT/manifest.json" \
+            --summary evidence/v2-four-process-qc-summary.json \
+            --evidence evidence
           echo "finished_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> evidence/environment.txt
 
       - name: Upload signed QC and nonsecret diagnostics even on failure
