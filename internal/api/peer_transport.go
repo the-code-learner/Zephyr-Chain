@@ -235,6 +235,14 @@ func (t *httpPeerTransport) postJSONWithConflictPolicy(target string, payload an
 	if err != nil {
 		return err
 	}
+	// A locally finalized block must never be silently sent as a packet
+	// that the peer's certified-block endpoint is required to reject.
+	// Enforce the same exact encoded JSON byte bound before request proof
+	// signing and before any outbound network side effect.
+	if _, certified := payload.(certifiedBlockDelivery); certified &&
+		int64(len(body)) > maxCertifiedBlockDeliveryBytes {
+		return errCertifiedDeliveryTooLarge
+	}
 
 	request, err := http.NewRequest(http.MethodPost, target, bytes.NewReader(body))
 	if err != nil {
