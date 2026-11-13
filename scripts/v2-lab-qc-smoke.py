@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Real, same-host V2 QUIC four-process finalized QC lab; not production."""
+"""Real, same-host V2 QUIC 4/7-process finalized QC lab; not production."""
 import argparse
 import http.client
 import json
@@ -61,10 +61,12 @@ def main():
     with open(args.manifest) as f:
         fixture = json.load(f)
     nodes = fixture["validators"]
-    assert fixture["mode"] == "ephemeral-ci-keys-not-mainnet" and len(nodes) == 4
+    assert fixture["mode"] == "ephemeral-ci-keys-not-mainnet" and len(nodes) in (4, 7)
+    count = len(nodes)
+    quorum = (2 * count) // 3 + 1
     processes, handles, infos = [], [], []
     try:
-        # Spawn all four processes BEFORE waiting for any ready event.
+        # Spawn all validator processes BEFORE waiting for any ready event.
         for node in nodes:
             socket_path = str(Path(node["dataDir"]) / "lab-control.sock")
             command = [
@@ -89,15 +91,15 @@ def main():
             assert info["validatorRoot"] == fixture["validatorRoot"]
             assert info["finalizedHeight"] == 0
             infos.append(info)
-        assert len({process.pid for process in processes}) == 4
-        assert len({info["peerId"] for info in infos}) == 4
+        assert len({process.pid for process in processes}) == count
+        assert len({info["peerId"] for info in infos}) == count
 
         sockets = [str(Path(node["dataDir"]) / "lab-control.sock") for node in nodes]
         addresses = [endpoint(info) for info in infos]
         for i, socket_path in enumerate(sockets):
             peers = [address for j, address in enumerate(addresses) if i != j]
             status, result = control(socket_path, "POST", "/connect", {"peers": peers})
-            assert status == 200 and result["connectedPeers"] == 3, (i, status, result)
+            assert status == 200 and result["connectedPeers"] == count - 1, (i, status, result)
 
         # Negative case: no anonymous peers without /p2p identity proof.
         status, _ = control(sockets[0], "POST", "/connect",
@@ -114,7 +116,7 @@ def main():
             break
         assert certified is not None, "scheduled proposer never finalized"
         assert certified["height"] == 1
-        assert certified["voteCount"] >= 3, certified
+        assert certified["voteCount"] >= quorum, certified
         assert certified["snapshot"]["Certificate"]["Height"] == 1
         header_hash = certified["headerHash"]
 
@@ -130,14 +132,16 @@ def main():
             time.sleep(.2)
         else:
             raise AssertionError(f"replicas failed to converge: {final_states!r}")
-        assert all(obj["voteCount"] >= 3 for code, obj in final_states)
+        assert all(obj["voteCount"] >= quorum for code, obj in final_states)
 
         # Publish the COMPLETE signed certificate for a separate Go verifier.
         with (evidence / "v2-finalized-snapshot.json").open("w") as f:
             json.dump(certified["snapshot"], f, sort_keys=True)
         with (evidence / "v2-four-process-qc-summary.json").open("w") as f:
             json.dump({
-                "scope": "four libp2p QUIC validator OS processes on ONE GitHub runner; real signed QC; no independent provider",
+                "scope": f"{count} libp2p QUIC validator OS processes on ONE GitHub runner; real signed QC; no independent provider",
+                "validatorCount": count,
+                "minimumQuorumVotes": quorum,
                 "commit": "use workflow artifact exact SHA",
                 "networkId": fixture["networkId"],
                 "validatorRoot": fixture["validatorRoot"],
@@ -146,10 +150,10 @@ def main():
                 "voteCount": certified["voteCount"],
                 "independentProcessIDs": [proc.pid for proc in processes],
                 "independentPeerIDs": [info["peerId"] for info in infos],
-                "allFourReplicasCommittedSameHeader": True,
+                "allReplicasCommittedSameHeader": True,
                 "signedQCExternalVerifierRequired": True,
             }, f, indent=2, sort_keys=True)
-        print("PASS: four V2 validator OS processes finalized SAME signed-QC height-1 header")
+        print(f"PASS: {count} V2 validator OS processes finalized SAME signed-QC height-1 header")
     finally:
         for process in processes:
             if process.poll() is None:

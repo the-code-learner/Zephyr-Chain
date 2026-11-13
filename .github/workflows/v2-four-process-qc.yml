@@ -1,4 +1,4 @@
-name: V2 Four-Process Signed QC Lab
+name: V2 4-7 Process Signed QC Lab
 
 on:
   pull_request:
@@ -22,7 +22,11 @@ concurrency:
 
 jobs:
   signed-qc:
-    name: Four real QUIC validator processes finalize one signed QC
+    name: Signed QC (${{ matrix.validators }} V2 processes)
+    strategy:
+      fail-fast: false
+      matrix:
+        validators: [4, 7]
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
@@ -47,7 +51,7 @@ jobs:
             echo "runner_arch=$RUNNER_ARCH"
             echo "cpu_count=$(nproc)"
             echo "go_version=$(go version)"
-            echo "topology=FOUR-V2-OS-processes-on-ONE-GitHub-host"
+            echo "topology=${{ matrix.validators }}-V2-OS-processes-on-ONE-GitHub-host"
             echo "scope=authenticated-QUIC-and-signed-QC-no-independent-operator-or-multi-host"
             sha256sum "$RUNNER_TEMP/v2-lab-validator" "$RUNNER_TEMP/v2-lab-fixture" "$RUNNER_TEMP/v2-lab-qc-verify"
           } > evidence/environment.txt
@@ -59,7 +63,7 @@ jobs:
           PRIVATE_ROOT="$(mktemp -d)"
           trap 'rm -rf "$PRIVATE_ROOT"' EXIT
           chmod 700 "$PRIVATE_ROOT"
-          "$RUNNER_TEMP/v2-lab-fixture" -acknowledge-lab-only -dir "$PRIVATE_ROOT/lab" -validators 4 > "$PRIVATE_ROOT/manifest.json"
+          "$RUNNER_TEMP/v2-lab-fixture" -acknowledge-lab-only -dir "$PRIVATE_ROOT/lab" -validators ${{ matrix.validators }} > "$PRIVATE_ROOT/manifest.json"
           python3 scripts/v2-lab-qc-smoke.py \
             --binary "$RUNNER_TEMP/v2-lab-validator" \
             --manifest "$PRIVATE_ROOT/manifest.json" \
@@ -71,13 +75,37 @@ jobs:
             -validator-root "$(jq -r '.validatorRoot' "$PRIVATE_ROOT/manifest.json")" \
             -header-hash "$(jq -r '.headerHash' evidence/v2-four-process-qc-summary.json)" \
             2>&1 | tee evidence/independent-qc-verification.txt
+          # Corrupt one signature, preserving parseable base64 encoding.
+          python3 - <<'PY'
+          import json
+          with open("evidence/v2-finalized-snapshot.json") as stream:
+              snapshot = json.load(stream)
+          votes = snapshot["Certificate"]["Votes"]
+          assert votes and isinstance(votes[0]["Signature"], str)
+          signature = votes[0]["Signature"]
+          assert len(signature) > 0
+          votes[0]["Signature"] = ("A" if signature[0] != "A" else "B") + signature[1:]
+          with open("evidence/v2-tampered-snapshot.json", "w") as stream:
+              json.dump(snapshot, stream)
+          PY
+          if "$RUNNER_TEMP/v2-lab-qc-verify" \
+            -genesis "$(jq -r '.genesisFile' "$PRIVATE_ROOT/manifest.json")" \
+            -snapshot evidence/v2-tampered-snapshot.json \
+            -network-id "$(jq -r '.networkId' "$PRIVATE_ROOT/manifest.json")" \
+            -validator-root "$(jq -r '.validatorRoot' "$PRIVATE_ROOT/manifest.json")" \
+            -header-hash "$(jq -r '.headerHash' evidence/v2-four-process-qc-summary.json)" \
+            > evidence/tampered-proof-check.txt 2>&1; then
+            echo "ERROR: mutated QC signature was accepted"
+            exit 1
+          fi
+          echo "PASS: mutated signed certificate correctly rejected" | tee -a evidence/tampered-proof-check.txt
           echo "finished_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> evidence/environment.txt
 
       - name: Upload signed QC and nonsecret diagnostics even on failure
         if: always()
         uses: actions/upload-artifact@v6
         with:
-          name: v2-four-process-signed-qc-${{ github.sha }}-${{ github.run_attempt }}
+          name: v2-signed-qc-${{ matrix.validators }}-${{ github.sha }}-${{ github.run_attempt }}
           path: evidence/
           if-no-files-found: warn
           retention-days: 30

@@ -47,7 +47,7 @@ func verify(genesisPath, snapshotPath, network, root, headerHash string) error {
 		snapshot.Header.ValidatorRoot != anchor.ValidatorRoot ||
 		snapshot.Header.Height != 1 ||
 		v2consensus.HeaderConsensusHash(snapshot.Header).String() != headerHash ||
-		len(snapshot.Certificate.Votes) < 3 {
+		len(snapshot.Certificate.Votes) < 2*len(g.Validators)/3+1 {
 		return errors.New("QC proof does not match expected lab height, pins and quorum")
 	}
 	expected, err := g.ValidatorSet()
