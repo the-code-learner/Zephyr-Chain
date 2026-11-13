@@ -1,0 +1,77 @@
+name: V2 Four-Process Lab Validator Smoke
+
+on:
+  pull_request:
+    paths:
+      - 'cmd/v2-lab-validator/**'
+      - 'cmd/v2-lab-fixture/**'
+      - 'internal/v2/bootstrap/**'
+      - 'scripts/v2-lab-process-smoke.py'
+      - '.github/workflows/v2-lab-four-process-smoke.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: v2-four-process-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  four-v2-processes:
+    name: Four fenced V2 processes on one GitHub runner (not multi-host QC)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact revision
+        uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - name: Build devnet-only validator and ephemeral fixture generator
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p evidence
+          CGO_ENABLED=0 go build -trimpath -o "$RUNNER_TEMP/v2-lab-validator" ./cmd/v2-lab-validator
+          CGO_ENABLED=0 go build -trimpath -o "$RUNNER_TEMP/v2-lab-fixture" ./cmd/v2-lab-fixture
+          {
+            echo "sha=$GITHUB_SHA"
+            echo "runner_os=$RUNNER_OS"
+            echo "runner_arch=$RUNNER_ARCH"
+            echo "host=$(uname -a)"
+            echo "cpu_count=$(nproc)"
+            echo "go_version=$(go version)"
+            echo "topology=one-GitHub-runner-four-independent-V2-OS-processes"
+            echo "limits=no-real-QC-finality-no-network-partition-no-independent-provider"
+            sha256sum "$RUNNER_TEMP/v2-lab-validator"
+            sha256sum "$RUNNER_TEMP/v2-lab-fixture"
+          } > evidence/environment.txt
+
+      - name: Start processes with private ephemeral keys and test signer exclusivity
+        shell: bash
+        run: |
+          set -euo pipefail
+          # The generated P-256 private keys MUST stay outside checkout and
+          # uploaded artifacts. This temp root is removed on all exits.
+          PRIVATE_ROOT="$(mktemp -d)"
+          trap 'rm -rf "$PRIVATE_ROOT"' EXIT
+          chmod 700 "$PRIVATE_ROOT"
+          "$RUNNER_TEMP/v2-lab-fixture" -acknowledge-lab-only -dir "$PRIVATE_ROOT/lab" -validators 4 > "$PRIVATE_ROOT/manifest.json"
+          python3 scripts/v2-lab-process-smoke.py \
+            --binary "$RUNNER_TEMP/v2-lab-validator" \
+            --manifest "$PRIVATE_ROOT/manifest.json" \
+            --evidence evidence
+
+      - name: Upload nonsecret diagnostics even when a job fails
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: v2-lab-four-process-${{ github.sha }}-${{ github.run_attempt }}
+          path: evidence/
+          if-no-files-found: warn
+          retention-days: 30

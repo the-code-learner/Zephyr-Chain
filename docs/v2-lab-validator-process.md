@@ -7,3 +7,9 @@ The command requires explicit `--acknowledge-lab-only`, a genesis named lab/devn
 **Not yet demonstrated:** multi-process connected proposer/vote/finality QC, remote signer/HSM, worker/operator diversity, or safe validator restart at later finalized heights. This is a starting primitive for the Docker validator orchestration; it must never be described as mainnet ready. #42/#54/#55 remain NO-GO.
 
 Next: add GitHub-only 4/7-process Docker fixture with per-process keys, origin-pinned peers, signed-QC proof, crash/restart and error artifacts.
+
+## Four-process GitHub lab — second tranche
+
+The `V2 Four-Process Lab Validator Smoke` workflow builds the lab-only V2 validator command and a short-lived fixture generator. Four random P-256 keys are generated with owner-only DER files **outside** the checkout and uploaded artifacts, all validators derive identical canonical genesis commitments, and each starts as a **separate OS process** with a unique durable signing journal and QUIC listener. The harness asserts unique process IDs and libp2p peer identities, verifies that a second process using a held signer journal fails *before opening state*, and checks three processes survive termination of a fourth. On failure, logs are preserved; ephemeral private keys are deleted.
+
+**Evidence boundary:** Four processes share **one** GitHub runner VM and network namespace. This proves startup, key identity, journal exclusivity and process crash isolation only. It has **not** connected four mutually pinned peers to finalize a V2 block, has no QC/observer verifier, and does not establish cross-runner or independent-operator custody. The mainnet #42 and V2 #211 acceptance gates remain open.
