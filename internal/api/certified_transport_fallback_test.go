@@ -10,10 +10,10 @@ import (
 // delivery to bare blocks when receiver-side quorum checks are mandatory.
 func TestCertifiedBroadcastFailsClosedWithoutSignedTransport(t *testing.T) {
 	s := newTestServer(t, Config{
-		DataDir: t.TempDir(),
-		NodeID: "certified-transport-required",
+		DataDir:       t.TempDir(),
+		NodeID:        "certified-transport-required",
 		BlockInterval: 0, SyncInterval: 0,
-		EnablePeerSync: false,
+		EnablePeerSync:               false,
 		RequireConsensusCertificates: true,
 	})
 	s.setPeerURLs([]string{"http://127.0.0.1:19991"})
@@ -32,10 +32,10 @@ func TestCertifiedBroadcastFailsClosedWithoutSignedTransport(t *testing.T) {
 	// Legacy noncertificate networks can still send ordinary blocks:
 	// the fail-closed constraint applies only to certified consensus.
 	legacy := newTestServer(t, Config{
-		DataDir: t.TempDir(),
-		NodeID: "uncertified-transport",
+		DataDir:       t.TempDir(),
+		NodeID:        "uncertified-transport",
 		BlockInterval: 0, SyncInterval: 0,
-		EnablePeerSync: false,
+		EnablePeerSync:               false,
 		RequireConsensusCertificates: false,
 	})
 	legacy.setPeerURLs([]string{"http://127.0.0.1:19992"})
