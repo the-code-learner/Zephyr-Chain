@@ -1,0 +1,55 @@
+name: Docker Node Process Restart Smoke
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/docker-node-process-restart.yml'
+      - 'scripts/docker-node-process-smoke.sh'
+      - 'cmd/node/**'
+      - 'internal/api/**'
+      - 'internal/ledger/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docker-node-process-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  isolated-process-restart:
+    name: Three independent container processes and state-volume restart
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout exact source
+        uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - name: Build static legacy node CLI and record Docker image
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p evidence
+          CGO_ENABLED=0 go build -trimpath -o evidence/zephyr-node ./cmd/node
+          docker pull alpine:3.21
+          docker image inspect alpine:3.21 --format '{{json .RepoDigests}}' > evidence/image-digests.json
+
+      - name: Run independent Docker process startup and restart evidence
+        shell: bash
+        run: bash scripts/docker-node-process-smoke.sh
+
+      - name: Upload complete smoke evidence even on failure
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: node-process-restart-${{ github.sha }}-${{ github.run_attempt }}
+          path: evidence/
+          if-no-files-found: warn
+          retention-days: 30
