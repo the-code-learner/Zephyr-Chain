@@ -296,7 +296,21 @@ func (s *Server) broadcastTransaction(envelope tx.Envelope) {
 
 func (s *Server) broadcastBlock(block ledger.Block) {
 	var certified *certifiedBlockDelivery
+	var certifiedTransport certifiedBlockDeliveryTransport
 	if s.config.RequireConsensusCertificates {
+		// A bare PostBlock fallback cannot transfer quorum signatures. A
+		// legacy/injected transport missing this API must be rejected and
+		// diagnosed, never silently treated as successful replication.
+		var supported bool
+		certifiedTransport, supported = s.transport.(certifiedBlockDeliveryTransport)
+		if !supported {
+			err := fmt.Errorf("certified block transport unavailable; refusing unsigned block fallback")
+			for _, peerURL := range s.admittedPeerURLs() {
+				s.recordReplicationIncident(peerURL, "certified_block", block.Hash, err)
+				recordPeerLog(fmt.Sprintf("broadcast-certified-block %s", peerURL), err)
+			}
+			return
+		}
 		// The proposer may have obtained the quorum before every replica
 		// received all votes. Ordinary PostBlock requires an existing LOCAL
 		// QC on the recipient and can leave those replicas stranded forever
@@ -311,22 +325,11 @@ func (s *Server) broadcastBlock(block ledger.Block) {
 	for _, peerURL := range s.admittedPeerURLs() {
 		var err error
 		if certified != nil {
-			if transport, ok := s.transport.(certifiedBlockDeliveryTransport); ok {
-				err = transport.PostCertifiedBlock(peerURL, *certified)
-			} else {
-				// Compatibility for legacy injected transports. The receiving
-				// ledger still refuses ordinary blocks without a local QC.
-				err = s.transport.PostBlock(peerURL, block)
-			}
+			err = certifiedTransport.PostCertifiedBlock(peerURL, *certified)
+			// Only an actual signed delivery ACK permits suppressing replay.
+			s.recordCertifiedDelivery(peerURL, block.Hash, err)
 		} else {
 			err = s.transport.PostBlock(peerURL, block)
-		}
-		if certified != nil {
-			// Persist in-memory delivery acknowledgement for the same
-			// block hash so the consensus ticker retries failures only.
-			if _, supportsCertified := s.transport.(certifiedBlockDeliveryTransport); supportsCertified {
-				s.recordCertifiedDelivery(peerURL, block.Hash, err)
-			}
 		}
 		if err != nil {
 			s.recordReplicationIncident(peerURL, "block", block.Hash, err)
