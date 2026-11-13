@@ -296,14 +296,31 @@ func (c *labCluster) driveUntilHeight(indices []int, height uint64, timeout time
 	ignoredCounts := make([]uint64, len(c.nodes))
 	lastIgnored := make([]string, len(c.nodes))
 	for time.Now().Before(deadline) {
+		// A production validator runs its own tick independently. Driving
+		// these seven HTTP servers serially artificially skews local clocks
+		// under CI scheduler contention. Start each tick concurrently but
+		// JOIN all results before inspecting finalized state; never relax
+		// the original wall-clock deadline or the certificate quorum.
+		type tickResult struct {
+			index int
+			err   error
+		}
+		results := make(chan tickResult, len(c.nodes))
 		for index, node := range c.nodes {
-			if err := node.server.runConsensusAutomation(); err != nil {
-				if !ignoreConsensusAutomationError(err) {
-					c.tb.Fatalf("drive consensus on %s: %v", node.server.nodeID, err)
-				}
-				ignoredCounts[index]++
-				lastIgnored[index] = err.Error()
+			go func(index int, node *labNode) {
+				results <- tickResult{index: index, err: node.server.runConsensusAutomation()}
+			}(index, node)
+		}
+		for range c.nodes {
+			result := <-results
+			if result.err == nil {
+				continue
 			}
+			if !ignoreConsensusAutomationError(result.err) {
+				c.tb.Fatalf("drive consensus on %s: %v", c.nodes[result.index].server.nodeID, result.err)
+			}
+			ignoredCounts[result.index]++
+			lastIgnored[result.index] = result.err.Error()
 		}
 		if c.indicesAtHeight(indices, height) {
 			return time.Since(startedAt)
