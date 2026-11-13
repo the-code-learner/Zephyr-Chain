@@ -40,3 +40,8 @@ After a successful 4- or 7-validator height-one QC plus separate nonvoting obser
 ## Two-height QC finality and observer recovery
 
 The next GitHub 4/7-process matrix finalizes **two consecutive empty V2 blocks**, exercising deterministic proposer rotation, signer journal monotonicity and both real QUIC signed-QC broadcasts. All validator replicas and the nonvoting observer must independently converge on the exact signed header hash at **each height**, and hashes at heights 1 and 2 must differ. A separate keyless proof verifier validates the independently expected height, genesis and header for **both** snapshots, then rejects a deliberately mutated height-two vote. Following process shutdown, the observer must fully replay the two-height QC-certified disk history to the exact height-two header; one-byte append corruption must fail closed. Still a same-runner and empty-block lab, not a multi-host network, nonempty TPS or an independently administered custody guarantee.
+
+
+## Negative QC test: valid signatures below quorum
+
+The GitHub signed-QC laboratory additionally derives a **signed-but-insufficient** certificate from the authentic finalized height-two snapshot without fabricating or editing signatures. For four equal-power validators, it retains only **2 of 3 required** votes; for seven, only **4 of 5 required** votes. The separate proof verifier must reject each while the original fully signed certificate remains independently valid, and the test records its fail-closed result as a non-secret artifact. This explicitly exercises quorum enforcement, not just signature integrity. It remains same-runner laboratory evidence and does not replace partition, cross-runner or production key-custody proofs.
