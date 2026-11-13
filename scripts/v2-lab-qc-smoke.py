@@ -161,6 +161,21 @@ def main():
             raise AssertionError(f"replicas failed to converge: {final_states!r}")
         assert all(obj["voteCount"] >= quorum for code, obj in final_states)
 
+        # Observer must independently QC-verify exactly the same header.
+        deadline = time.monotonic() + 20
+        observer_state = {}
+        while time.monotonic() < deadline:
+            code, observer_state = control(observer_socket, "GET", "/status")
+            if (code == 200 and observer_state.get("qcVerified") and
+                    observer_state.get("height") == 1 and
+                    observer_state.get("headerHash") == header_hash and
+                    observer_state.get("voteCount", 0) >= quorum and
+                    observer_state.get("isValidator") is False):
+                break
+            time.sleep(.2)
+        else:
+            raise AssertionError(f"nonvoting observer did not QC-finalize: {code}, {observer_state}")
+
         # Publish the COMPLETE signed certificate for a separate Go verifier.
         with (evidence / "v2-finalized-snapshot.json").open("w") as f:
             json.dump(certified["snapshot"], f, sort_keys=True)
@@ -178,10 +193,30 @@ def main():
                 "independentProcessIDs": [proc.pid for proc in processes],
                 "independentPeerIDs": [info["peerId"] for info in infos],
                 "allReplicasCommittedSameHeader": True,
+                "independentNonvotingObserver": {
+                    "processID": observer.pid,
+                    "peerID": observer_info["peerId"],
+                    "height": observer_state["height"],
+                    "headerHash": observer_state["headerHash"],
+                    "qcVerified": observer_state["qcVerified"],
+                    "isValidator": observer_state["isValidator"],
+                },
                 "signedQCExternalVerifierRequired": True,
             }, f, indent=2, sort_keys=True)
-        print(f"PASS: {count} V2 validator OS processes finalized SAME signed-QC height-1 header")
+        print(f"PASS: {count} V2 validators plus nonvoting observer finalized SAME signed-QC height-1 header")
     finally:
+        if observer is not None and observer.poll() is None:
+            observer.terminate()
+        if observer is not None:
+            try:
+                observer.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                observer.kill()
+                observer.wait(timeout=5)
+            if observer.stdout:
+                observer.stdout.close()
+        if observer_log is not None:
+            observer_log.close()
         for process in processes:
             if process.poll() is None:
                 process.terminate()
