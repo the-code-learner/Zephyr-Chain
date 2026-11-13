@@ -18,14 +18,14 @@ func TestCertifiedBlockEvidenceSelectsQuorumRoundNotFirstPartialRound(t *testing
 	second := newConsensusSigner(t)
 	source := newTestServer(t, Config{
 		DataDir: t.TempDir(), NodeID: "evidence-round-source",
-		ValidatorPrivateKey: encodedPrivateKey(t, first.privateKey),
+		ValidatorPrivateKey:   encodedPrivateKey(t, first.privateKey),
 		EnableBlockProduction: false, EnablePeerSync: false,
 		BlockInterval: 0, SyncInterval: 0, MaxTransactionsPerBlock: 10,
 		RequireConsensusCertificates: true,
 	})
 	receiver := newTestServer(t, Config{
 		DataDir: t.TempDir(), NodeID: "evidence-round-target",
-		ValidatorPrivateKey: encodedPrivateKey(t, second.privateKey),
+		ValidatorPrivateKey:   encodedPrivateKey(t, second.privateKey),
 		EnableBlockProduction: false, EnablePeerSync: false,
 		BlockInterval: 0, SyncInterval: 0, MaxTransactionsPerBlock: 10,
 		RequireConsensusCertificates: true,
@@ -97,7 +97,7 @@ func TestCertifiedBlockEvidenceSelectsQuorumRoundNotFirstPartialRound(t *testing
 	// unacceptable on a separate fresh receiver; no fallback by sender.
 	fresh := newTestServer(t, Config{
 		DataDir: t.TempDir(), NodeID: "evidence-round-negative",
-		ValidatorPrivateKey: encodedPrivateKey(t, second.privateKey),
+		ValidatorPrivateKey:   encodedPrivateKey(t, second.privateKey),
 		EnableBlockProduction: false, EnablePeerSync: false,
 		BlockInterval: 0, SyncInterval: 0, MaxTransactionsPerBlock: 10,
 		RequireConsensusCertificates: true,
@@ -115,4 +115,3 @@ func TestCertifiedBlockEvidenceSelectsQuorumRoundNotFirstPartialRound(t *testing
 		t.Fatal("partial evidence altered recipient ledger height")
 	}
 }
-
