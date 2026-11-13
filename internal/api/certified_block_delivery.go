@@ -22,6 +22,8 @@ type certifiedBlockDelivery struct {
 // applies to both declared Content-Length and streaming/chunked bodies.
 const maxCertifiedBlockDeliveryBytes int64 = 64 << 20
 
+var errCertifiedDeliveryTooLarge = errors.New("signed certified block payload exceeds transport byte limit")
+
 func (s *Server) handleImportCertifiedBlock(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		w.WriteHeader(http.StatusMethodNotAllowed)
