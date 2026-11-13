@@ -58,6 +58,10 @@ func startLabControl(path, stateDir string, validator *bootstrap.LabValidator) (
 		_ = os.Remove(path)
 		return nil, err
 	}
+	// Capture the certified recovered height before accepting lab requests.
+	// A newly restarted service has no in-memory LatestSnapshot until it
+	// finalizes a NEW commit, even when Runtime was replayed from disk.
+	recoveredHeight := validator.Runtime.Height
 	mux := http.NewServeMux()
 	mux.HandleFunc("/status", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
@@ -87,7 +91,7 @@ func startLabControl(path, stateDir string, validator *bootstrap.LabValidator) (
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		height := uint64(1)
+		height := recoveredHeight + 1
 		snapshot, err := validator.Service.LatestSnapshot()
 		if err == nil {
 			height = snapshot.Header.Height + 1
