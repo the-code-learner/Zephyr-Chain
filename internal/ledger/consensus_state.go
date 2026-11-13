@@ -151,6 +151,9 @@ func recordProposalIntoState(state persistedState, proposal consensus.Proposal, 
 	if len(state.ValidatorSnapshot.Validators) == 0 {
 		return state, ErrNoValidatorSet
 	}
+	if err := checkCertifiedDeliveryBudget(proposal, len(state.ValidatorSnapshot.Validators)); err != nil {
+		return state, err
+	}
 	if proposal.Height != uint64(len(state.Blocks))+1 {
 		return state, ErrConsensusHeightMismatch
 	}
