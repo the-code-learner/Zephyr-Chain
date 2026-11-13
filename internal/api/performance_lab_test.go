@@ -47,8 +47,9 @@ type labNode struct {
 }
 
 type labCluster struct {
-	tb    testing.TB
-	nodes []*labNode
+	tb            testing.TB
+	nodes         []*labNode
+	lastSubmitted []string
 }
 
 type labFaultTransport struct {
@@ -200,6 +201,10 @@ func (c *labCluster) submitTransactions(transactions []tx.Envelope, workers int)
 	if len(transactions) == 0 {
 		return
 	}
+	c.lastSubmitted = c.lastSubmitted[:0]
+	for _, envelope := range transactions {
+		c.lastSubmitted = append(c.lastSubmitted, tx.ID(envelope))
+	}
 	if workers <= 0 {
 		workers = 1
 	}
@@ -266,7 +271,19 @@ func (c *labCluster) waitForMempools(size int, timeout time.Duration) {
 	for _, node := range c.nodes {
 		counts = append(counts, node.server.ledger.MempoolSize())
 	}
-	c.tb.Fatalf("mempools did not converge to %d before timeout: %v", size, counts)
+	missing := make(map[int][]string, len(c.nodes))
+	for index, node := range c.nodes {
+		seen := make(map[string]struct{})
+		for _, entry := range node.server.ledger.Snapshot().Mempool {
+			seen[entry.ID] = struct{}{}
+		}
+		for _, id := range c.lastSubmitted {
+			if _, found := seen[id]; !found {
+				missing[index] = append(missing[index], id)
+			}
+		}
+	}
+	c.tb.Fatalf("mempools did not converge to %d before timeout: counts=%v missingTxIDsByNode=%v", size, counts, missing)
 }
 
 func (c *labCluster) driveUntilHeight(indices []int, height uint64, timeout time.Duration) time.Duration {
