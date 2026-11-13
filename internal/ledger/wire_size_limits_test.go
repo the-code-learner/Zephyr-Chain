@@ -27,7 +27,7 @@ func TestLedgerRejectsImportedBlockWithMoreThanConsensusTransactionCap(t *testin
 		ChainID: protocol.DefaultChainID, StateRoot: "state-root",
 		Height: 1, TransactionCount: count,
 		TransactionIDs: make([]string, count),
-		Transactions: make([]tx.Envelope, count),
+		Transactions:   make([]tx.Envelope, count),
 	}
 	_, err := importBlockIntoState(persistedState{}, block, protocol.DefaultChainID)
 	if !errors.Is(err, ErrInvalidBlock) {
