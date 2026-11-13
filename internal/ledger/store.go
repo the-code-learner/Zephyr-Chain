@@ -351,6 +351,12 @@ func (s *Store) Restore(snapshot Snapshot) error {
 }
 
 func (s *Store) Accept(envelope tx.Envelope) (string, error) {
+	// Direct ledger callers must obey the same byte bound as the public
+	// transaction API; otherwise a huge mempool entry can later be proposed
+	// but not propagated over the capped certified-block transport.
+	if err := envelope.ValidateWireSize(); err != nil {
+		return "", err
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -642,6 +648,12 @@ func produceBlockFromState(state persistedState, maxTransactions int, producedAt
 	if maxTransactions <= 0 || maxTransactions > len(state.Mempool) {
 		maxTransactions = len(state.Mempool)
 	}
+	// Do not produce a legacy block larger than peers are permitted to
+	// accept; the certified proposer path enforces this same invariant in
+	// consensus.Proposal.ValidateStatic.
+	if maxTransactions > consensus.MaxConsensusBlockTransactions {
+		maxTransactions = consensus.MaxConsensusBlockTransactions
+	}
 
 	selected := append([]MempoolEntry(nil), state.Mempool[:maxTransactions]...)
 	remaining := append([]MempoolEntry(nil), state.Mempool[maxTransactions:]...)
@@ -721,7 +733,8 @@ func importBlockIntoState(state persistedState, block Block, chainID string) (pe
 	if block.Height == 0 {
 		return state, ErrInvalidBlock
 	}
-	if block.TransactionCount != len(block.Transactions) || len(block.TransactionIDs) != len(block.Transactions) {
+	if block.TransactionCount != len(block.Transactions) || len(block.TransactionIDs) != len(block.Transactions) ||
+		len(block.Transactions) > consensus.MaxConsensusBlockTransactions {
 		return state, ErrInvalidBlock
 	}
 
