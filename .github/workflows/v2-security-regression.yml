@@ -64,6 +64,8 @@ jobs:
         run: go test -race ./internal/api -run '^TestSlowConsensusDelivery' -count=8 -timeout=4m
       - name: Seven-validator last-proposer sweep and QC liveness regression
         run: go test -race ./internal/api -run '^TestLabSevenValidatorsLastProposerNeedsFollowingSweepForQuorum$' -count=5 -timeout=4m
+      - name: Certified broadcast must refuse bare-block downgrade on legacy transport
+        run: go test -race ./internal/api -run '^TestCertifiedBroadcastFailsClosedWithoutSignedTransport$' -count=30 -timeout=4m
       - name: Lab fault adapter must preserve signed QC delivery and partition semantics
         run: go test -race ./internal/api -run '^TestLabFaultAdapterForwardsCertifiedDeliveryAndPreservesPartitions$' -count=20 -timeout=4m
       - name: Transferable certified QC must retain independently verifiable signed quorum
