@@ -26,7 +26,15 @@ var (
 	ErrNonCanonicalSignature = errors.New("signature must use canonical low-S P-256 form")
 	ErrInvalidChainID        = errors.New("transaction chain ID does not match local chain")
 	ErrInvalidDomain         = errors.New("invalid transaction signing domain")
+	ErrEnvelopeTooLarge      = errors.New("transaction envelope exceeds encoded byte limit")
 )
+
+// MaxEnvelopeJSONBytes is a protocol-level bound enforced before the
+// transaction enters the mempool, proposal validation or block replay.
+// It measures actual JSON bytes (including escaping and signed payload)
+// rather than only memo length.
+const MaxEnvelopeJSONBytes = 16 << 10
+
 
 type Envelope struct {
 	ChainID   string `json:"chainId"`
@@ -75,7 +83,28 @@ func (e Envelope) CanonicalPayload() string {
 	return string(payload)
 }
 
+// ValidateWireSize rejects oversized envelopes before signature verification
+// or persistent mempool insertion. Prechecking untrusted string lengths avoids
+// allocating an unbounded JSON buffer just to discover an oversized payload.
+func (e Envelope) ValidateWireSize() error {
+	rawSize := 0
+	for _, part := range []string{e.ChainID, e.Domain, e.From, e.To, e.Memo, e.Payload, e.PublicKey, e.Signature} {
+		if len(part) > MaxEnvelopeJSONBytes-rawSize {
+			return ErrEnvelopeTooLarge
+		}
+		rawSize += len(part)
+	}
+	encoded, err := json.Marshal(e)
+	if err != nil || len(encoded) > MaxEnvelopeJSONBytes {
+		return ErrEnvelopeTooLarge
+	}
+	return nil
+}
+
 func (e Envelope) ValidateStatic() error {
+	if err := e.ValidateWireSize(); err != nil {
+		return err
+	}
 	chainID := strings.TrimSpace(e.ChainID)
 	domain := strings.TrimSpace(e.Domain)
 	if chainID == "" || domain == "" || e.From == "" || e.To == "" || e.Payload == "" || e.PublicKey == "" || e.Signature == "" {
