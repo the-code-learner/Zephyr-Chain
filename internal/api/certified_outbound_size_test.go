@@ -29,7 +29,7 @@ func TestSignedCertifiedOutboundRejectsOversizedJSONBeforeNetwork(t *testing.T) 
 	// JSON escaping encodes every NUL as \\u0000, six wire bytes each.
 	// The raw memo is roughly 11MiB but the signed delivery is >64MiB.
 	delivery := certifiedBlockDelivery{Block: ledger.Block{
-		Height: 1,
+		Height:       1,
 		Transactions: []tx.Envelope{{Memo: strings.Repeat("\x00", int(maxCertifiedBlockDeliveryBytes/6)+128)}},
 	}}
 	if err := signed.PostCertifiedBlock(receiver.URL, delivery); !errors.Is(err, errCertifiedDeliveryTooLarge) {
