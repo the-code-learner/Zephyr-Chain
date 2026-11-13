@@ -64,6 +64,8 @@ jobs:
         run: go test -race ./internal/api -run '^TestSlowConsensusDelivery' -count=8 -timeout=4m
       - name: Seven-validator last-proposer sweep and QC liveness regression
         run: go test -race ./internal/api -run '^TestLabSevenValidatorsLastProposerNeedsFollowingSweepForQuorum$' -count=5 -timeout=4m
+      - name: Certified ten-height catchup must stop at eight and resume with verified QC
+        run: go test -race ./internal/api -run '^TestCertifiedCatchupRespectsEightBlockBoundAndResumesFromVerifiedTip$' -count=3 -timeout=5m
       - name: Certified catchup requires typed HTTP conflict, not forged error wording
         run: go test -race ./internal/api -run '^TestCertifiedCatchupRequiresTypedHTTPConflict$' -count=30 -timeout=4m
       - name: Certified broadcast must refuse bare-block downgrade on legacy transport
