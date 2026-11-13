@@ -53,6 +53,7 @@ def endpoint(info):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--binary", required=True)
+    parser.add_argument("--observer-binary", required=True)
     parser.add_argument("--manifest", required=True)
     parser.add_argument("--evidence", required=True)
     args = parser.parse_args()
@@ -65,6 +66,8 @@ def main():
     count = len(nodes)
     quorum = (2 * count) // 3 + 1
     processes, handles, infos = [], [], []
+    observer = None
+    observer_log = None
     try:
         # Spawn all validator processes BEFORE waiting for any ready event.
         for node in nodes:
@@ -94,12 +97,36 @@ def main():
         assert len({process.pid for process in processes}) == count
         assert len({info["peerId"] for info in infos}) == count
 
+        # An independently running nonvoting observer has no signing key.
+        observer_dir = str(Path(fixture["genesisFile"]).parent / "nonvoting-observer")
+        observer_socket = str(Path(observer_dir) / "lab-observer-status.sock")
+        observer_log = (evidence / "qc-nonvoting-observer.stderr.log").open("w")
+        observer = subprocess.Popen([
+            args.observer_binary,
+            "-genesis", fixture["genesisFile"],
+            "-expected-network-id", fixture["networkId"],
+            "-expected-validator-root", fixture["validatorRoot"],
+            "-data-dir", observer_dir,
+            "-listen", "/ip4/127.0.0.1/udp/0/quic-v1",
+            "-lab-control-socket", observer_socket,
+        ], stdout=subprocess.PIPE, stderr=observer_log, text=True, bufsize=1)
+        observer_info = ready(observer)
+        assert observer_info["mode"] == "observer-only", observer_info
+        assert observer_info["networkId"] == fixture["networkId"]
+        assert observer_info["validatorRoot"] == fixture["validatorRoot"]
+        assert observer_info["peerId"] not in {info["peerId"] for info in infos}
+        observer_address = endpoint(observer_info)
+        code, starting_observer = control(observer_socket, "GET", "/status")
+        assert code == 200 and starting_observer == {
+            "height": 0, "qcVerified": False, "isValidator": False
+        }, (code, starting_observer)
+
         sockets = [str(Path(node["dataDir"]) / "lab-control.sock") for node in nodes]
         addresses = [endpoint(info) for info in infos]
         for i, socket_path in enumerate(sockets):
-            peers = [address for j, address in enumerate(addresses) if i != j]
+            peers = [address for j, address in enumerate(addresses) if i != j] + [observer_address]
             status, result = control(socket_path, "POST", "/connect", {"peers": peers})
-            assert status == 200 and result["connectedPeers"] == count - 1, (i, status, result)
+            assert status == 200 and result["connectedPeers"] == count, (i, status, result)
 
         # Negative case: no anonymous peers without /p2p identity proof.
         status, _ = control(sockets[0], "POST", "/connect",
@@ -134,6 +161,21 @@ def main():
             raise AssertionError(f"replicas failed to converge: {final_states!r}")
         assert all(obj["voteCount"] >= quorum for code, obj in final_states)
 
+        # Observer must independently QC-verify exactly the same header.
+        deadline = time.monotonic() + 20
+        observer_state = {}
+        while time.monotonic() < deadline:
+            code, observer_state = control(observer_socket, "GET", "/status")
+            if (code == 200 and observer_state.get("qcVerified") and
+                    observer_state.get("height") == 1 and
+                    observer_state.get("headerHash") == header_hash and
+                    observer_state.get("voteCount", 0) >= quorum and
+                    observer_state.get("isValidator") is False):
+                break
+            time.sleep(.2)
+        else:
+            raise AssertionError(f"nonvoting observer did not QC-finalize: {code}, {observer_state}")
+
         # Publish the COMPLETE signed certificate for a separate Go verifier.
         with (evidence / "v2-finalized-snapshot.json").open("w") as f:
             json.dump(certified["snapshot"], f, sort_keys=True)
@@ -151,10 +193,30 @@ def main():
                 "independentProcessIDs": [proc.pid for proc in processes],
                 "independentPeerIDs": [info["peerId"] for info in infos],
                 "allReplicasCommittedSameHeader": True,
+                "independentNonvotingObserver": {
+                    "processID": observer.pid,
+                    "peerID": observer_info["peerId"],
+                    "height": observer_state["height"],
+                    "headerHash": observer_state["headerHash"],
+                    "qcVerified": observer_state["qcVerified"],
+                    "isValidator": observer_state["isValidator"],
+                },
                 "signedQCExternalVerifierRequired": True,
             }, f, indent=2, sort_keys=True)
-        print(f"PASS: {count} V2 validator OS processes finalized SAME signed-QC height-1 header")
+        print(f"PASS: {count} V2 validators plus nonvoting observer finalized SAME signed-QC height-1 header")
     finally:
+        if observer is not None and observer.poll() is None:
+            observer.terminate()
+        if observer is not None:
+            try:
+                observer.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                observer.kill()
+                observer.wait(timeout=5)
+            if observer.stdout:
+                observer.stdout.close()
+        if observer_log is not None:
+            observer_log.close()
         for process in processes:
             if process.poll() is None:
                 process.terminate()
