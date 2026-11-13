@@ -90,7 +90,6 @@ func TestDurableSigningGuardRejectsConflictsAcrossRestarts(t *testing.T) {
 	}
 }
 
-
 // A later round is NOT evidence that an old signed header is safely
 // unlocked. Proving and committing a new height is the only release this
 // conservative signer permits until a dedicated BFT unlock protocol exists.
