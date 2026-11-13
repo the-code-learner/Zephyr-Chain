@@ -5,6 +5,7 @@ on:
     paths:
       - '.github/workflows/v2-four-process-qc.yml'
       - 'cmd/v2-lab-validator/**'
+      - 'cmd/v2-observer/**'
       - 'cmd/v2-lab-fixture/**'
       - 'cmd/v2-lab-qc-verify/**'
       - 'scripts/v2-lab-qc-smoke.py'
@@ -44,6 +45,7 @@ jobs:
           mkdir -p evidence
           CGO_ENABLED=0 go build -trimpath -o "$RUNNER_TEMP/v2-lab-validator" ./cmd/v2-lab-validator
           CGO_ENABLED=0 go build -trimpath -o "$RUNNER_TEMP/v2-lab-fixture" ./cmd/v2-lab-fixture
+          CGO_ENABLED=0 go build -trimpath -o "$RUNNER_TEMP/v2-observer" ./cmd/v2-observer
           CGO_ENABLED=0 go build -trimpath -o "$RUNNER_TEMP/v2-lab-qc-verify" ./cmd/v2-lab-qc-verify
           {
             echo "commit=$GITHUB_SHA"
@@ -53,7 +55,7 @@ jobs:
             echo "go_version=$(go version)"
             echo "topology=${{ matrix.validators }}-V2-OS-processes-on-ONE-GitHub-host"
             echo "scope=authenticated-QUIC-and-signed-QC-no-independent-operator-or-multi-host"
-            sha256sum "$RUNNER_TEMP/v2-lab-validator" "$RUNNER_TEMP/v2-lab-fixture" "$RUNNER_TEMP/v2-lab-qc-verify"
+            sha256sum "$RUNNER_TEMP/v2-lab-validator" "$RUNNER_TEMP/v2-lab-fixture" "$RUNNER_TEMP/v2-lab-qc-verify" "$RUNNER_TEMP/v2-observer"
           } > evidence/environment.txt
 
       - name: Finalize one empty lab block across real signed QUIC processes
@@ -66,6 +68,7 @@ jobs:
           "$RUNNER_TEMP/v2-lab-fixture" -acknowledge-lab-only -dir "$PRIVATE_ROOT/lab" -validators ${{ matrix.validators }} > "$PRIVATE_ROOT/manifest.json"
           python3 scripts/v2-lab-qc-smoke.py \
             --binary "$RUNNER_TEMP/v2-lab-validator" \
+            --observer-binary "$RUNNER_TEMP/v2-observer" \
             --manifest "$PRIVATE_ROOT/manifest.json" \
             --evidence evidence
           "$RUNNER_TEMP/v2-lab-qc-verify" \
@@ -105,7 +108,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v6
         with:
-          name: v2-signed-qc-${{ matrix.validators }}-${{ github.sha }}-${{ github.run_attempt }}
+          name: v2-signed-qc-observer-${{ matrix.validators }}-${{ github.sha }}-${{ github.run_attempt }}
           path: evidence/
           if-no-files-found: warn
           retention-days: 30
