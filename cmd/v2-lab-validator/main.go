@@ -97,6 +97,7 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 	keyPath := flags.String("private-key-der", "", "owner-only DER P-256 signing key file, never in argv")
 	listen := flags.String("listen", "/ip4/127.0.0.1/udp/0/quic-v1", "libp2p QUIC listen multiaddr")
 	peerList := flags.String("peers", "", "comma-separated full pinned peer multiaddrs")
+	controlPath := flags.String("lab-control-socket", "", "opt-in private Unix socket under node data-dir; local CI driver only")
 	if err := flags.Parse(args); err != nil {
 		return errLabCommand
 	}
@@ -173,6 +174,13 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 		}
 	}
 	validator.Service.SetPeers(ids)
+	if *controlPath != "" {
+		control, err := startLabControl(*controlPath, *stateDir, validator)
+		if err != nil {
+			return err
+		}
+		defer control.Close()
+	}
 	addresses := make([]string, 0, len(validator.Transport.Addrs()))
 	for _, addr := range validator.Transport.Addrs() {
 		addresses = append(addresses, fmt.Sprintf("%s/p2p/%s", addr, validator.Transport.ID()))
