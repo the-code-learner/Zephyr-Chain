@@ -217,5 +217,66 @@ class EvidenceIntegrityTest(unittest.TestCase):
         self.assertTrue(any("witness_independent_operators" in issue for issue in errors), errors)
 
 
+    def test_manifest_symlink_and_hardlink_are_rejected(self):
+        original = self.root / "original-manifest.json"
+        self.manifest.rename(original)
+        self.manifest.symlink_to(original)
+        errors = checker.inspect(self.manifest, self.root)
+        self.assertTrue(any("manifest unreadable" in e for e in errors), errors)
+
+        self.manifest.unlink()
+        self.manifest.hardlink_to(original)
+        errors = checker.inspect(self.manifest, self.root)
+        self.assertTrue(any("hard-linked manifest" in e for e in errors), errors)
+
+    def test_oversized_manifest_is_rejected_before_json_decode(self):
+        self.manifest.write_bytes(b" " * (checker.MAX_MANIFEST_BYTES + 1))
+        errors = checker.inspect(self.manifest, self.root)
+        self.assertTrue(any("manifest exceeds byte limit" in e for e in errors), errors)
+
+    @unittest.skipUnless(hasattr(os, "mkfifo"), "POSIX FIFO required")
+    def test_manifest_fifo_fails_closed_without_blocking(self):
+        self.manifest.unlink()
+        os.mkfifo(self.manifest)
+        errors = checker.inspect(self.manifest, self.root)
+        self.assertTrue(any("manifest is not a regular file" in e for e in errors), errors)
+
+    def test_manifest_symlink_swap_before_descriptor_open_fails_closed(self):
+        alternate = self.root / "alternate-manifest.json"
+        alternate.write_bytes(self.manifest.read_bytes())
+        original_open = os.open
+        swapped = False
+
+        def swap_manifest(path, flags, mode=0o777, *, dir_fd=None):
+            nonlocal swapped
+            if path == self.manifest and not swapped:
+                swapped = True
+                self.manifest.unlink()
+                self.manifest.symlink_to(alternate)
+            return original_open(path, flags, mode, dir_fd=dir_fd)
+
+        with mock.patch.object(checker.os, "open", side_effect=swap_manifest):
+            errors = checker.inspect(self.manifest, self.root)
+        self.assertTrue(swapped, "manifest swap was not exercised")
+        self.assertTrue(any("manifest unreadable" in e for e in errors), errors)
+
+    def test_manifest_mutation_during_read_is_rejected(self):
+        original_read = os.read
+        mutated = False
+
+        def mutate_during_read(fd, count):
+            nonlocal mutated
+            data = original_read(fd, count)
+            if not mutated:
+                mutated = True
+                self.manifest.write_bytes(self.manifest.read_bytes() + b" ")
+            return data
+
+        with mock.patch.object(checker.os, "read", side_effect=mutate_during_read):
+            errors = checker.inspect(self.manifest, self.root)
+        self.assertTrue(mutated, "manifest race was not exercised")
+        self.assertTrue(any("manifest modified during validation" in e for e in errors), errors)
+
+
 if __name__ == "__main__":
     unittest.main()
