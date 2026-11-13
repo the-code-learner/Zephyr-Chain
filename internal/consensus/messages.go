@@ -29,7 +29,13 @@ var (
 	ErrInvalidProposalTransaction = errors.New("proposal contains an invalid transaction")
 	ErrTransactionMismatch        = errors.New("proposal transactions do not match transaction IDs")
 	ErrHashMismatch               = errors.New("block hash does not match proposal fields")
+	ErrTooManyTransactions        = errors.New("consensus block exceeds transaction count limit")
 )
+
+// MaxConsensusBlockTransactions caps both proposed and imported blocks.
+// Together with tx.MaxEnvelopeJSONBytes this bounds the transaction portion
+// of signed certified delivery well below the endpoint's HTTP body limit.
+const MaxConsensusBlockTransactions = 512
 
 type Proposal struct {
 	ChainID        string        `json:"chainId"`
@@ -131,6 +137,9 @@ func (p Proposal) CandidateHash() string {
 }
 
 func (p Proposal) ValidateStatic() error {
+	if len(p.TransactionIDs) > MaxConsensusBlockTransactions || len(p.Transactions) > MaxConsensusBlockTransactions {
+		return ErrTooManyTransactions
+	}
 	chainID := strings.TrimSpace(p.ChainID)
 	domain := strings.TrimSpace(p.Domain)
 	if chainID == "" || domain == "" || p.BlockHash == "" || p.StateRoot == "" || p.Proposer == "" || p.Payload == "" || p.PublicKey == "" || p.Signature == "" || len(p.TransactionIDs) == 0 {
@@ -307,6 +316,9 @@ func validateTransactionIDs(transactionIDs []string) error {
 }
 
 func validateProposalTransactions(chainID string, transactionIDs []string, transactions []tx.Envelope) error {
+	if len(transactionIDs) > MaxConsensusBlockTransactions || len(transactions) > MaxConsensusBlockTransactions {
+		return ErrTooManyTransactions
+	}
 	if len(transactions) == 0 {
 		return ErrMissingTransactions
 	}

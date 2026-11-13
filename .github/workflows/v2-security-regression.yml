@@ -68,6 +68,8 @@ jobs:
         run: go test -race ./internal/api -run '^TestCertifiedCatchupRespectsEightBlockBoundAndResumesFromVerifiedTip$' -count=3 -timeout=5m
       - name: Certified catchup requires typed HTTP conflict, not forged error wording
         run: go test -race ./internal/api -run '^TestCertifiedCatchupRequiresTypedHTTPConflict$' -count=30 -timeout=4m
+      - name: Protocol wire-size envelope and block transaction caps
+        run: go test -race ./internal/tx ./internal/consensus ./internal/ledger ./internal/api -run '^(TestEnvelopeWireSizeIncludesActualJSONEscapingAndSignedPayload|TestConsensusProposalRejectsExcessiveTransactionCountBeforeSignatureWork|TestLedgerRejectsOversizedMempoolEnvelopeBeforePersistence|TestLedgerRejectsImportedBlockWithMoreThanConsensusTransactionCap|TestProtocolWireLimitViolationsReturnRequestTooLarge)$' -count=10 -timeout=4m
       - name: Bound signed certified finality HTTP bodies before proof and JSON decoding
         run: go test -race ./internal/api -run '^TestCertifiedDeliveryRejectsOversizedDeclaredAndStreamingBodies$' -count=2 -timeout=4m
       - name: Certified broadcast must refuse bare-block downgrade on legacy transport

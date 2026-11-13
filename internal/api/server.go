@@ -964,7 +964,9 @@ func statusForError(err error) int {
 		errors.Is(err, errValidatorAddressRequired),
 		errors.Is(err, errNotScheduledProposer):
 		return http.StatusConflict
-	case errors.Is(err, errRequestBodyTooLarge):
+	case errors.Is(err, errRequestBodyTooLarge),
+		errors.Is(err, tx.ErrEnvelopeTooLarge),
+		errors.Is(err, consensus.ErrTooManyTransactions):
 		return http.StatusRequestEntityTooLarge
 	case errors.Is(err, ledger.ErrBlockInvariant),
 		errors.Is(err, ledger.ErrInvalidBlock),
