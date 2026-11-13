@@ -26,7 +26,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        validators: [3, 7, 20]
+        validators: [4, 7, 20]
     steps:
       - name: Checkout exact commit
         uses: actions/checkout@v6
