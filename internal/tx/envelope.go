@@ -35,7 +35,6 @@ var (
 // rather than only memo length.
 const MaxEnvelopeJSONBytes = 16 << 10
 
-
 type Envelope struct {
 	ChainID   string `json:"chainId"`
 	Domain    string `json:"domain"`
