@@ -36,7 +36,7 @@ func TestCertifiedCatchupRequiresTypedHTTPConflict(t *testing.T) {
 	signer := newConsensusSigner(t)
 	source := newTestServer(t, Config{
 		DataDir: t.TempDir(), NodeID: "typed-conflict-producer",
-		ValidatorPrivateKey: encodedPrivateKey(t, signer.privateKey),
+		ValidatorPrivateKey:   encodedPrivateKey(t, signer.privateKey),
 		EnableBlockProduction: false, EnablePeerSync: false,
 		BlockInterval: 0, SyncInterval: 0,
 		RequireConsensusCertificates: true,
