@@ -6,9 +6,12 @@ reviewer received the named files unchanged, not that their claims are true,
 that operators are independent, or that audits/approval have occurred.
 """
 import argparse
+import contextlib
 import hashlib
 import json
+import os
 import pathlib
+import stat
 import sys
 
 REQUIRED_GATES = (
@@ -36,6 +39,56 @@ def reject_duplicate_json_members(pairs: list[tuple[str, object]]) -> dict:
             raise ValueError(f"duplicate JSON key: {key}")
         result[key] = value
     return result
+
+
+
+def hash_open_evidence(root: pathlib.Path, relative: pathlib.PurePosixPath) -> tuple[str, tuple[int, int]]:
+    """Read the same regular inode that was validated, without following links.
+
+    Every path component is opened relative to the already opened directory,
+    with O_NOFOLLOW, rather than re-resolving the name between a stat and
+    read. The final descriptor is checked before AND after hashing. This
+    protects against symlink swaps, not a privileged in-place writer or a
+    snapshot/custody rollback by the machine owner.
+    """
+    if not hasattr(os, "O_NOFOLLOW") or not hasattr(os, "O_DIRECTORY"):
+        raise ValueError("secure descriptor-relative evidence reads unavailable")
+    with contextlib.ExitStack() as stack:
+        root_fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        stack.callback(os.close, root_fd)
+        directory_fd = root_fd
+        for part in relative.parts[:-1]:
+            component = os.stat(part, dir_fd=directory_fd, follow_symlinks=False)
+            if stat.S_ISLNK(component.st_mode):
+                raise ValueError("symlink evidence path component")
+            next_fd = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=directory_fd)
+            stack.callback(os.close, next_fd)
+            directory_fd = next_fd
+        filename = relative.parts[-1]
+        leaf = os.stat(filename, dir_fd=directory_fd, follow_symlinks=False)
+        if stat.S_ISLNK(leaf.st_mode):
+            raise ValueError("symlink evidence path component")
+        # O_NONBLOCK prevents a malicious FIFO replacement from hanging the
+        # verifier before the descriptor can be rejected as non-regular.
+        fd = os.open(filename, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=directory_fd)
+        stack.callback(os.close, fd)
+        before = os.fstat(fd)
+        if not stat.S_ISREG(before.st_mode):
+            raise ValueError("file outside evidence root or not regular")
+        if before.st_nlink != 1:
+            raise ValueError("hard-linked evidence is not independently immutable")
+        hasher = hashlib.sha256()
+        while True:
+            chunk = os.read(fd, 1024 * 1024)
+            if not chunk:
+                break
+            hasher.update(chunk)
+        after = os.fstat(fd)
+        if (before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns, before.st_ctime_ns) != (
+            after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns, after.st_ctime_ns
+        ) or after.st_nlink != 1:
+            raise ValueError("evidence file modified during digest")
+        return hasher.hexdigest(), (before.st_dev, before.st_ino)
 
 
 def inspect(manifest_path: pathlib.Path, root: pathlib.Path) -> list[str]:
@@ -77,35 +130,12 @@ def inspect(manifest_path: pathlib.Path, root: pathlib.Path) -> list[str]:
             if relative.is_absolute() or any(part in ("", ".", "..") for part in value.split("/")) or "\\" in value or relative.as_posix() != value:
                 errors.append(f"{prefix}: noncanonical or unsafe evidence path")
                 continue
-            target = root / value
             try:
-                # A canonical textual path is not sufficient: a symlink in
-                # any intermediate component can silently redirect the
-                # reviewed bytes after manifest creation. Reject even
-                # in-root aliases; do not follow attacker-chosen links.
-                component = root
-                for part in relative.parts:
-                    component = component / part
-                    if component.is_symlink():
-                        raise ValueError("symlink evidence path component")
-                resolved = target.resolve(strict=True)
-                if not resolved.is_relative_to(root) or not resolved.is_file():
-                    raise ValueError("file outside evidence root or not regular")
-                # Distinct pathnames can be hard links to the same file.
-                # Refuse multiply linked evidence even when the aliases are
-                # listed under different gate categories.
-                identity = resolved.stat()
-                if identity.st_nlink != 1:
-                    raise ValueError("hard-linked evidence is not independently immutable")
-                inode = (identity.st_dev, identity.st_ino)
+                computed, inode = hash_open_evidence(root, relative)
                 if inode in used:
                     raise ValueError("one artifact inode reused across evidence requirements")
                 used.add(inode)
-                hasher = hashlib.sha256()
-                with resolved.open("rb") as stream:
-                    for chunk in iter(lambda: stream.read(1024 * 1024), b""):
-                        hasher.update(chunk)
-                if hasher.hexdigest() != digest:
+                if computed != digest:
                     raise ValueError("evidence SHA-256 mismatch")
             except (OSError, ValueError) as exc:
                 errors.append(f"{prefix}: {exc}")
