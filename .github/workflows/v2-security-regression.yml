@@ -70,6 +70,8 @@ jobs:
         run: go test -race ./internal/api -run '^TestCertifiedCatchupRequiresTypedHTTPConflict$' -count=30 -timeout=4m
       - name: Protocol wire-size envelope and block transaction caps
         run: go test -race ./internal/tx ./internal/consensus ./internal/ledger ./internal/api -run '^(TestEnvelopeWireSizeIncludesActualJSONEscapingAndSignedPayload|TestConsensusProposalRejectsExcessiveTransactionCountBeforeSignatureWork|TestLedgerRejectsOversizedMempoolEnvelopeBeforePersistence|TestLedgerRejectsImportedBlockWithMoreThanConsensusTransactionCap|TestProtocolWireLimitViolationsReturnRequestTooLarge)$' -count=10 -timeout=4m
+      - name: Fail-closed pre-quorum certified delivery size budget and signed vote bounds
+        run: go test -race ./internal/consensus ./internal/ledger -run '^(TestCertifiedDeliveryBudget|TestSignedVoteWireSize)' -count=10 -timeout=4m
       - name: Outbound certified finality must honor exact JSON body cap
         run: go test -race ./internal/api -run '^TestSignedCertifiedOutboundRejectsOversizedJSONBeforeNetwork$' -count=1 -timeout=4m
       - name: Bound signed certified finality HTTP bodies before proof and JSON decoding

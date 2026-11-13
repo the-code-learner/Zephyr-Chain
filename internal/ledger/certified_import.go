@@ -184,6 +184,9 @@ func attachCertifiedBlockEvidence(state persistedState, block Block, evidence Ce
 	if err := proposal.ValidateForChain(chainID); err != nil {
 		return state, ErrCertifiedEvidenceInvalid
 	}
+	if err := checkCertifiedDeliveryBudget(proposal, len(state.ValidatorSnapshot.Validators)); err != nil {
+		return state, err
+	}
 	if proposal.Height != block.Height || proposal.BlockHash != block.Hash || proposal.StateRoot != block.StateRoot {
 		return state, ErrCertifiedEvidenceInvalid
 	}

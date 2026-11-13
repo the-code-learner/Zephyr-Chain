@@ -20,7 +20,7 @@ type certifiedBlockDelivery struct {
 // each peer request. Even an admitted validator must not force unbounded
 // decoding, hashing or memory use in the finality import path. This limit
 // applies to both declared Content-Length and streaming/chunked bodies.
-const maxCertifiedBlockDeliveryBytes int64 = 64 << 20
+const maxCertifiedBlockDeliveryBytes int64 = ledger.MaxCertifiedDeliveryJSONBytes
 
 var errCertifiedDeliveryTooLarge = errors.New("signed certified block payload exceeds transport byte limit")
 
