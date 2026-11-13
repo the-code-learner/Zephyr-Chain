@@ -37,7 +37,6 @@ var (
 // of signed certified delivery well below the endpoint's HTTP body limit.
 const MaxConsensusBlockTransactions = 512
 
-
 type Proposal struct {
 	ChainID        string        `json:"chainId"`
 	Domain         string        `json:"domain"`
