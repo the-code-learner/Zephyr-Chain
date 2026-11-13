@@ -53,6 +53,7 @@ def endpoint(info):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--binary", required=True)
+    parser.add_argument("--observer-binary", required=True)
     parser.add_argument("--manifest", required=True)
     parser.add_argument("--evidence", required=True)
     args = parser.parse_args()
@@ -65,6 +66,8 @@ def main():
     count = len(nodes)
     quorum = (2 * count) // 3 + 1
     processes, handles, infos = [], [], []
+    observer = None
+    observer_log = None
     try:
         # Spawn all validator processes BEFORE waiting for any ready event.
         for node in nodes:
@@ -94,12 +97,36 @@ def main():
         assert len({process.pid for process in processes}) == count
         assert len({info["peerId"] for info in infos}) == count
 
+        # An independently running nonvoting observer has no signing key.
+        observer_dir = str(Path(fixture["genesisFile"]).parent / "nonvoting-observer")
+        observer_socket = str(Path(observer_dir) / "lab-observer-status.sock")
+        observer_log = (evidence / "qc-nonvoting-observer.stderr.log").open("w")
+        observer = subprocess.Popen([
+            args.observer_binary,
+            "-genesis", fixture["genesisFile"],
+            "-expected-network-id", fixture["networkId"],
+            "-expected-validator-root", fixture["validatorRoot"],
+            "-data-dir", observer_dir,
+            "-listen", "/ip4/127.0.0.1/udp/0/quic-v1",
+            "-lab-control-socket", observer_socket,
+        ], stdout=subprocess.PIPE, stderr=observer_log, text=True, bufsize=1)
+        observer_info = ready(observer)
+        assert observer_info["mode"] == "observer-only", observer_info
+        assert observer_info["networkId"] == fixture["networkId"]
+        assert observer_info["validatorRoot"] == fixture["validatorRoot"]
+        assert observer_info["peerId"] not in {info["peerId"] for info in infos}
+        observer_address = endpoint(observer_info)
+        code, starting_observer = control(observer_socket, "GET", "/status")
+        assert code == 200 and starting_observer == {
+            "height": 0, "qcVerified": False, "isValidator": False
+        }, (code, starting_observer)
+
         sockets = [str(Path(node["dataDir"]) / "lab-control.sock") for node in nodes]
         addresses = [endpoint(info) for info in infos]
         for i, socket_path in enumerate(sockets):
-            peers = [address for j, address in enumerate(addresses) if i != j]
+            peers = [address for j, address in enumerate(addresses) if i != j] + [observer_address]
             status, result = control(socket_path, "POST", "/connect", {"peers": peers})
-            assert status == 200 and result["connectedPeers"] == count - 1, (i, status, result)
+            assert status == 200 and result["connectedPeers"] == count, (i, status, result)
 
         # Negative case: no anonymous peers without /p2p identity proof.
         status, _ = control(sockets[0], "POST", "/connect",
