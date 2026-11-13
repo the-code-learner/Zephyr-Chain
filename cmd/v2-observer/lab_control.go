@@ -18,7 +18,7 @@ import (
 // diagnostic surface ONLY, never a production monitoring/control endpoint.
 type labObserverControl struct {
 	server *http.Server
-	path string
+	path   string
 }
 
 func (c *labObserverControl) Close() error {
@@ -69,10 +69,10 @@ func startLabObserverControl(path, dataDir string, obs *bootstrap.Observer) (*la
 			return
 		}
 		writeObserverStatus(w, http.StatusOK, map[string]any{
-			"height": snapshot.Header.Height,
-			"headerHash": v2consensus.HeaderConsensusHash(snapshot.Header).String(),
-			"qcVerified": true,
-			"voteCount": len(snapshot.Certificate.Votes),
+			"height":      snapshot.Header.Height,
+			"headerHash":  v2consensus.HeaderConsensusHash(snapshot.Header).String(),
+			"qcVerified":  true,
+			"voteCount":   len(snapshot.Certificate.Votes),
 			"isValidator": false,
 		})
 	})
