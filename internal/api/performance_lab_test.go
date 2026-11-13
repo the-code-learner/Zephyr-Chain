@@ -699,6 +699,55 @@ func (t *labFaultTransport) PostVote(peerURL string, vote consensus.Vote) error 
 	return nil
 }
 
+// Compile-time assurance that the consensus laboratory actually exercises
+// the signed production finality path instead of the legacy plain block path.
+var _ certifiedBlockDeliveryTransport = (*labFaultTransport)(nil)
+
+type labCertifiedDeliveryProbe struct {
+	peerTransport
+	calls   int
+	lastURL string
+}
+
+func (p *labCertifiedDeliveryProbe) PostCertifiedBlock(peerURL string, delivery certifiedBlockDelivery) error {
+	p.calls++
+	p.lastURL = peerURL
+	return nil
+}
+
+func TestLabFaultAdapterForwardsCertifiedDeliveryAndPreservesPartitions(t *testing.T) {
+	probe := &labCertifiedDeliveryProbe{}
+	transport := newLabFaultTransport(probe)
+	peerURL := "http://127.0.0.1:12345"
+	delivery := certifiedBlockDelivery{}
+
+	if err := transport.PostCertifiedBlock(peerURL, delivery); err != nil {
+		t.Fatalf("forward signed finality delivery: %v", err)
+	}
+	if probe.calls != 1 || probe.lastURL != peerURL || transport.payloadBytes() == 0 {
+		t.Fatalf("certified delivery was not forwarded and measured: calls=%d url=%s bytes=%d",
+			probe.calls, probe.lastURL, transport.payloadBytes())
+	}
+	transport.setBehavior(0, true, false)
+	if err := transport.PostCertifiedBlock(peerURL, delivery); err != nil {
+		t.Fatalf("duplicate signed delivery: %v", err)
+	}
+	if probe.calls != 3 {
+		t.Fatalf("fault adapter should duplicate the signed payload, deliveries=%d", probe.calls)
+	}
+	transport.blockPeer(peerURL)
+	if err := transport.PostCertifiedBlock(peerURL, delivery); err == nil {
+		t.Fatal("partition must reject certified delivery before the base transport")
+	}
+	if probe.calls != 3 {
+		t.Fatalf("blocked certified delivery reached the transport, deliveries=%d", probe.calls)
+	}
+	transport.clearBlocked()
+	if err := transport.PostCertifiedBlock(peerURL, delivery); err != nil || probe.calls != 5 {
+		t.Fatalf("partition heal did not restore certified transport: calls=%d err=%v", probe.calls, err)
+	}
+}
+
 func TestLabSevenValidatorsCertifiedFinality(t *testing.T) {
 	cluster := newLabCluster(t, 7)
 	defer cluster.Close()
