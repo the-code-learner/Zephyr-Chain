@@ -4,8 +4,10 @@ import hashlib
 import importlib.util
 import json
 import pathlib
+import os
 import tempfile
 import unittest
+from unittest import mock
 
 SCRIPT = pathlib.Path(__file__).with_name("check-mainnet-evidence.py")
 SPEC = importlib.util.spec_from_file_location("zephyr_mainnet_evidence", SCRIPT)
@@ -155,6 +157,64 @@ class EvidenceIntegrityTest(unittest.TestCase):
         }]
         self.write_manifest()
         self.assertEqual(checker.inspect(self.manifest, self.root), [])
+
+
+
+    def test_symlink_swap_between_lstat_and_open_is_rejected(self):
+        """The final read must never follow a leaf replaced after lstat."""
+        outside = tempfile.TemporaryDirectory()
+        self.addCleanup(outside.cleanup)
+        remote = pathlib.Path(outside.name) / "remote.log"
+        remote.write_bytes(b"attacker supplied matching evidence")
+        target = self.root / "genesis_and_supply.log"
+        self.gates["genesis_and_supply"][0]["sha256"] = hashlib.sha256(remote.read_bytes()).hexdigest()
+        self.write_manifest()
+        original_open = os.open
+        swapped = False
+
+        def swap_before_descriptor_open(path, flags, mode=0o777, *, dir_fd=None):
+            nonlocal swapped
+            if path == target.name and dir_fd is not None and not swapped:
+                swapped = True
+                target.unlink()
+                target.symlink_to(remote)
+            return original_open(path, flags, mode, dir_fd=dir_fd)
+
+        with mock.patch.object(checker.os, "open", side_effect=swap_before_descriptor_open):
+            errors = checker.inspect(self.manifest, self.root)
+        self.assertTrue(swapped, "test never exercised the lstat/open swap")
+        self.assertTrue(any("genesis_and_supply" in issue for issue in errors), errors)
+        self.assertEqual(remote.read_bytes(), b"attacker supplied matching evidence")
+
+    def test_intermediate_directory_swap_before_open_is_rejected(self):
+        """A parent swapped after lstat cannot redirect a rooted openat."""
+        actual = self.root / "evidence-subdir"
+        actual.mkdir()
+        data = b"nested source"
+        (actual / "evidence.log").write_bytes(data)
+        self.gates["witness_independent_operators"] = [{
+            "path": "evidence-subdir/evidence.log",
+            "sha256": hashlib.sha256(data).hexdigest(),
+        }]
+        self.write_manifest()
+        outside = tempfile.TemporaryDirectory()
+        self.addCleanup(outside.cleanup)
+        (pathlib.Path(outside.name) / "evidence.log").write_bytes(data)
+        original_open = os.open
+        swapped = False
+
+        def swap_parent(path, flags, mode=0o777, *, dir_fd=None):
+            nonlocal swapped
+            if path == "evidence-subdir" and dir_fd is not None and not swapped:
+                swapped = True
+                actual.rename(self.root / "original-subdir")
+                actual.symlink_to(outside.name, target_is_directory=True)
+            return original_open(path, flags, mode, dir_fd=dir_fd)
+
+        with mock.patch.object(checker.os, "open", side_effect=swap_parent):
+            errors = checker.inspect(self.manifest, self.root)
+        self.assertTrue(swapped, "test never exercised the directory swap")
+        self.assertTrue(any("witness_independent_operators" in issue for issue in errors), errors)
 
 
 if __name__ == "__main__":
