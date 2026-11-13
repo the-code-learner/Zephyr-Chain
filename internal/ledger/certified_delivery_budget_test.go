@@ -14,14 +14,14 @@ func TestCertifiedDeliveryBudgetExactBoundaryAndOverflow(t *testing.T) {
 	const wrapper = certifiedDeliveryWrapperBudget
 	const vote = consensus.MaxSignedVoteJSONBytes + 1
 	tests := []struct {
-		name string
+		name                        string
 		block, proposal, validators int64
-		want bool
+		want                        bool
 	}{
-		{"exact total transport budget", limit-wrapper, 0, 0, true},
-		{"one over total transport budget", limit-wrapper+1, 0, 0, false},
-		{"exact one validator allowance", limit-wrapper-vote, 0, 1, true},
-		{"one byte short for vote", limit-wrapper-vote+1, 0, 1, false},
+		{"exact total transport budget", limit - wrapper, 0, 0, true},
+		{"one over total transport budget", limit - wrapper + 1, 0, 0, false},
+		{"exact one validator allowance", limit - wrapper - vote, 0, 1, true},
+		{"one byte short for vote", limit - wrapper - vote + 1, 0, 1, false},
 		{"negative block rejected", -1, 0, 0, false},
 		{"negative validator count rejected", 0, 0, -1, false},
 		{"attacker-count overflow rejected", 0, 0, int64(^uint64(0) >> 1), false},
@@ -37,7 +37,7 @@ func TestCertifiedDeliveryBudgetExactBoundaryAndOverflow(t *testing.T) {
 
 func TestCertifiedDeliveryBudgetCountsDuplicatedEscapedTransactionsAndWorstCaseVotes(t *testing.T) {
 	p := consensus.Proposal{
-		Transactions: make([]tx.Envelope, consensus.MaxConsensusBlockTransactions),
+		Transactions:   make([]tx.Envelope, consensus.MaxConsensusBlockTransactions),
 		TransactionIDs: make([]string, consensus.MaxConsensusBlockTransactions),
 	}
 	for i := range p.Transactions {
