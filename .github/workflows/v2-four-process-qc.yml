@@ -113,6 +113,32 @@ jobs:
             exit 1
           fi
           echo "PASS: mutated signed certificate correctly rejected" | tee -a evidence/tampered-proof-check.txt
+          # Keep valid signatures but remove enough votes to lose >2/3.
+          V2_VALIDATORS="${{ matrix.validators }}" python3 - <<'PY'
+          import json
+          import os
+          with open("evidence/v2-finalized-snapshot.json") as stream:
+              snapshot = json.load(stream)
+          validators = int(os.environ["V2_VALIDATORS"])
+          quorum = (2 * validators) // 3 + 1
+          votes = snapshot["Certificate"]["Votes"]
+          assert len(votes) >= quorum
+          snapshot["Certificate"]["Votes"] = votes[:quorum - 1]
+          with open("evidence/v2-underquorum-snapshot.json", "w") as stream:
+              json.dump(snapshot, stream, sort_keys=True)
+          PY
+          if "$RUNNER_TEMP/v2-lab-qc-verify" \
+            -genesis "$(jq -r '.genesisFile' "$PRIVATE_ROOT/manifest.json")" \
+            -snapshot evidence/v2-underquorum-snapshot.json \
+            -expected-height 2 \
+            -network-id "$(jq -r '.networkId' "$PRIVATE_ROOT/manifest.json")" \
+            -validator-root "$(jq -r '.validatorRoot' "$PRIVATE_ROOT/manifest.json")" \
+            -header-hash "$(jq -r '.headerHash' evidence/v2-four-process-qc-summary.json)" \
+            > evidence/underquorum-proof-check.txt 2>&1; then
+            echo "ERROR: insufficient signed QC power was accepted"
+            exit 1
+          fi
+          echo "PASS: independently rejected valid signatures with insufficient QC quorum" | tee -a evidence/underquorum-proof-check.txt
           python3 scripts/v2-observer-recovery-smoke.py \
             --observer-binary "$RUNNER_TEMP/v2-observer" \
             --manifest "$PRIVATE_ROOT/manifest.json" \
