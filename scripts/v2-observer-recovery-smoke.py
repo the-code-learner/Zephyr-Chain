@@ -81,7 +81,7 @@ def main():
     assert observer_dir.is_dir()
     assert summary["validatorRoot"] == fixture["validatorRoot"]
     assert summary["networkId"] == fixture["networkId"]
-    assert summary["height"] == 1
+    assert summary["height"] == 2 and summary["certifiedHeights"] == [1, 2]
     assert summary["independentNonvotingObserver"]["qcVerified"] is True
     assert summary["independentNonvotingObserver"]["headerHash"] == summary["headerHash"]
 
@@ -90,7 +90,7 @@ def main():
     assert recovered["mode"] == "observer-only", recovered
     assert recovered["networkId"] == fixture["networkId"]
     assert recovered["validatorRoot"] == fixture["validatorRoot"]
-    assert recovered["finalizedHeight"] == 1, recovered
+    assert recovered["finalizedHeight"] == 2, recovered
     assert recovered["finalizedHeaderHash"] == summary["headerHash"], recovered
     assert recovered["recoveryMode"] == "bounded QC-certified genesis-to-tip history replay"
 
@@ -115,7 +115,7 @@ def main():
             "corruptedHistoryRefused": True,
             "independentProvider": False,
         }, stream, sort_keys=True, indent=2)
-    print("PASS: observer independently replays height-one QC history after restart")
+    print("PASS: observer independently replays heights 1 and 2 QC history after restart")
     print("PASS: corrupted certified history refuses observer startup")
 
 

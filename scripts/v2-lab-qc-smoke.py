@@ -133,48 +133,59 @@ def main():
                             {"peers": ["/ip4/127.0.0.1/udp/19001/quic-v1"]})
         assert status == 400, "unbound peer address admitted"
 
-        certified = None
-        for i, socket_path in enumerate(sockets):
-            status, reply = control(socket_path, "POST", "/propose")
-            if status == 409:
-                continue
-            assert status == 200 and reply.get("qcVerified"), (i, status, reply)
-            certified = reply
-            break
-        assert certified is not None, "scheduled proposer never finalized"
-        assert certified["height"] == 1
-        assert certified["voteCount"] >= quorum, certified
-        assert certified["snapshot"]["Certificate"]["Height"] == 1
-        header_hash = certified["headerHash"]
-
-        # Every follower must have independently verified and committed the QC.
-        deadline = time.monotonic() + 25
-        final_states = []
-        while time.monotonic() < deadline:
-            final_states = [control(sock, "GET", "/status") for sock in sockets]
-            if all(code == 200 and obj.get("height") == 1 and
-                   obj.get("qcVerified") and obj.get("headerHash") == header_hash
-                   for code, obj in final_states):
-                break
-            time.sleep(.2)
-        else:
-            raise AssertionError(f"replicas failed to converge: {final_states!r}")
-        assert all(obj["voteCount"] >= quorum for code, obj in final_states)
-
-        # Observer must independently QC-verify exactly the same header.
-        deadline = time.monotonic() + 20
+        certified_by_height = {}
         observer_state = {}
-        while time.monotonic() < deadline:
-            code, observer_state = control(observer_socket, "GET", "/status")
-            if (code == 200 and observer_state.get("qcVerified") and
-                    observer_state.get("height") == 1 and
-                    observer_state.get("headerHash") == header_hash and
-                    observer_state.get("voteCount", 0) >= quorum and
-                    observer_state.get("isValidator") is False):
+        for target_height in (1, 2):
+            certified = None
+            for i, socket_path in enumerate(sockets):
+                status, reply = control(socket_path, "POST", "/propose")
+                if status == 409:
+                    continue
+                assert status == 200 and reply.get("qcVerified"), (target_height, i, status, reply)
+                certified = reply
                 break
-            time.sleep(.2)
-        else:
-            raise AssertionError(f"nonvoting observer did not QC-finalize: {code}, {observer_state}")
+            assert certified is not None, f"no scheduled proposer at height {target_height}"
+            assert certified["height"] == target_height, certified
+            assert certified["voteCount"] >= quorum, certified
+            assert certified["snapshot"]["Certificate"]["Height"] == target_height
+            header_hash = certified["headerHash"]
+
+            # Each replica must independently QC-finalize at every height.
+            deadline = time.monotonic() + 25
+            final_states = []
+            while time.monotonic() < deadline:
+                final_states = [control(sock, "GET", "/status") for sock in sockets]
+                if all(code == 200 and obj.get("height") == target_height and
+                       obj.get("qcVerified") and obj.get("headerHash") == header_hash
+                       for code, obj in final_states):
+                    break
+                time.sleep(.2)
+            else:
+                raise AssertionError(f"replicas diverged at height {target_height}: {final_states!r}")
+            assert all(obj["voteCount"] >= quorum for code, obj in final_states)
+
+            # The unkeyed observer separately verifies each certified commit.
+            deadline = time.monotonic() + 20
+            while time.monotonic() < deadline:
+                code, observer_state = control(observer_socket, "GET", "/status")
+                if (code == 200 and observer_state.get("qcVerified") and
+                        observer_state.get("height") == target_height and
+                        observer_state.get("headerHash") == header_hash and
+                        observer_state.get("voteCount", 0) >= quorum and
+                        observer_state.get("isValidator") is False):
+                    break
+                time.sleep(.2)
+            else:
+                raise AssertionError(
+                    f"nonvoting observer missed height {target_height}: {code}, {observer_state}"
+                )
+            certified_by_height[target_height] = certified
+            with (evidence / f"v2-height-{target_height}-snapshot.json").open("w") as output:
+                json.dump(certified["snapshot"], output, sort_keys=True)
+
+        assert certified_by_height[1]["headerHash"] != certified_by_height[2]["headerHash"]
+        certified = certified_by_height[2]
+        header_hash = certified["headerHash"]
 
         # Publish the COMPLETE signed certificate for a separate Go verifier.
         with (evidence / "v2-finalized-snapshot.json").open("w") as f:
@@ -187,8 +198,10 @@ def main():
                 "commit": "use workflow artifact exact SHA",
                 "networkId": fixture["networkId"],
                 "validatorRoot": fixture["validatorRoot"],
-                "height": 1,
+                "height": 2,
                 "headerHash": header_hash,
+                "certifiedHeights": [1, 2],
+                "heightOneHeaderHash": certified_by_height[1]["headerHash"],
                 "voteCount": certified["voteCount"],
                 "independentProcessIDs": [proc.pid for proc in processes],
                 "independentPeerIDs": [info["peerId"] for info in infos],
@@ -203,7 +216,7 @@ def main():
                 },
                 "signedQCExternalVerifierRequired": True,
             }, f, indent=2, sort_keys=True)
-        print(f"PASS: {count} V2 validators plus nonvoting observer finalized SAME signed-QC height-1 header")
+        print(f"PASS: {count} V2 validators plus nonvoting observer finalized SAME signed-QC headers at heights 1 and 2")
     finally:
         if observer is not None and observer.poll() is None:
             observer.terminate()

@@ -59,7 +59,7 @@ jobs:
             sha256sum "$RUNNER_TEMP/v2-lab-validator" "$RUNNER_TEMP/v2-lab-fixture" "$RUNNER_TEMP/v2-lab-qc-verify" "$RUNNER_TEMP/v2-observer"
           } > evidence/environment.txt
 
-      - name: Finalize one empty lab block across real signed QUIC processes
+      - name: Finalize two consecutive empty lab blocks across real signed QUIC processes
         shell: bash
         run: |
           set -euo pipefail
@@ -74,7 +74,16 @@ jobs:
             --evidence evidence
           "$RUNNER_TEMP/v2-lab-qc-verify" \
             -genesis "$(jq -r '.genesisFile' "$PRIVATE_ROOT/manifest.json")" \
+            -snapshot evidence/v2-height-1-snapshot.json \
+            -expected-height 1 \
+            -network-id "$(jq -r '.networkId' "$PRIVATE_ROOT/manifest.json")" \
+            -validator-root "$(jq -r '.validatorRoot' "$PRIVATE_ROOT/manifest.json")" \
+            -header-hash "$(jq -r '.heightOneHeaderHash' evidence/v2-four-process-qc-summary.json)" \
+            2>&1 | tee evidence/independent-qc-height-one.txt
+          "$RUNNER_TEMP/v2-lab-qc-verify" \
+            -genesis "$(jq -r '.genesisFile' "$PRIVATE_ROOT/manifest.json")" \
             -snapshot evidence/v2-finalized-snapshot.json \
+            -expected-height 2 \
             -network-id "$(jq -r '.networkId' "$PRIVATE_ROOT/manifest.json")" \
             -validator-root "$(jq -r '.validatorRoot' "$PRIVATE_ROOT/manifest.json")" \
             -header-hash "$(jq -r '.headerHash' evidence/v2-four-process-qc-summary.json)" \
@@ -95,6 +104,7 @@ jobs:
           if "$RUNNER_TEMP/v2-lab-qc-verify" \
             -genesis "$(jq -r '.genesisFile' "$PRIVATE_ROOT/manifest.json")" \
             -snapshot evidence/v2-tampered-snapshot.json \
+            -expected-height 2 \
             -network-id "$(jq -r '.networkId' "$PRIVATE_ROOT/manifest.json")" \
             -validator-root "$(jq -r '.validatorRoot' "$PRIVATE_ROOT/manifest.json")" \
             -header-hash "$(jq -r '.headerHash' evidence/v2-four-process-qc-summary.json)" \
