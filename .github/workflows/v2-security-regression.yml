@@ -64,6 +64,8 @@ jobs:
         run: go test -race ./internal/api -run '^TestSlowConsensusDelivery' -count=8 -timeout=4m
       - name: Seven-validator last-proposer sweep and QC liveness regression
         run: go test -race ./internal/api -run '^TestLabSevenValidatorsLastProposerNeedsFollowingSweepForQuorum$' -count=5 -timeout=4m
+      - name: Certified evidence selector must prefer quorum round over partial earlier round
+        run: go test -race ./internal/api -run '^TestCertifiedBlockEvidenceSelectsQuorumRoundNotFirstPartialRound$' -count=20 -timeout=4m
       - name: Bounded two-height signed QC catchup after latest delivery conflict
         run: go test -race ./internal/api -run '^TestCertifiedReplayRecoversTwoMissingHeightsWithoutPeerSync$' -count=10 -timeout=4m
       - name: Stale asynchronous certified block delivery ACK cannot roll back replay cursor
