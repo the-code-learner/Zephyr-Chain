@@ -1,0 +1,60 @@
+name: Legacy 7-Validator Mempool Fanout Diagnostic
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/legacy-seven-validator-fanout.yml'
+      - 'internal/api/performance_lab_test.go'
+      - 'internal/api/peer_sync.go'
+      - 'internal/api/server.go'
+      - 'internal/api/peer_transport.go'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: legacy-fanout-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  strict-fanout-stress:
+    name: Strict 3s mempool convergence (20 repeats, race)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Record precise runner and commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p evidence
+          {
+            echo "commit=$GITHUB_SHA"
+            echo "run_id=$GITHUB_RUN_ID"
+            echo "runner_os=$RUNNER_OS"
+            echo "runner_arch=$RUNNER_ARCH"
+            echo "cpu_count=$(nproc)"
+            echo "go_version=$(go version)"
+            echo "topology=seven-in-process-legacy-httptest-validators-one-GitHub-runner"
+            echo "acceptance=24-tx-on-all-seven-within-original-3s-no-timeout-change"
+          } > evidence/environment.txt
+      - name: Repeat strict mempool lab with race instrumentation
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -race ./internal/api \
+            -run '^TestLabSevenValidatorsCertifiedFinality$' \
+            -count=20 -timeout=14m -v 2>&1 | tee evidence/fanout-stress.log
+      - name: Upload strict diagnostics even on failure
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: legacy-fanout-${{ github.sha }}-${{ github.run_attempt }}
+          path: evidence/
+          if-no-files-found: warn
+          retention-days: 30
