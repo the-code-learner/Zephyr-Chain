@@ -1333,11 +1333,29 @@ func TestConsensusAutomationRebroadcastsVoteAfterPeerLinkRestored(t *testing.T) 
 
 	voterServer.setPeerURLs([]string{proposerHTTP.URL})
 
-	waitFor(t, func() bool {
+	// Preserve the original strict eight-second liveness budget. On a
+	// reconnect failure print the state of BOTH peers: a generic waitFor
+	// timeout cannot distinguish lost signed votes from a round skew,
+	// conflicting proposal, missing QC or a late failed HTTP delivery.
+	deadline := time.Now().Add(8 * time.Second)
+	recovered := false
+	for time.Now().Before(deadline) {
 		artifacts := proposerServer.ledger.ConsensusArtifacts()
 		_, voteExists := voterServer.ledger.LatestVoteByValidatorForHeight(1, voter.address)
-		return proposerServer.ledger.Status().Height == 1 && voteExists && artifacts.LatestCertificate != nil
-	})
+		if proposerServer.ledger.Status().Height == 1 && voteExists && artifacts.LatestCertificate != nil {
+			recovered = true
+			break
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+	if !recovered {
+		t.Fatalf("reconnected validator signed vote failed to finalize within 8s: proposer_status=%+v voter_status=%+v proposer_consensus=%+v voter_consensus=%+v proposer_round=%+v voter_round=%+v proposer_artifacts=%+v voter_artifacts=%+v proposer_peers=%+v voter_peers=%+v",
+			proposerServer.ledger.Status(), voterServer.ledger.Status(),
+			proposerServer.ledger.Consensus(), voterServer.ledger.Consensus(),
+			proposerServer.ledger.RoundState(), voterServer.ledger.RoundState(),
+			proposerServer.ledger.ConsensusArtifacts(), voterServer.ledger.ConsensusArtifacts(),
+			proposerServer.peerSnapshot(), voterServer.peerSnapshot())
+	}
 
 	voterVote, exists := voterServer.ledger.LatestVoteByValidatorForHeight(1, voter.address)
 	if !exists {
