@@ -1,7 +1,9 @@
 package api
 
 import (
+	"errors"
 	"fmt"
+	"net/http"
 	"time"
 
 	"github.com/zephyr-chain/zephyr-chain/internal/ledger"
@@ -131,7 +133,7 @@ const maxCertifiedCatchupBlocks uint64 = 8
 // resend; the recipient still independently validates each QC and state root.
 func (s *Server) deliverCertifiedReplay(peerURL string, latest certifiedBlockDelivery, transport certifiedBlockDeliveryTransport) error {
 	err := transport.PostCertifiedBlock(peerURL, latest)
-	if err == nil || err.Error() != "peer returned status 409" {
+	if err == nil || !isCertifiedDeliveryConflict(err) {
 		return err
 	}
 	view, admitted := s.fetchPeerAdmissionView(peerURL)
@@ -174,4 +176,11 @@ func (s *Server) deliverCertifiedReplay(peerURL string, latest certifiedBlockDel
 		return fmt.Errorf("certified catchup bounded at height %d; next retry required", end)
 	}
 	return nil
+}
+
+// Only an actual HTTP conflict from the certified delivery transport can
+// authorize a bounded catchup probe. Error wording is not a protocol signal.
+func isCertifiedDeliveryConflict(err error) bool {
+	var status peerHTTPStatusError
+	return errors.As(err, &status) && status.statusCode == http.StatusConflict
 }
