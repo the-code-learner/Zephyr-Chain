@@ -1,0 +1,87 @@
+name: V2 Docker Devnet Matrix
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/v2-docker-devnet-matrix.yml'
+      - 'docs/github-first-release-assurance.md'
+      - 'internal/v2/node/**'
+      - 'internal/v2/consensus/**'
+      - 'internal/v2/network/**'
+      - 'internal/tx/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: v2-docker-devnet-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  container-isolation:
+    name: Docker 1-runner devnet (${{ matrix.validators }} validators)
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        validators: [4, 7, 20]
+    steps:
+      - name: Checkout exact commit
+        uses: actions/checkout@v6
+
+      - name: Capture host and Docker metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p evidence
+          {
+            echo "commit=${GITHUB_SHA}"
+            echo "run_id=${GITHUB_RUN_ID}"
+            echo "run_attempt=${GITHUB_RUN_ATTEMPT}"
+            echo "validators=${{ matrix.validators }}"
+            echo "topology=one-github-host-one-docker-container-multiple-in-process-validators"
+            echo "runner_os=${RUNNER_OS}"
+            echo "runner_arch=${RUNNER_ARCH}"
+            echo "host_uname=$(uname -a)"
+            echo "host_cpu_count=$(nproc)"
+            echo "started_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          } > evidence/environment.txt
+          docker version >> evidence/environment.txt
+          docker info --format 'Docker server={{.ServerVersion}} OSType={{.OSType}} Architecture={{.Architecture}}' >> evidence/environment.txt
+
+      - name: Test protocol v2 in an isolated Docker process
+        shell: bash
+        env:
+          VALIDATORS: ${{ matrix.validators }}
+        run: |
+          set -euo pipefail
+          # Keep the Go version aligned with go.mod; this is a GitHub runner
+          # isolation test, NOT evidence of multiple hosts/providers.
+          image=golang:1.26.6
+          docker pull "${image}"
+          docker image inspect "${image}" --format '{{json .RepoDigests}}' > evidence/docker-image-digests.json
+          docker run --rm \
+            --user "$(id -u):$(id -g)" \
+            --security-opt no-new-privileges \
+            --cap-drop ALL \
+            -e HOME=/tmp \
+            -e GOPATH=/tmp/gopath \
+            -e GOCACHE=/tmp/gocache \
+            -e GOTOOLCHAIN=local \
+            -e ZEPHYR_DEVNET_VALIDATORS="${VALIDATORS}" \
+            -v "${PWD}:/work:ro" \
+            -w /work "${image}" \
+            sh -c 'go version && go test ./internal/v2/node -run "^TestProtocolV2DevnetTransactionVotingAndFinality$" -count=1 -v -timeout=18m' \
+            2>&1 | tee evidence/devnet.log
+          echo "completed_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> evidence/environment.txt
+
+      - name: Upload complete topology-scoped evidence
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: docker-devnet-${{ matrix.validators }}-${{ github.sha }}-${{ github.run_attempt }}
+          path: evidence/
+          if-no-files-found: warn
+          retention-days: 30
