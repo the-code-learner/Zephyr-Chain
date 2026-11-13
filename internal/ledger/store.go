@@ -846,6 +846,9 @@ func validateBlockConsensus(state persistedState, block Block, requireCertificat
 	if proposal == nil {
 		return ErrConsensusTemplateMismatch
 	}
+	if err := checkCertifiedDeliveryBudget(*proposal, len(state.ValidatorSnapshot.Validators)); err != nil {
+		return err
+	}
 	if proposal.PreviousHash != block.PreviousHash {
 		return ErrConsensusPreviousHash
 	}
