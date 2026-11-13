@@ -25,3 +25,8 @@ This is a real cross-process protocol/signed QC test, **not** a TPS benchmark or
 ## Adversarial 4/7-process signed QC coverage
 
 The signed QC GitHub workflow now runs a strict two-cell matrix of **4 and 7 real validator OS processes** on one runner each. Signed proof acceptance is checked against the correct greater-than-two-thirds threshold (3/4 or 5/7) and the pinned genesis. A separate verifier must also **reject** a syntactically valid snapshot whose first P-256 vote signature was mutated. The workflows fail on insufficient quorum, replica divergence or an accepted corrupt certificate; artifacts are per-topology and tied to the exact SHA. This is single-host transport/finality assurance, not independent operators, a cross-runner network, production TPS or rollback-resistant key custody. Issue #211 remains P0 OPEN.
+
+
+## Live nonvoting observer QC (next GitHub tranche)
+
+The 4/7 V2 process lab additionally boots a **separate observer-only OS process**, with no validator P-256 signing key or signing journal. The observer requires the same independent genesis/network/validator-root pins, joins through an authenticated `/p2p/<PeerID>` QUIC address and receives the QC-certified commit from the proposer. Its optional 0600 local Unix socket exposes **GET-only**, cryptographically validated finalized height/hash/vote count with `isValidator=false`. The lab asserts it starts at genesis, is never counted in voting quorum, and converges to exactly the same signed height-one header as the validators. This is not independently hosted or independently administered; state rollback, multiheight restart, partitions and external custody remain unproven.

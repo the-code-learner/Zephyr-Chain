@@ -14,6 +14,7 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -84,6 +85,7 @@ func run(ctx context.Context, args []string, output io.Writer) error {
 	dataDir := flags.String("data-dir", "", "private, dedicated observer state directory")
 	listen := flags.String("listen", "/ip4/127.0.0.1/udp/0/quic-v1", "QUIC listen multiaddr (loopback by default)")
 	peerList := flags.String("peers", "", "comma-separated full /p2p/<ID> trusted bootstrap multiaddrs")
+	labSocket := flags.String("lab-control-socket", "", "opt-in owner-only Unix socket under observer data-dir; lab-only status")
 	workers := flags.Int("workers", 2, "deterministic state executor workers")
 	externalAnchor := flags.String("external-anchor-file", "", "optional separate private append-only finalized high-water store (absolute path outside data-dir)")
 	trustedHeight := flags.Uint64("trusted-finalized-height", 0, "independently obtained minimum finalized height (requires trusted-finalized-hash)")
@@ -181,6 +183,17 @@ func run(ctx context.Context, args []string, output io.Writer) error {
 		return err
 	}
 	defer obs.Close()
+	if *labSocket != "" {
+		if !filepath.IsAbs(*dataDir) || filepath.Clean(*dataDir) != *dataDir ||
+			!strings.Contains(strings.ToLower(g.ChainName), "lab") {
+			return bootstrap.ErrObserverConfig
+		}
+		control, err := startLabObserverControl(*labSocket, *dataDir, obs)
+		if err != nil {
+			return err
+		}
+		defer control.Close()
+	}
 	if len(remote) != 0 {
 		dialCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
 		defer cancel()
