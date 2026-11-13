@@ -163,8 +163,13 @@ func (g *DurableSigningGuard) replay() error {
 			hash != types.Hash(codec.DomainHash("zephyr/consensus/signing-intent/v1", raw[:80])) {
 			return ErrSigningJournal
 		}
+		// A signing key must never endorse different consensus header
+		// hashes at one height, including across later rounds. Without a
+		// separately proven BFT lock/unlock rule, two authentic quorums
+		// for different same-height headers would be a safety violation.
+		// Check this on FULL replay, not just new Authorize calls.
 		if g.hasRecord && (height < g.height ||
-			(height == g.height && round <= g.round)) {
+			(height == g.height && (round <= g.round || target != g.target))) {
 			return ErrSigningJournal
 		}
 		g.height, g.round, g.target, g.lastRecordHash, g.hasRecord = height, round, target, hash, true
@@ -300,10 +305,14 @@ func (g *DurableSigningGuard) Authorize(network types.NetworkID, validator types
 		if height < g.height || (height == g.height && round < g.round) {
 			return ErrSigningConflict
 		}
+		if height == g.height && target != g.target {
+			// Monotonic rounds alone do not certify that a validator
+			// safely unlocked its old header. Until a verifiable unlock
+			// protocol exists, remain locked on the first signed target
+			// for the entire height, even after a process restart.
+			return ErrSigningConflict
+		}
 		if height == g.height && round == g.round {
-			if target != g.target {
-				return ErrSigningConflict
-			}
 			return nil
 		}
 	}
