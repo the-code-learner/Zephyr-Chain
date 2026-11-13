@@ -49,9 +49,20 @@ func (s *Store) CertifiedBlockEvidenceAt(height uint64) (CertifiedBlockEvidence,
 		if proposal.BlockHash != block.Hash || proposal.StateRoot != block.StateRoot {
 			continue
 		}
-		if matchProposalForBlock([]consensus.Proposal{proposal}, block) != nil {
-			return fragment, true
+		if matchProposalForBlock([]consensus.Proposal{proposal}, block) == nil {
+			continue
 		}
+		// A valid matching proposal can carry only a minority of votes.
+		// The fragments are ordered by round, but the first matching
+		// round is not necessarily the round that finalized this block.
+		// Only locally persisted quorum certificates identify finality;
+		// receivers independently revalidate every supplied signature.
+		certificate := findCertificate(state.CommitCertificates, height, proposal.Round, block.Hash)
+		if certificate == nil || certificate.QuorumVotingPower == 0 ||
+			certificate.VotingPower < certificate.QuorumVotingPower {
+			continue
+		}
+		return fragment, true
 	}
 	return CertifiedBlockEvidence{}, false
 }
