@@ -47,8 +47,9 @@ type labNode struct {
 }
 
 type labCluster struct {
-	tb    testing.TB
-	nodes []*labNode
+	tb            testing.TB
+	nodes         []*labNode
+	lastSubmitted []string
 }
 
 type labFaultTransport struct {
@@ -200,6 +201,10 @@ func (c *labCluster) submitTransactions(transactions []tx.Envelope, workers int)
 	if len(transactions) == 0 {
 		return
 	}
+	c.lastSubmitted = c.lastSubmitted[:0]
+	for _, envelope := range transactions {
+		c.lastSubmitted = append(c.lastSubmitted, tx.ID(envelope))
+	}
 	if workers <= 0 {
 		workers = 1
 	}
@@ -266,7 +271,19 @@ func (c *labCluster) waitForMempools(size int, timeout time.Duration) {
 	for _, node := range c.nodes {
 		counts = append(counts, node.server.ledger.MempoolSize())
 	}
-	c.tb.Fatalf("mempools did not converge to %d before timeout: %v", size, counts)
+	missing := make(map[int][]string, len(c.nodes))
+	for index, node := range c.nodes {
+		seen := make(map[string]struct{})
+		for _, entry := range node.server.ledger.Snapshot().Mempool {
+			seen[entry.ID] = struct{}{}
+		}
+		for _, id := range c.lastSubmitted {
+			if _, found := seen[id]; !found {
+				missing[index] = append(missing[index], id)
+			}
+		}
+	}
+	c.tb.Fatalf("mempools did not converge to %d before timeout: counts=%v missingTxIDsByNode=%v", size, counts, missing)
 }
 
 func (c *labCluster) driveUntilHeight(indices []int, height uint64, timeout time.Duration) time.Duration {
@@ -287,6 +304,74 @@ func (c *labCluster) driveUntilHeight(indices []int, height uint64, timeout time
 				ignoredCounts[index]++
 				lastIgnored[index] = err.Error()
 			}
+		}
+		if c.indicesAtHeight(indices, height) {
+			return time.Since(startedAt)
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
+	summaries := make([]string, 0, len(c.nodes))
+	for index, node := range c.nodes {
+		status := node.server.ledger.Status()
+		view := node.server.ledger.Consensus()
+		round := node.server.ledger.RoundState()
+		proposals := node.server.ledger.ProposalsForHeight(view.NextHeight)
+		certificates := node.server.ledger.CertificatesForHeight(view.NextHeight)
+		tallies := node.server.ledger.VoteTalliesAt(view.NextHeight, view.CurrentRound)
+		lastLocalVote, hasLocalVote := node.server.ledger.LatestVoteByValidatorForHeight(view.NextHeight, node.signer.address)
+		var lastLocalVoteRound uint64
+		if hasLocalVote {
+			lastLocalVoteRound = lastLocalVote.Round
+		}
+		// A proposer-only tally is ambiguous without each validator's
+		// local signed-vote history. Distinguish a missing local vote
+		// from an earlier-round vote or an accepted-but-undelivered vote.
+		votedActiveRound := node.server.ledger.HasVote(view.NextHeight, view.CurrentRound, node.signer.address)
+		roundAge := time.Duration(0)
+		if !round.StartedAt.IsZero() {
+			roundAge = time.Since(round.StartedAt)
+		}
+		summaries = append(summaries, fmt.Sprintf("node=%d height=%d mempool=%d next=%d round=%d roundHeight=%d roundAge=%s proposer=%s proposals=%d tallies=%+v certs=%d localVotedActive=%t localVotePresent=%t lastLocalVoteRound=%d ignoredAutomationErrors=%d lastIgnoredError=%q", index, status.Height, status.MempoolSize, view.NextHeight, view.CurrentRound, round.Height, roundAge.Round(time.Millisecond), view.NextProposer, len(proposals), tallies, len(certificates), votedActiveRound, hasLocalVote, lastLocalVoteRound, ignoredCounts[index], lastIgnored[index]))
+	}
+	c.tb.Fatalf("target height %d not reached before timeout; consensus=%v", height, summaries)
+	return 0
+}
+
+func (c *labCluster) driveUntilHeightConcurrent(indices []int, height uint64, timeout time.Duration) time.Duration {
+	c.tb.Helper()
+	startedAt := time.Now()
+	deadline := startedAt.Add(timeout)
+	// Fail-open errors are intentionally tolerated during normal lab
+	// progression. Preserve their LAST reason and count for diagnostics
+	// if finality does not arrive; do not change acceptance or deadlines.
+	ignoredCounts := make([]uint64, len(c.nodes))
+	lastIgnored := make([]string, len(c.nodes))
+	for time.Now().Before(deadline) {
+		// A production validator runs its own tick independently. Driving
+		// these seven HTTP servers serially artificially skews local clocks
+		// under CI scheduler contention. Start each tick concurrently but
+		// JOIN all results before inspecting finalized state; never relax
+		// the original wall-clock deadline or the certificate quorum.
+		type tickResult struct {
+			index int
+			err   error
+		}
+		results := make(chan tickResult, len(c.nodes))
+		for index, node := range c.nodes {
+			go func(index int, node *labNode) {
+				results <- tickResult{index: index, err: node.server.runConsensusAutomation()}
+			}(index, node)
+		}
+		for range c.nodes {
+			result := <-results
+			if result.err == nil {
+				continue
+			}
+			if !ignoreConsensusAutomationError(result.err) {
+				c.tb.Fatalf("drive consensus on %s: %v", c.nodes[result.index].server.nodeID, result.err)
+			}
+			ignoredCounts[result.index]++
+			lastIgnored[result.index] = result.err.Error()
 		}
 		if c.indicesAtHeight(indices, height) {
 			return time.Since(startedAt)
@@ -766,6 +851,24 @@ func TestLabSevenValidatorsCertifiedFinality(t *testing.T) {
 		t.Fatalf("expected %d finalized transactions, got %d", len(transactions), block.TransactionCount)
 	}
 	t.Logf("7-validator certified finality: tx=%d finality=%s finalized_tps=%.2f", len(transactions), finality, float64(len(transactions))/finality.Seconds())
+}
+
+// The concurrent driver is a separate experimental model of independent
+// process scheduling. Keep the original serial legacy conformance gate intact:
+// its timing regression is an OPEN issue, not waived by this experiment.
+func TestLabSevenValidatorsCertifiedFinalityConcurrentTickDiagnostic(t *testing.T) {
+	cluster := newLabCluster(t, 7)
+	defer cluster.Close()
+
+	transactions := cluster.prepareTransactions(24)
+	cluster.fundTransactions(transactions)
+	cluster.submitTransactions(transactions, 12)
+	cluster.waitForMempools(len(transactions), 3*time.Second)
+	cluster.driveUntilHeightConcurrent(cluster.allIndices(), 1, 5*time.Second)
+	cluster.assertSameTip(cluster.allIndices(), 1)
+	if block := cluster.latestBlock(0); block.TransactionCount != len(transactions) {
+		t.Fatalf("expected %d finalized transactions, got %d", len(transactions), block.TransactionCount)
+	}
 }
 
 func TestLabSevenValidatorsStallWithoutQuorumThenRecoverWithPeerSync(t *testing.T) {
