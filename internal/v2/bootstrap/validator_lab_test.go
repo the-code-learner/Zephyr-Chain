@@ -20,7 +20,7 @@ func labP256Key(d int64) *ecdsa.PrivateKey {
 	x, y := elliptic.P256().ScalarBaseMult(secret.Bytes())
 	return &ecdsa.PrivateKey{
 		PublicKey: ecdsa.PublicKey{Curve: elliptic.P256(), X: x, Y: y},
-		D: secret,
+		D:         secret,
 	}
 }
 
@@ -29,7 +29,7 @@ func labConfig(t *testing.T) LabValidatorConfig {
 	root := t.TempDir()
 	return LabValidatorConfig{
 		ObserverConfig: observerFixture(t, filepath.Join(root, "state")),
-		Key: labP256Key(1), SigningJournalDir: filepath.Join(root, "signer"),
+		Key:            labP256Key(1), SigningJournalDir: filepath.Join(root, "signer"),
 	}
 }
 
@@ -63,8 +63,8 @@ func TestProtectedLabValidatorPinnedStartupAndExclusiveSignerLock(t *testing.T) 
 }
 
 func TestProtectedLabValidatorRejectsUntrustedPinsAndKeyBeforeOpeningState(t *testing.T) {
-	tests := []struct{
-		name string
+	tests := []struct {
+		name   string
 		change func(*LabValidatorConfig)
 	}{
 		{"wrong network", func(c *LabValidatorConfig) { c.ObserverConfig.ExpectedNetwork = types.NetworkID{8} }},
