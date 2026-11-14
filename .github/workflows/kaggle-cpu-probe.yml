@@ -1,0 +1,154 @@
+name: Kaggle CPU-only External Probe
+
+on:
+  workflow_dispatch:
+    inputs:
+      kaggle_username:
+        description: Kaggle profile username (optional if variable or CLI init supplies it)
+        type: string
+        required: false
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/kaggle-cpu-probe.yml'
+      - 'scripts/kaggle_cpu_probe.py'
+
+permissions:
+  contents: read
+concurrency:
+  group: zephyr-kaggle-cpu-probe
+  cancel-in-progress: false
+
+jobs:
+  kaggle-cpu-probe:
+    if: github.repository == 'the-code-learner/Zephyr-Chain'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      KAGGLE_USERNAME_OVERRIDE: \${{ inputs.kaggle_username || vars.KAGGLE_USERNAME }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install Kaggle CLI
+        run: python3 -m pip install --disable-pip-version-check 'kaggle>=1.7,<2'
+      - name: Generate private offline CPU-only metadata
+        id: prepare
+        env:
+          KAGGLE_API_TOKEN: \${{ secrets.KAGGLE_API_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "$KAGGLE_API_TOKEN" ]]; then
+            echo "::error::Missing KAGGLE_API_TOKEN repository secret"
+            exit 1
+          fi
+          echo "::add-mask::$KAGGLE_API_TOKEN"
+          mkdir -p evidence "$RUNNER_TEMP/zephyr-kaggle"
+          kaggle kernels init -p "$RUNNER_TEMP/zephyr-kaggle" >/dev/null
+          cp scripts/kaggle_cpu_probe.py "$RUNNER_TEMP/zephyr-kaggle/zephyr_cpu_probe.py"
+          export KERNEL_ROOT="$RUNNER_TEMP/zephyr-kaggle"
+          python3 - <<'PY'
+          import json, os, pathlib, re
+          root = pathlib.Path(os.environ["KERNEL_ROOT"])
+          previous = json.loads((root / "kernel-metadata.json").read_text())
+          owner = os.environ.get("KAGGLE_USERNAME_OVERRIDE", "").strip()
+          if not owner:
+              raw = str(previous.get("id", ""))
+              candidate = raw.split("/", 1)[0] if "/" in raw else ""
+              if candidate.lower() not in ("username", "your-username", "your_username"):
+                  owner = candidate
+          if not re.fullmatch(r"[A-Za-z0-9_-]{2,60}", owner):
+              raise SystemExit("::error::Set repository variable KAGGLE_USERNAME to your Kaggle profile name; never enter the token there")
+          ident = owner + "/zephyr-chain-cpu-validation-probe"
+          metadata = {
+              "id": ident,
+              "title": "Zephyr Chain CPU Validation Probe",
+              "code_file": "zephyr_cpu_probe.py",
+              "language": "python",
+              "kernel_type": "script",
+              "is_private": "true",
+              "enable_gpu": "false",
+              "enable_tpu": "false",
+              "machine_shape": "",
+              "enable_internet": "false",
+              "dataset_sources": [],
+              "competition_sources": [],
+              "kernel_sources": [],
+              "model_sources": [],
+          }
+          assert metadata["machine_shape"] == "" and metadata["enable_gpu"] == "false" and metadata["enable_tpu"] == "false"
+          (root / "kernel-metadata.json").write_text(json.dumps(metadata, indent=2) + "\n")
+          pathlib.Path("evidence/manifest.json").write_text(json.dumps({
+              "kernel": ident, "source_sha": os.environ["GITHUB_SHA"],
+              "cpu_only": True, "private": True, "internet": False}, indent=2) + "\n")
+          with open(os.environ["GITHUB_OUTPUT"], "a") as handle:
+              handle.write("kernel=" + ident + "\n")
+          print("Private CPU-only Kaggle run configured:", ident)
+          PY
+      - name: Start Kaggle CPU run
+        env:
+          KAGGLE_API_TOKEN: \${{ secrets.KAGGLE_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          echo "::add-mask::$KAGGLE_API_TOKEN"
+          # Never pass --accelerator; metadata explicitly disables GPU/TPU.
+          kaggle kernels push -p "$RUNNER_TEMP/zephyr-kaggle" --timeout 900
+      - name: Poll every 180 seconds (bounded)
+        env:
+          KAGGLE_API_TOKEN: \${{ secrets.KAGGLE_API_TOKEN }}
+          KERNEL: \${{ steps.prepare.outputs.kernel }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "::add-mask::$KAGGLE_API_TOKEN"
+          done_ok=false
+          for attempt in 1 2 3 4 5 6; do
+            status="$(timeout 40s kaggle kernels status "$KERNEL")"
+            printf 'Attempt %s: %s\n' "$attempt" "$status"
+            if grep -Eiq 'error|failed|cancelled|canceled' <<< "$status"; then
+              echo "::error::Kaggle run failed"
+              exit 1
+            fi
+            if grep -Eiq 'complete|success' <<< "$status"; then
+              done_ok=true
+              break
+            fi
+            sleep 180
+          done
+          if [[ "$done_ok" != true ]]; then
+            echo "::error::Kaggle run not complete before the observation deadline"
+            exit 1
+          fi
+      - name: Download and verify remote evidence
+        env:
+          KAGGLE_API_TOKEN: \${{ secrets.KAGGLE_API_TOKEN }}
+          KERNEL: \${{ steps.prepare.outputs.kernel }}
+        run: |
+          set -euo pipefail
+          echo "::add-mask::$KAGGLE_API_TOKEN"
+          mkdir -p evidence/output
+          timeout 90s kaggle kernels output "$KERNEL" -p evidence/output -o
+          python3 - <<'PY'
+          import json, pathlib
+          matches = list(pathlib.Path("evidence/output").rglob("zephyr_kaggle_cpu_evidence.json"))
+          if len(matches) != 1:
+              raise SystemExit("Remote CPU evidence file missing or ambiguous")
+          report = json.loads(matches[0].read_text())
+          if (report.get("schema") != "zephyr-kaggle-cpu-probe/v1"
+                  or report.get("passed") is not True
+                  or report.get("accelerator_device_present") is not False):
+              raise SystemExit("Remote CPU-only acceptance failed")
+          print("CPU-only evidence accepted. CPU affinity:", report["cpu"]["affinity"])
+          print("Effective memory cgroup limit (bytes):", report["memory_cgroup_bytes"])
+          PY
+      - name: Publish nonsecret evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kaggle-cpu-probe-evidence
+          path: |
+            evidence/manifest.json
+            evidence/output/zephyr_kaggle_cpu_evidence.json
+          if-no-files-found: warn
+          retention-days: 14
