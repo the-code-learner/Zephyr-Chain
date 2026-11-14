@@ -31,7 +31,7 @@ TEST_PATTERN = (
 def main():
     if platform.system() != "Linux" or platform.machine() not in ("x86_64", "AMD64"):
         raise RuntimeError("Unexpected Kaggle CPU architecture")
-    if any(Path("/dev").glob(name) for name in ("nvidia[0-9]*", "nvidiactl", "nvidia-uvm")):
+    if any(any(Path("/dev").glob(name)) for name in ("nvidia[0-9]*", "nvidiactl", "nvidia-uvm")):
         raise RuntimeError("GPU device detected, refusing CPU-only job")
     binary = DATA_DIR / BINARY_NAME
     expected_file = DATA_DIR / "expected_sha256.txt"
