@@ -32,6 +32,9 @@ EXPECTED_TESTS = (
     "TestDurableSigningGuardReplayRejectsValidHashChainWithCrossRoundConflict",
     "TestDurableSigningGuardCorruptionFailsClosed",
     "TestV2IndexedCertificateVerificationRejectsTampering",
+    "TestHostFencedSigningGuardCrossProcessDifferentNodeStateDirs",
+    "TestHostFencedSigningGuardRejectsRootReplacementWithSameJournalInode",
+    "TestHostFencedSigningGuardRejectsUnprovisionedRootAndKeepsKeyPathsSeparate",
 )
 TEST_PATTERN = "|".join("^" + name + "$" for name in EXPECTED_TESTS)
 
