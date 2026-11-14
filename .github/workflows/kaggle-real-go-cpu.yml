@@ -91,14 +91,28 @@ jobs:
             # Kaggle's create operation is PRIVATE unless -u is supplied.
             kaggle datasets create -p "$RUNNER_TEMP/zephyr-go-dataset" -q -t
           fi
-          # Bounded dataset processing; do not upload private keys or code from home.
-          for attempt in 1 2 3 4 5 6; do
-            if kaggle datasets status "$dataset" >/dev/null 2>&1; then
-              echo "Private dataset status reachable (attempt $attempt)"
+          # Wait for actual READY, not merely successful status retrieval.
+          dataset_ready=false
+          for attempt in 1 2 3 4 5 6 7 8 9 10; do
+            state="$(timeout 30s kaggle datasets status "$dataset" 2>&1)" || {
+              echo "Kaggle dataset status not yet available (attempt $attempt)"
+              sleep 20
+              continue
+            }
+            if grep -Eiq 'error|failed|processing_error' <<< "$state"; then
+              echo "::error::Private Kaggle dataset processing failed"
+              exit 1
+            fi
+            if grep -Eiq 'ready' <<< "$state"; then
+              dataset_ready=true
               break
             fi
             sleep 20
           done
+          [[ "$dataset_ready" == true ]] || {
+            echo "::error::Private dataset not READY within bounded wait"
+            exit 1
+          }
       - name: Run private CPU-only Kaggle notebook against pinned Go binary
         env:
           KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
