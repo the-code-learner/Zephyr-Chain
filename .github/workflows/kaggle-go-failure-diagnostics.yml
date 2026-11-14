@@ -29,6 +29,9 @@ jobs:
           mkdir -p evidence
           kernel="$KAGGLE_USERNAME/zephyr-chain-real-go-consensus-cpu"
           timeout 30s kaggle kernels status "$kernel" > "$RUNNER_TEMP/kaggle-status.txt" 2>&1 || true
+          dataset="$KAGGLE_USERNAME/zephyr-chain-offline-consensus-cpu"
+          timeout 45s kaggle datasets status "$dataset" > "$RUNNER_TEMP/dataset-status.txt" 2>&1 || true
+          timeout 45s kaggle datasets files "$dataset" > "$RUNNER_TEMP/dataset-files.txt" 2>&1 || true
           mkdir -p "$RUNNER_TEMP/kaggle-output"
           timeout 90s kaggle kernels output "$kernel" -p "$RUNNER_TEMP/kaggle-output" -o > "$RUNNER_TEMP/kaggle-output-cli.txt" 2>&1 || true
           python3 - <<'PY'
@@ -54,6 +57,15 @@ jobs:
               selected = set(range(max(0, len(logs) - 30), len(logs)))
           report = ["Kaggle current kernel status (diagnostic only):"]
           report += [s[:400] for s in status[-6:]]
+          report += ["", "Private Kaggle dataset status and filenames (no file contents):"]
+          for filename in ("dataset-status.txt", "dataset-files.txt"):
+              rows = (root / filename).read_text(errors="replace").splitlines()
+              report.append(filename + ":")
+              for row in rows[-30:]:
+                  if re.search(r"token|api[_-]?key|authorization|bearer|password|secret|credential", row, re.I):
+                      report.append("[redacted sensitive-looking status line]")
+                  else:
+                      report.append(row[:400])
           report += ["", "Redacted error context from Kaggle remote logs:"]
           for j in sorted(selected)[-100:]:
               line = logs[j][:600]
