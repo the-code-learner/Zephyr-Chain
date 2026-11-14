@@ -126,6 +126,7 @@ jobs:
           done
           echo "Private binary dataset READY with all expected files"
       - name: Run private CPU-only Kaggle notebook against pinned Go binary
+        id: kaggle_submission
         env:
           KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
         shell: bash
@@ -187,6 +188,41 @@ jobs:
           print("Kaggle CPU compiled-Go consensus unit test gate ACCEPTED")
           print("Go tests passed:", report["passed_test_cases"])
           PY
+      - name: Retrieve sanitized remote traceback automatically on failure
+        if: ${{ failure() && steps.kaggle_submission.conclusion == 'success' }}
+        env:
+          KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "::add-mask::$KAGGLE_API_TOKEN"
+          mkdir -p evidence/output
+          kernel="$KAGGLE_USERNAME/zephyr-chain-real-go-consensus-cpu"
+          timeout 90s kaggle kernels output "$kernel" -p evidence/output -o > "$RUNNER_TEMP/kaggle-error-cli.txt" 2>&1 || true
+          python3 - <<'PY'
+          import os, pathlib, re
+          root = pathlib.Path("evidence/output")
+          lines = []
+          for f in list(root.rglob("*.log"))[:5]:
+              if f.is_file() and f.stat().st_size <= 4_000_000:
+                  lines.extend(f.read_text(errors="replace").splitlines())
+          lines.extend((pathlib.Path(os.environ["RUNNER_TEMP"]) / "kaggle-error-cli.txt").read_text(errors="replace").splitlines())
+          cues = re.compile(r"traceback|error|exception|mount|dataset|not found|denied|missing", re.I)
+          selected = set()
+          for i, line in enumerate(lines):
+              if cues.search(line):
+                  selected.update(range(max(0, i-1), min(len(lines), i+3)))
+          report = []
+          for i in sorted(selected)[-70:]:
+              item = lines[i][:600]
+              if re.search(r"token|api.?key|authorization|bearer|password|secret|credential", item, re.I):
+                  item = "[redacted sensitive-looking line]"
+              report.append(item)
+          if not report:
+              report.append("No remote traceback available from Kaggle CLI output")
+          pathlib.Path("evidence/kaggle-go-runtime-error.txt").write_text("\\n".join(report) + "\\n")
+          print("\\n".join(report)[:6000])
+          PY
       - name: Preserve only nonsecret test evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -195,5 +231,6 @@ jobs:
           path: |
             evidence/manifest.json
             evidence/output/zephyr_kaggle_go_consensus.json
+            evidence/kaggle-go-runtime-error.txt
           if-no-files-found: warn
           retention-days: 14
