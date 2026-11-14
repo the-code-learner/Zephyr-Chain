@@ -40,6 +40,7 @@ jobs:
             -o "$RUNNER_TEMP/zephyr-go-dataset/zephyr_consensus.test" \
             ./internal/v2/consensus
           chmod 0644 "$RUNNER_TEMP/zephyr-go-dataset/zephyr_consensus.test"
+          cp LICENSE "$RUNNER_TEMP/zephyr-go-dataset/LICENSE"
           sha256sum "$RUNNER_TEMP/zephyr-go-dataset/zephyr_consensus.test" | cut -d' ' -f1 \
             > "$RUNNER_TEMP/zephyr-go-dataset/expected_sha256.txt"
           printf '%s\n' "$GITHUB_SHA" > "$RUNNER_TEMP/zephyr-go-dataset/source_sha.txt"
@@ -54,7 +55,8 @@ jobs:
           dataset = pathlib.Path(os.environ["RUNNER_TEMP"]) / "zephyr-go-dataset"
           kernel = pathlib.Path(os.environ["RUNNER_TEMP"]) / "zephyr-go-kernel"
           dataset_metadata = {"title": "Zephyr Chain Offline Consensus CPU",
-                              "id": data_slug, "licenses": [{"name": "CC0-1.0"}]}
+                              "id": data_slug, "licenses": [{"name": "apache-2.0"}],
+                              "description": "Private compiled test binary from Apache-2.0 Zephyr Chain sources; not production software."}
           kernel_metadata = {
               "id": kernel_slug, "title": "Zephyr Chain Real Go Consensus CPU",
               "code_file": "zephyr_go_cpu.py", "language": "python",
