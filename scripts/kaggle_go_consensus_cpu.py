@@ -33,11 +33,31 @@ def main():
         raise RuntimeError("Unexpected Kaggle CPU architecture")
     if any(any(Path("/dev").glob(name)) for name in ("nvidia[0-9]*", "nvidiactl", "nvidia-uvm")):
         raise RuntimeError("GPU device detected, refusing CPU-only job")
-    binary = DATA_DIR / BINARY_NAME
-    expected_file = DATA_DIR / "expected_sha256.txt"
-    source_file = DATA_DIR / "source_sha.txt"
-    if not binary.is_file() or not expected_file.is_file() or not source_file.is_file():
-        raise RuntimeError("Missing trusted private dataset binary or hash pins")
+    # The private Kaggle source can be mounted beneath a generated directory
+    # rather than the assumed dataset slug. Discover only inside /kaggle/input,
+    # never download network code or run unpinned executable contents.
+    candidates = [DATA_DIR] if DATA_DIR.is_dir() else []
+    root = Path("/kaggle/input")
+    if root.is_dir():
+        candidates += sorted({
+            p.parent for p in root.rglob("expected_sha256.txt")
+            if "zephyr-chain-offline-consensus-cpu" in p.parts
+        })
+    accepted = []
+    for folder in candidates:
+        binary_file = folder / BINARY_NAME
+        digest_file = folder / "expected_sha256.txt"
+        source_file_candidate = folder / "source_sha.txt"
+        if binary_file.is_file() and digest_file.is_file() and source_file_candidate.is_file():
+            accepted.append((binary_file, digest_file, source_file_candidate))
+    # More than one eligible bundle is ambiguous: never silently choose one.
+    if len(set(accepted)) != 1:
+        mounted = sorted(p.name for p in root.iterdir())[:30] if root.is_dir() else []
+        raise RuntimeError(
+            "Trusted private dataset mount unresolved: "
+            f"eligible_bundles={len(set(accepted))}; mounted_roots={mounted}"
+        )
+    binary, expected_file, source_file = accepted[0]
     expected = expected_file.read_text(encoding="utf-8").strip()
     actual = hashlib.sha256(binary.read_bytes()).hexdigest()
     if len(expected) != 64 or actual != expected:
