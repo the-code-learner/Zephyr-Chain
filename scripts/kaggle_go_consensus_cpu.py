@@ -17,20 +17,23 @@ import time
 DATA_DIR = Path("/kaggle/input/zephyr-chain-offline-consensus-cpu")
 OUTPUT_DIR = Path("/kaggle/working")
 BINARY_NAME = "zephyr_consensus.test"
-TEST_PATTERN = (
-    "^TestV2LegacyProposerHundredHeightStreakIsConsensusCompatibility$"
-    "|^TestCandidateEpochProportionalQuotasAndPermutation$"
-    "|^TestCandidateEpochBoundariesAndRoundModulo$"
-    "|^TestCandidateEpochNeverChangesV2Proposer$"
-    "|^TestV2QuorumCertificateRequiresTwoThirdsPlus$"
-    "|^TestV2CertificateRejectsDuplicateVote$"
-    "|^TestV2ProposalRejectsUncommittedValidatorRoot$"
-    "|^TestDurableSigningGuardRejectsConflictsAcrossRestarts$"
-    "|^TestDurableSigningGuardCrossRoundHeaderLockSurvivesRestarts$"
-    "|^TestDurableSigningGuardReplayRejectsValidHashChainWithCrossRoundConflict$"
-    "|^TestDurableSigningGuardCorruptionFailsClosed$"
-    "|^TestV2IndexedCertificateVerificationRejectsTampering$"
+# Exact top-level Go test identities are required. A passing count alone can
+# conceal skipped, omitted or duplicated safety-critical test cases.
+EXPECTED_TESTS = (
+    "TestV2LegacyProposerHundredHeightStreakIsConsensusCompatibility",
+    "TestCandidateEpochProportionalQuotasAndPermutation",
+    "TestCandidateEpochBoundariesAndRoundModulo",
+    "TestCandidateEpochNeverChangesV2Proposer",
+    "TestV2QuorumCertificateRequiresTwoThirdsPlus",
+    "TestV2CertificateRejectsDuplicateVote",
+    "TestV2ProposalRejectsUncommittedValidatorRoot",
+    "TestDurableSigningGuardRejectsConflictsAcrossRestarts",
+    "TestDurableSigningGuardCrossRoundHeaderLockSurvivesRestarts",
+    "TestDurableSigningGuardReplayRejectsValidHashChainWithCrossRoundConflict",
+    "TestDurableSigningGuardCorruptionFailsClosed",
+    "TestV2IndexedCertificateVerificationRejectsTampering",
 )
+TEST_PATTERN = "|".join("^" + name + "$" for name in EXPECTED_TESTS)
 
 
 def main():
@@ -83,8 +86,18 @@ def main():
     )
     elapsed = time.monotonic() - started
     lines = result.stdout.splitlines()
-    passed = [line for line in lines if line.startswith("--- PASS:")]
-    failed = [line for line in lines if line.startswith("--- FAIL:")]
+    def top_level_names(prefix):
+        return [line[len(prefix):].split(" (", 1)[0]
+                for line in lines if line.startswith(prefix)]
+
+    passed = top_level_names("--- PASS: ")
+    failed = top_level_names("--- FAIL: ")
+    skipped = top_level_names("--- SKIP: ")
+    expected_names = set(EXPECTED_TESTS)
+    identity_ok = (len(EXPECTED_TESTS) == len(expected_names)
+                   and len(passed) == len(EXPECTED_TESTS)
+                   and set(passed) == expected_names
+                   and not failed and not skipped)
     out = {
         "schema": "zephyr-kaggle-offline-go-consensus/v1",
         "scope": "real Zephyr Go consensus unit tests on Kaggle CPU; no live remote quorum",
@@ -95,8 +108,11 @@ def main():
         "exit_code": result.returncode,
         "passed_test_cases": len(passed),
         "failed_test_cases": len(failed),
+        "skipped_test_cases": len(skipped),
+        "passed_test_names": sorted(passed),
+        "expected_test_names": sorted(EXPECTED_TESTS),
         "elapsed_seconds": round(elapsed, 3),
-        "accepted": result.returncode == 0 and len(passed) >= 12 and not failed,
+        "accepted": result.returncode == 0 and identity_ok,
         "timestamp_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
     }
     (OUTPUT_DIR / "zephyr_kaggle_go_consensus.json").write_text(
