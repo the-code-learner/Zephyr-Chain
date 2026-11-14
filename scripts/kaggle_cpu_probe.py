@@ -102,10 +102,89 @@ def gpu_guard():
     return True
 
 
+def adversarial_quorum_checks():
+    """Reproducible adversarial weighted quorum intersection, offline CPU only.
+
+    Independent of Go implementation. This is mathematical checking, NOT
+    a real network-partition, signature or validator-key test.
+    """
+    import random
+    rng = random.Random(20261114)
+    tested_sets = 0
+    quorum_pairs = 0
+    subset_cases = 0
+    for count in (4, 7):
+        for case in range(160):
+            # Extremely skewed and normal sets; each total stays in uint64.
+            if case % 4 == 0:
+                powers = [1] * (count - 1) + [2**60]
+            elif case % 4 == 1:
+                powers = [rng.randint(1, 10_000) for _ in range(count)]
+            elif case % 4 == 2:
+                powers = [rng.randint(1, (2**64 - 1) // (count * 2)) for _ in range(count)]
+            else:
+                powers = [1] * count
+            total = sum(powers)
+            assert total <= 2**64 - 1
+            required = quorum(total)
+            subsets = []
+            for mask in range(1 << count):
+                weight = sum(p for i, p in enumerate(powers) if mask & (1 << i))
+                assert (weight >= required) == (3 * weight > 2 * total)
+                subset_cases += 1
+                if weight >= required:
+                    subsets.append(mask)
+            for a in subsets:
+                for b in subsets:
+                    overlap = sum(p for i, p in enumerate(powers)
+                                  if (a & b) & (1 << i))
+                    assert 3 * overlap > total, (powers, a, b, overlap)
+                    quorum_pairs += 1
+            tested_sets += 1
+    return {"seed": 20261114, "validator_sets": tested_sets,
+            "subset_cases": subset_cases, "quorum_pair_checks": quorum_pairs}
+
+
+def candidate_streak_diagnostics():
+    """Independent smooth-quota reference, not a consensus implementation."""
+    cases = ([100] * 4, [100] * 7, [1, 2, 4], [1, 99])
+    evidence = []
+    for powers in cases:
+        total = sum(powers)
+        raw = [256 * p for p in powers]
+        quotas = [n // total for n in raw]
+        ranked = sorted(range(len(powers)), key=lambda i: (-(raw[i] % total), i))
+        for i in ranked[:256 - sum(quotas)]:
+            quotas[i] += 1
+        deficit = [0] * len(powers)
+        selected = []
+        for _ in range(256):
+            for i, quota in enumerate(quotas):
+                if quota:
+                    deficit[i] += quota
+            leader = max((i for i, q in enumerate(quotas) if q),
+                         key=lambda i: (deficit[i], -i))
+            deficit[leader] -= 256
+            selected.append(leader)
+        assert [selected.count(i) for i in range(len(powers))] == quotas
+        longest = 0
+        streak = 0
+        previous = None
+        for leader in selected:
+            streak = streak + 1 if leader == previous else 1
+            previous = leader
+            longest = max(longest, streak)
+        evidence.append({"powers": powers, "quotas": quotas,
+                         "max_consecutive_leader_slots": longest})
+    return evidence
+
+
 def main():
     gpu_guard()
     cases = safety_exhaustive()
     quotas = allocation_checks()
+    adversarial = adversarial_quorum_checks()
+    streaks = candidate_streak_diagnostics()
     obs = {
         "schema": "zephyr-kaggle-cpu-probe/v1",
         "scope": "offline Python reference arithmetic + resource report; NOT Zephyr-Go or live BFT",
@@ -120,6 +199,8 @@ def main():
         "accelerator_device_present": False,
         "threshold_subset_tests": cases,
         "quota_reference_tests": quotas,
+        "adversarial_quorum_checks": adversarial,
+        "candidate_streak_diagnostics": streaks,
         "passed": True,
     }
     # Use the Kaggle output directory only, never home/token files.
@@ -132,6 +213,7 @@ def main():
     print("CPU affinity count:", obs["cpu"]["affinity"])
     print("Cgroup RAM bytes:", obs["memory_cgroup_bytes"])
     print("Reference subset checks:", sum(1 << x["validator_count"] for x in cases))
+    print("Adversarial quorum pair checks:", adversarial["quorum_pair_checks"])
 
 
 if __name__ == "__main__":

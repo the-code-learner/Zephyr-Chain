@@ -32,6 +32,8 @@ jobs:
           persist-credentials: false
       - name: Install Kaggle CLI
         run: python3 -m pip install --disable-pip-version-check 'kaggle>=1.7,<2'
+      - name: Run independent arithmetic preflight on GitHub CPU
+        run: python3 scripts/kaggle_cpu_probe.py
       - name: Generate private offline CPU-only metadata
         id: prepare
         env:
@@ -137,7 +139,10 @@ jobs:
           report = json.loads(matches[0].read_text())
           if (report.get("schema") != "zephyr-kaggle-cpu-probe/v1"
                   or report.get("passed") is not True
-                  or report.get("accelerator_device_present") is not False):
+                  or report.get("accelerator_device_present") is not False
+                  or report.get("adversarial_quorum_checks", {}).get("validator_sets") != 320
+                  or report.get("adversarial_quorum_checks", {}).get("quorum_pair_checks", 0) < 1000
+                  or len(report.get("candidate_streak_diagnostics", [])) != 4):
               raise SystemExit("Remote CPU-only acceptance failed")
           print("CPU-only evidence accepted. CPU affinity:", report["cpu"]["affinity"])
           print("Effective memory cgroup limit (bytes):", report["memory_cgroup_bytes"])
