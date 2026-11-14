@@ -42,7 +42,8 @@ jobs:
             ./internal/v2/consensus
           # Test safety-critical signer locks locally before spending external CPU quota.
           go test ./internal/v2/consensus -count=1 -timeout=150s \
-            -run '^(TestDurableSigningGuardRejectsConflictsAcrossRestarts|TestDurableSigningGuardCrossRoundHeaderLockSurvivesRestarts|TestDurableSigningGuardReplayRejectsValidHashChainWithCrossRoundConflict|TestDurableSigningGuardCorruptionFailsClosed|TestV2IndexedCertificateVerificationRejectsTampering)
+            -run '^(TestDurableSigningGuardRejectsConflictsAcrossRestarts|TestDurableSigningGuardCrossRoundHeaderLockSurvivesRestarts|TestDurableSigningGuardReplayRejectsValidHashChainWithCrossRoundConflict|TestDurableSigningGuardCorruptionFailsClosed|TestV2IndexedCertificateVerificationRejectsTampering)$'
+          chmod 0644 "$RUNNER_TEMP/zephyr-go-dataset/zephyr_consensus.test"
           cp LICENSE "$RUNNER_TEMP/zephyr-go-dataset/LICENSE"
           sha256sum "$RUNNER_TEMP/zephyr-go-dataset/zephyr_consensus.test" | cut -d' ' -f1 \
             > "$RUNNER_TEMP/zephyr-go-dataset/expected_sha256.txt"
