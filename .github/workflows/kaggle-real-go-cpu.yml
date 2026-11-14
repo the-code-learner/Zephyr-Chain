@@ -220,8 +220,8 @@ jobs:
               report.append(item)
           if not report:
               report.append("No remote traceback available from Kaggle CLI output")
-          pathlib.Path("evidence/kaggle-go-runtime-error.txt").write_text("\\n".join(report) + "\\n")
-          print("\\n".join(report)[:6000])
+          pathlib.Path("evidence/kaggle-go-runtime-error.txt").write_text("\n".join(report) + "\n")
+          print("\n".join(report)[:6000])
           PY
       - name: Preserve only nonsecret test evidence
         if: always()
