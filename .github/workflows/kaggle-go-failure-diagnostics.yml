@@ -1,0 +1,67 @@
+name: Diagnose Kaggle Go CPU Run (No New Remote Job)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/kaggle-go-failure-diagnostics.yml'
+
+permissions:
+  contents: read
+jobs:
+  remote-kaggle-log-inspection:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      KAGGLE_USERNAME: ${{ vars.KAGGLE_USERNAME }}
+    steps:
+      - name: Install Kaggle CLI
+        run: python3 -m pip install --disable-pip-version-check 'kaggle>=1.7,<2'
+      - name: Inspect existing failed private CPU kernel (NO push)
+        env:
+          KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$KAGGLE_API_TOKEN" || { echo "::error::Missing Kaggle secret"; exit 1; }
+          echo "::add-mask::$KAGGLE_API_TOKEN"
+          mkdir -p evidence
+          kernel="$KAGGLE_USERNAME/zephyr-chain-real-go-consensus-cpu"
+          timeout 30s kaggle kernels status "$kernel" > "$RUNNER_TEMP/kaggle-status.txt" 2>&1 || true
+          timeout 90s kaggle kernels logs "$kernel" > "$RUNNER_TEMP/kaggle-logs.txt" 2>&1 || true
+          python3 - <<'PY'
+          import os, pathlib, re
+          root = pathlib.Path(os.environ["RUNNER_TEMP"])
+          logs = (root / "kaggle-logs.txt").read_text(errors="replace").splitlines()
+          status = (root / "kaggle-status.txt").read_text(errors="replace").splitlines()
+          cues = re.compile(r"traceback|exception|error|failed|file.?not.?found|permission|denied|cannot|no such file|module.?not.?found|dataset", re.I)
+          selected = set()
+          for i, line in enumerate(logs):
+              if cues.search(line):
+                  for j in range(max(0, i - 1), min(len(logs), i + 3)):
+                      selected.add(j)
+          if not selected:
+              selected = set(range(max(0, len(logs) - 30), len(logs)))
+          report = ["Kaggle current kernel status (diagnostic only):"]
+          report += [s[:400] for s in status[-6:]]
+          report += ["", "Redacted error context from Kaggle remote logs:"]
+          for j in sorted(selected)[-100:]:
+              line = logs[j][:600]
+              if re.search(r"token|api[_-]?key|authorization|bearer|password|secret|credential", line, re.I):
+                  line = "[redacted sensitive-looking log line]"
+              report.append(line)
+          if not logs:
+              report.append("Kaggle CLI logs returned no lines; inspect Kaggle UI for remote traceback")
+          target = pathlib.Path("evidence/kaggle-go-error-diagnostics.txt")
+          target.write_text("\n".join(report) + "\n", encoding="utf-8")
+          print(target.read_text()[:12500])
+          PY
+      - name: Upload sanitized diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kaggle-go-error-sanitized-diagnostics
+          path: evidence/kaggle-go-error-diagnostics.txt
+          if-no-files-found: warn
+          retention-days: 7
