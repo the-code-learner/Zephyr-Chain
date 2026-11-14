@@ -40,6 +40,204 @@ jobs:
           CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go test -c \
             -o "$RUNNER_TEMP/zephyr-go-dataset/zephyr_consensus.test" \
             ./internal/v2/consensus
+          # Test safety-critical signer locks locally before spending external CPU quota.
+          go test ./internal/v2/consensus -count=1 -timeout=150s \
+            -run '^(TestDurableSigningGuardRejectsConflictsAcrossRestarts|TestDurableSigningGuardCrossRoundHeaderLockSurvivesRestarts|TestDurableSigningGuardReplayRejectsValidHashChainWithCrossRoundConflict|TestDurableSigningGuardCorruptionFailsClosed|TestV2IndexedCertificateVerificationRejectsTampering)$'
+          chmod 0644 "$RUNNER_TEMP/zephyr-go-dataset/zephyr_consensus.test"
+          cp LICENSE "$RUNNER_TEMP/zephyr-go-dataset/LICENSE"
+          sha256sum "$RUNNER_TEMP/zephyr-go-dataset/zephyr_consensus.test" | cut -d' ' -f1 \
+            > "$RUNNER_TEMP/zephyr-go-dataset/expected_sha256.txt"
+          printf '%s\n' "$GITHUB_SHA" > "$RUNNER_TEMP/zephyr-go-dataset/source_sha.txt"
+          cp scripts/kaggle_go_consensus_cpu.py "$RUNNER_TEMP/zephyr-go-kernel/zephyr_go_cpu.py"
+          python3 - <<'PY'
+          import json, os, pathlib, re
+          owner = os.environ.get("KAGGLE_USERNAME", "").strip()
+          if not re.fullmatch(r"[A-Za-z0-9_-]{2,60}", owner):
+              raise SystemExit("::error::Set nonsecret KAGGLE_USERNAME repository Actions variable")
+          data_slug = owner + "/zephyr-chain-offline-consensus-cpu"
+          kernel_slug = owner + "/zephyr-chain-real-go-consensus-cpu"
+          dataset = pathlib.Path(os.environ["RUNNER_TEMP"]) / "zephyr-go-dataset"
+          kernel = pathlib.Path(os.environ["RUNNER_TEMP"]) / "zephyr-go-kernel"
+          dataset_metadata = {"title": "Zephyr Chain Offline Consensus CPU",
+                              "id": data_slug, "licenses": [{"name": "apache-2.0"}],
+                              "description": "Private compiled test binary from Apache-2.0 Zephyr Chain sources; not production software."}
+          kernel_metadata = {
+              "id": kernel_slug, "title": "Zephyr Chain Real Go Consensus CPU",
+              "code_file": "zephyr_go_cpu.py", "language": "python",
+              "kernel_type": "script", "is_private": "true",
+              "enable_gpu": "false", "enable_tpu": "false",
+              "enable_internet": "false", "machine_shape": "",
+              "dataset_sources": [data_slug], "competition_sources": [],
+              "kernel_sources": [], "model_sources": []
+          }
+          assert kernel_metadata["enable_gpu"] == "false"
+          assert kernel_metadata["enable_tpu"] == "false"
+          assert kernel_metadata["machine_shape"] == ""
+          (dataset / "dataset-metadata.json").write_text(json.dumps(dataset_metadata, indent=2) + "\n")
+          (kernel / "kernel-metadata.json").write_text(json.dumps(kernel_metadata, indent=2) + "\n")
+          report = {"source_sha": os.environ["GITHUB_SHA"], "dataset": data_slug,
+                    "kernel": kernel_slug, "cpu_only": True,
+                    "binary_sha256": (dataset / "expected_sha256.txt").read_text().strip()}
+          pathlib.Path("evidence/manifest.json").write_text(json.dumps(report, indent=2) + "\n")
+          print("Prepared private offline Go test dataset and private CPU-only notebook")
+          PY
+      - name: Publish private Kaggle dataset containing ONLY the test binary and SHA pins
+        env:
+          KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$KAGGLE_API_TOKEN" || { echo "::error::Missing KAGGLE_API_TOKEN"; exit 1; }
+          echo "::add-mask::$KAGGLE_API_TOKEN"
+          dataset="$KAGGLE_USERNAME/zephyr-chain-offline-consensus-cpu"
+          if kaggle datasets status "$dataset" >/dev/null 2>&1; then
+            kaggle datasets version -p "$RUNNER_TEMP/zephyr-go-dataset" \
+              -m "Source $GITHUB_SHA" -q -t
+          else
+            # Kaggle's create operation is PRIVATE unless -u is supplied.
+            kaggle datasets create -p "$RUNNER_TEMP/zephyr-go-dataset" -q -t
+          fi
+          # Wait for actual READY, not merely successful status retrieval.
+          dataset_ready=false
+          for attempt in 1 2 3 4 5 6 7 8 9 10; do
+            state="$(timeout 30s kaggle datasets status "$dataset" 2>&1)" || {
+              echo "Kaggle dataset status not yet available (attempt $attempt)"
+              sleep 20
+              continue
+            }
+            if grep -Eiq 'error|failed|processing_error' <<< "$state"; then
+              echo "::error::Private Kaggle dataset processing failed"
+              exit 1
+            fi
+            if grep -Eiq 'ready' <<< "$state"; then
+              dataset_ready=true
+              break
+            fi
+            sleep 20
+          done
+          [[ "$dataset_ready" == true ]] || {
+            echo "::error::Private dataset not READY within bounded wait"
+            exit 1
+          }
+          # Confirm actual published binary and hash pins BEFORE using CPU time.
+          published="$(timeout 40s kaggle datasets files "$dataset")"
+          for needed in zephyr_consensus.test expected_sha256.txt source_sha.txt LICENSE; do
+            if ! grep -Fq "$needed" <<< "$published"; then
+              echo "::error::Missing published Kaggle dataset file: $needed"
+              exit 1
+            fi
+          done
+          echo "Private binary dataset READY with all expected files"
+      - name: Run private CPU-only Kaggle notebook against pinned Go binary
+        id: kaggle_submission
+        env:
+          KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "::add-mask::$KAGGLE_API_TOKEN"
+          # NO accelerator flag; GPU and TPU disabled in metadata.
+          kaggle kernels push -p "$RUNNER_TEMP/zephyr-go-kernel" --timeout 900
+      - name: Poll Kaggle status at 180-second intervals
+        env:
+          KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "::add-mask::$KAGGLE_API_TOKEN"
+          kernel="$KAGGLE_USERNAME/zephyr-chain-real-go-consensus-cpu"
+          ready=false
+          for attempt in 1 2 3 4 5 6; do
+            status="$(timeout 45s kaggle kernels status "$kernel")"
+            echo "Kaggle CPU run poll $attempt: $status"
+            if grep -Eiq 'ERROR|FAILED|CANCELLED|CANCELED' <<< "$status"; then
+              echo "::error::Kaggle external Go test errored"
+              exit 1
+            fi
+            if grep -Eiq 'KernelWorkerStatus.COMPLETE' <<< "$status"; then
+              ready=true
+              break
+            fi
+            sleep 180
+          done
+          [[ "$ready" == true ]] || { echo "::error::Remote CPU test not complete"; exit 1; }
+      - name: Verify remote real-Go consensus evidence
+        env:
+          KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "::add-mask::$KAGGLE_API_TOKEN"
+          mkdir -p evidence/output
+          timeout 90s kaggle kernels output \
+            "$KAGGLE_USERNAME/zephyr-chain-real-go-consensus-cpu" \
+            -p evidence/output -o
+          python3 - <<'PY'
+          import json, os, pathlib
+          expected = json.loads(pathlib.Path("evidence/manifest.json").read_text())
+          reports = list(pathlib.Path("evidence/output").rglob("zephyr_kaggle_go_consensus.json"))
+          if len(reports) != 1:
+              raise SystemExit("Remote Go consensus evidence missing or ambiguous")
+          report = json.loads(reports[0].read_text())
+          if (report.get("schema") != "zephyr-kaggle-offline-go-consensus/v1"
+                  or report.get("source_sha") != os.environ["GITHUB_SHA"]
+                  or report.get("binary_sha256") != expected["binary_sha256"]
+                  or report.get("accepted") is not True
+                  or report.get("exit_code") != 0
+                  or report.get("failed_test_cases") != 0
+                  or report.get("passed_test_cases", 0) < 12
+                  or report.get("accelerator_requested") is not False):
+              raise SystemExit("Remote exact-source Go consensus CPU gate rejected")
+          print("Kaggle CPU compiled-Go consensus unit test gate ACCEPTED")
+          print("Go tests passed:", report["passed_test_cases"])
+          PY
+      - name: Retrieve sanitized remote traceback automatically on failure
+        if: ${{ failure() && steps.kaggle_submission.conclusion == 'success' }}
+        env:
+          KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "::add-mask::$KAGGLE_API_TOKEN"
+          mkdir -p evidence/output
+          kernel="$KAGGLE_USERNAME/zephyr-chain-real-go-consensus-cpu"
+          timeout 90s kaggle kernels output "$kernel" -p evidence/output -o > "$RUNNER_TEMP/kaggle-error-cli.txt" 2>&1 || true
+          python3 - <<'PY'
+          import os, pathlib, re
+          root = pathlib.Path("evidence/output")
+          lines = []
+          for f in list(root.rglob("*.log"))[:5]:
+              if f.is_file() and f.stat().st_size <= 4_000_000:
+                  lines.extend(f.read_text(errors="replace").splitlines())
+          lines.extend((pathlib.Path(os.environ["RUNNER_TEMP"]) / "kaggle-error-cli.txt").read_text(errors="replace").splitlines())
+          cues = re.compile(r"traceback|error|exception|mount|dataset|not found|denied|missing", re.I)
+          selected = set()
+          for i, line in enumerate(lines):
+              if cues.search(line):
+                  selected.update(range(max(0, i-1), min(len(lines), i+3)))
+          report = []
+          for i in sorted(selected)[-70:]:
+              item = lines[i][:600]
+              if re.search(r"token|api.?key|authorization|bearer|password|secret|credential", item, re.I):
+                  item = "[redacted sensitive-looking line]"
+              report.append(item)
+          if not report:
+              report.append("No remote traceback available from Kaggle CLI output")
+          pathlib.Path("evidence/kaggle-go-runtime-error.txt").write_text("\n".join(report) + "\n")
+          print("\n".join(report)[:6000])
+          PY
+      - name: Preserve only nonsecret test evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kaggle-offline-go-consensus-cpu-evidence
+          path: |
+            evidence/manifest.json
+            evidence/output/zephyr_kaggle_go_consensus.json
+            evidence/kaggle-go-runtime-error.txt
+          if-no-files-found: warn
+          retention-days: 14
+
           chmod 0644 "$RUNNER_TEMP/zephyr-go-dataset/zephyr_consensus.test"
           cp LICENSE "$RUNNER_TEMP/zephyr-go-dataset/LICENSE"
           sha256sum "$RUNNER_TEMP/zephyr-go-dataset/zephyr_consensus.test" | cut -d' ' -f1 \

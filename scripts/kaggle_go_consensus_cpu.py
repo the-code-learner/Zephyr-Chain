@@ -25,6 +25,11 @@ TEST_PATTERN = (
     "|^TestV2QuorumCertificateRequiresTwoThirdsPlus$"
     "|^TestV2CertificateRejectsDuplicateVote$"
     "|^TestV2ProposalRejectsUncommittedValidatorRoot$"
+    "|^TestDurableSigningGuardRejectsConflictsAcrossRestarts$"
+    "|^TestDurableSigningGuardCrossRoundHeaderLockSurvivesRestarts$"
+    "|^TestDurableSigningGuardReplayRejectsValidHashChainWithCrossRoundConflict$"
+    "|^TestDurableSigningGuardCorruptionFailsClosed$"
+    "|^TestV2IndexedCertificateVerificationRejectsTampering$"
 )
 
 
@@ -91,7 +96,7 @@ def main():
         "passed_test_cases": len(passed),
         "failed_test_cases": len(failed),
         "elapsed_seconds": round(elapsed, 3),
-        "accepted": result.returncode == 0 and len(passed) >= 7 and not failed,
+        "accepted": result.returncode == 0 and len(passed) >= 12 and not failed,
         "timestamp_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
     }
     (OUTPUT_DIR / "zephyr_kaggle_go_consensus.json").write_text(
