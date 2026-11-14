@@ -175,6 +175,20 @@ jobs:
           python3 - <<'PY'
           import json, os, pathlib
           expected = json.loads(pathlib.Path("evidence/manifest.json").read_text())
+          required_tests = {
+              "TestV2LegacyProposerHundredHeightStreakIsConsensusCompatibility",
+              "TestCandidateEpochProportionalQuotasAndPermutation",
+              "TestCandidateEpochBoundariesAndRoundModulo",
+              "TestCandidateEpochNeverChangesV2Proposer",
+              "TestV2QuorumCertificateRequiresTwoThirdsPlus",
+              "TestV2CertificateRejectsDuplicateVote",
+              "TestV2ProposalRejectsUncommittedValidatorRoot",
+              "TestDurableSigningGuardRejectsConflictsAcrossRestarts",
+              "TestDurableSigningGuardCrossRoundHeaderLockSurvivesRestarts",
+              "TestDurableSigningGuardReplayRejectsValidHashChainWithCrossRoundConflict",
+              "TestDurableSigningGuardCorruptionFailsClosed",
+              "TestV2IndexedCertificateVerificationRejectsTampering",
+          }
           reports = list(pathlib.Path("evidence/output").rglob("zephyr_kaggle_go_consensus.json"))
           if len(reports) != 1:
               raise SystemExit("Remote Go consensus evidence missing or ambiguous")
@@ -185,7 +199,10 @@ jobs:
                   or report.get("accepted") is not True
                   or report.get("exit_code") != 0
                   or report.get("failed_test_cases") != 0
-                  or report.get("passed_test_cases", 0) < 12
+                  or report.get("passed_test_cases") != len(required_tests)
+                  or report.get("skipped_test_cases") != 0
+                  or report.get("passed_test_names") != sorted(required_tests)
+                  or report.get("expected_test_names") != sorted(required_tests)
                   or report.get("accelerator_requested") is not False):
               raise SystemExit("Remote exact-source Go consensus CPU gate rejected")
           print("Kaggle CPU compiled-Go consensus unit test gate ACCEPTED")
