@@ -108,7 +108,7 @@ func startLabControl(path, stateDir string, validator *bootstrap.LabValidator) (
 		public := elliptic.Marshal(elliptic.P256(), key.PublicKey.X, key.PublicKey.Y)
 		localID := types.ValidatorIDFromPublicKey(public)
 		writeLabJSON(w, http.StatusOK, map[string]any{
-			"height": height,
+			"height":    height,
 			"scheduled": proposer.ID == localID,
 		})
 	})
