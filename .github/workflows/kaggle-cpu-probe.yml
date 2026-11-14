@@ -25,7 +25,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 40
     env:
-      KAGGLE_USERNAME_OVERRIDE: \${{ inputs.kaggle_username || vars.KAGGLE_USERNAME }}
+      KAGGLE_USERNAME_OVERRIDE: ${{ inputs.kaggle_username || vars.KAGGLE_USERNAME }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -35,7 +35,7 @@ jobs:
       - name: Generate private offline CPU-only metadata
         id: prepare
         env:
-          KAGGLE_API_TOKEN: \${{ secrets.KAGGLE_API_TOKEN }}
+          KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
         shell: bash
         run: |
           set -euo pipefail
@@ -88,7 +88,7 @@ jobs:
           PY
       - name: Start Kaggle CPU run
         env:
-          KAGGLE_API_TOKEN: \${{ secrets.KAGGLE_API_TOKEN }}
+          KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
         run: |
           set -euo pipefail
           echo "::add-mask::$KAGGLE_API_TOKEN"
@@ -96,8 +96,8 @@ jobs:
           kaggle kernels push -p "$RUNNER_TEMP/zephyr-kaggle" --timeout 900
       - name: Poll every 180 seconds (bounded)
         env:
-          KAGGLE_API_TOKEN: \${{ secrets.KAGGLE_API_TOKEN }}
-          KERNEL: \${{ steps.prepare.outputs.kernel }}
+          KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+          KERNEL: ${{ steps.prepare.outputs.kernel }}
         shell: bash
         run: |
           set -euo pipefail
@@ -122,8 +122,8 @@ jobs:
           fi
       - name: Download and verify remote evidence
         env:
-          KAGGLE_API_TOKEN: \${{ secrets.KAGGLE_API_TOKEN }}
-          KERNEL: \${{ steps.prepare.outputs.kernel }}
+          KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+          KERNEL: ${{ steps.prepare.outputs.kernel }}
         run: |
           set -euo pipefail
           echo "::add-mask::$KAGGLE_API_TOKEN"
