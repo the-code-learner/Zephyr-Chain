@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/elliptic"
 	"encoding/json"
 	"errors"
 	"io"
@@ -16,6 +17,7 @@ import (
 	"github.com/zephyr-chain/zephyr-chain/internal/v2/bootstrap"
 	v2consensus "github.com/zephyr-chain/zephyr-chain/internal/v2/consensus"
 	v2node "github.com/zephyr-chain/zephyr-chain/internal/v2/node"
+	"github.com/zephyr-chain/zephyr-chain/internal/v2/types"
 )
 
 // labControl is a deliberately local, opt-in test driver. Never expose its
@@ -56,6 +58,10 @@ func startLabControl(path, stateDir string, validator *bootstrap.LabValidator) (
 		_ = os.Remove(path)
 		return nil, err
 	}
+	// Capture the certified recovered height before accepting lab requests.
+	// A newly restarted service has no in-memory LatestSnapshot until it
+	// finalizes a NEW commit, even when Runtime was replayed from disk.
+	recoveredHeight := validator.Runtime.Height
 	mux := http.NewServeMux()
 	mux.HandleFunc("/status", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
@@ -76,6 +82,34 @@ func startLabControl(path, stateDir string, validator *bootstrap.LabValidator) (
 			"headerHash": v2consensus.HeaderConsensusHash(snapshot.Header).String(),
 			"qcVerified": true,
 			"voteCount":  len(snapshot.Certificate.Votes),
+		})
+	})
+	// Read-only, owner-local helper to pick the scheduled proposer before
+	// deliberately isolating a minority. It cannot sign or vote.
+	mux.HandleFunc("/scheduled-proposer", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		height := recoveredHeight + 1
+		snapshot, err := validator.Service.LatestSnapshot()
+		if err == nil {
+			height = snapshot.Header.Height + 1
+		} else if !errors.Is(err, v2node.ErrNoSnapshot) {
+			http.Error(w, "cannot read finalized height", http.StatusInternalServerError)
+			return
+		}
+		proposer, err := validator.Service.Validators.Proposer(height, 0)
+		if err != nil {
+			http.Error(w, "cannot resolve scheduled proposer", http.StatusInternalServerError)
+			return
+		}
+		key := validator.Service.Key
+		public := elliptic.Marshal(elliptic.P256(), key.PublicKey.X, key.PublicKey.Y)
+		localID := types.ValidatorIDFromPublicKey(public)
+		writeLabJSON(w, http.StatusOK, map[string]any{
+			"height":    height,
+			"scheduled": proposer.ID == localID,
 		})
 	})
 	mux.HandleFunc("/connect", func(w http.ResponseWriter, r *http.Request) {
@@ -135,6 +169,10 @@ func startLabControl(path, stateDir string, validator *bootstrap.LabValidator) (
 		snapshot, err := validator.Service.Propose(ctx)
 		if errors.Is(err, v2node.ErrNotProposer) {
 			http.Error(w, "not scheduled proposer", http.StatusConflict)
+			return
+		}
+		if errors.Is(err, v2node.ErrNoQuorum) {
+			http.Error(w, "insufficient signed QC quorum", http.StatusServiceUnavailable)
 			return
 		}
 		if err != nil || validator.Service.Validators.VerifyCertificate(snapshot.Certificate) != nil {

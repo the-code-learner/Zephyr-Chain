@@ -10,6 +10,7 @@ on:
       - 'cmd/v2-lab-qc-verify/**'
       - 'scripts/v2-lab-qc-smoke.py'
       - 'scripts/v2-observer-recovery-smoke.py'
+      - 'scripts/v2-lab-partition-recovery.py'
       - 'internal/v2/node/**'
       - 'internal/v2/consensus/**'
       - 'internal/v2/bootstrap/**'
@@ -144,6 +145,18 @@ jobs:
             --manifest "$PRIVATE_ROOT/manifest.json" \
             --summary evidence/v2-four-process-qc-summary.json \
             --evidence evidence
+          if [[ "${{ matrix.validators }}" == "7" ]]; then
+            # Partition fixture has its own ephemeral keys and histories:
+            # the earlier observer corruption test must remain isolated.
+            "$RUNNER_TEMP/v2-lab-fixture" -acknowledge-lab-only \
+              -dir "$PRIVATE_ROOT/partition" -validators 7 \
+              > "$PRIVATE_ROOT/partition-manifest.json"
+            python3 scripts/v2-lab-partition-recovery.py \
+              --binary "$RUNNER_TEMP/v2-lab-validator" \
+              --observer-binary "$RUNNER_TEMP/v2-observer" \
+              --manifest "$PRIVATE_ROOT/partition-manifest.json" \
+              --evidence evidence/partition
+          fi
           echo "finished_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> evidence/environment.txt
 
       - name: Upload signed QC and nonsecret diagnostics even on failure
