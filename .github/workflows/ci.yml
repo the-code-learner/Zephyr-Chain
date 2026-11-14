@@ -60,6 +60,12 @@ jobs:
       - name: Check local v2 verification script syntax
         run: bash -n scripts/verify-v2.sh
 
+      - name: Validate Kaggle CPU workflow structure and exact test identities
+        run: |
+          ruby -e 'require "yaml"; YAML.parse_file(".github/workflows/kaggle-real-go-cpu.yml")'
+          python3 -m py_compile scripts/check-kaggle-workflow.py scripts/kaggle_go_consensus_cpu.py
+          python3 scripts/check-kaggle-workflow.py
+
       - name: Vet
         run: go vet ./...
 
