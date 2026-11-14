@@ -29,11 +29,20 @@ jobs:
           mkdir -p evidence
           kernel="$KAGGLE_USERNAME/zephyr-chain-real-go-consensus-cpu"
           timeout 30s kaggle kernels status "$kernel" > "$RUNNER_TEMP/kaggle-status.txt" 2>&1 || true
-          timeout 90s kaggle kernels logs "$kernel" > "$RUNNER_TEMP/kaggle-logs.txt" 2>&1 || true
+          mkdir -p "$RUNNER_TEMP/kaggle-output"
+          timeout 90s kaggle kernels output "$kernel" -p "$RUNNER_TEMP/kaggle-output" -o > "$RUNNER_TEMP/kaggle-output-cli.txt" 2>&1 || true
           python3 - <<'PY'
           import os, pathlib, re
           root = pathlib.Path(os.environ["RUNNER_TEMP"])
-          logs = (root / "kaggle-logs.txt").read_text(errors="replace").splitlines()
+          output_files = list((root / "kaggle-output").rglob("*.log"))
+          output_files += list((root / "kaggle-output").rglob("*.txt"))
+          output_files = sorted(set(output_files))
+          logs = []
+          for file in output_files[:10]:
+              if file.is_file() and file.stat().st_size < 4_000_000:
+                  logs += ["Kaggle output log file: " + file.name]
+                  logs += file.read_text(errors="replace").splitlines()
+          logs += (root / "kaggle-output-cli.txt").read_text(errors="replace").splitlines()
           status = (root / "kaggle-status.txt").read_text(errors="replace").splitlines()
           cues = re.compile(r"traceback|exception|error|failed|file.?not.?found|permission|denied|cannot|no such file|module.?not.?found|dataset", re.I)
           selected = set()
@@ -52,7 +61,7 @@ jobs:
                   line = "[redacted sensitive-looking log line]"
               report.append(line)
           if not logs:
-              report.append("Kaggle CLI logs returned no lines; inspect Kaggle UI for remote traceback")
+              report.append("Kaggle CLI output returned no log; inspect Kaggle UI for remote traceback")
           target = pathlib.Path("evidence/kaggle-go-error-diagnostics.txt")
           target.write_text("\n".join(report) + "\n", encoding="utf-8")
           print(target.read_text()[:12500])
