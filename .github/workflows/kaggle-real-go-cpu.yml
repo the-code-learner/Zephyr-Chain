@@ -115,6 +115,15 @@ jobs:
             echo "::error::Private dataset not READY within bounded wait"
             exit 1
           }
+          # Confirm actual published binary and hash pins BEFORE using CPU time.
+          published="$(timeout 40s kaggle datasets files "$dataset")"
+          for needed in zephyr_consensus.test expected_sha256.txt source_sha.txt LICENSE; do
+            if ! grep -Fq "$needed" <<< "$published"; then
+              echo "::error::Missing published Kaggle dataset file: $needed"
+              exit 1
+            fi
+          done
+          echo "Private binary dataset READY with all expected files"
       - name: Run private CPU-only Kaggle notebook against pinned Go binary
         env:
           KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
